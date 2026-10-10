@@ -181,6 +181,12 @@ if [ -z "${XDG_CACHE_HOME:-}" ] && ! mkdir -p "${HOME:-/nonexistent}/.cache" 2>/
 	fi
 fi
 
+# The system's locale, for the date, which greetd doesn't pass on.
+locale_conf() {
+	sed -n "s/^$1=[\"']\{0,1\}\([^\"']*\).*/\1/p" /etc/locale.conf 2>/dev/null | tail -n 1
+}
+export LANG="${LANG:-$(locale_conf LANG)}" LC_TIME="${LC_TIME:-$(locale_conf LC_TIME)}"
+
 # fakegreet binds ./greetd.sock (socket paths are short) and outlives the
 # greeter, so the greeter's command ends it.
 fake() {

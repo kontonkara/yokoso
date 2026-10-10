@@ -117,6 +117,16 @@ ShellRoot {
 		return Math.round(n * uiScale);
 	}
 
+	// The clock, in the system's locale for dates.
+	readonly property var locale: Qt.locale((Quickshell.env("LC_ALL") || Quickshell.env("LC_TIME")
+		|| Quickshell.env("LANG") || "C").replace(/[.@].*/, ""))
+
+	SystemClock {
+		id: clock
+
+		precision: SystemClock.Minutes
+	}
+
 	Auth {
 		id: auth
 
@@ -144,6 +154,30 @@ ShellRoot {
 			color: "black"
 
 			Column {
+				x: root.area.x + (root.area.width - width) / 2
+				y: form.y - height - root.u(48)
+				spacing: root.u(4)
+
+				Text {
+					anchors.horizontalCenter: parent.horizontalCenter
+					text: clock.date.toLocaleTimeString(root.locale, Locale.ShortFormat)
+					color: "white"
+					font.pixelSize: root.u(56)
+				}
+
+				// The locale's long date, without the year.
+				Text {
+					anchors.horizontalCenter: parent.horizontalCenter
+					text: clock.date.toLocaleDateString(root.locale,
+						root.locale.dateFormat(Locale.LongFormat).replace(/[\s,.]*y+[^dM]*/, ""))
+					color: "#aaa"
+					font.pixelSize: root.u(16)
+				}
+			}
+
+			Column {
+				id: form
+
 				x: root.area.x + (root.area.width - width) / 2
 				y: root.area.y + (root.area.height - height) / 2
 				width: root.u(300)
