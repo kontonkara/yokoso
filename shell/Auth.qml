@@ -83,11 +83,9 @@ QtObject {
 				auth.secret = !echoResponse;
 				auth.phase = "prompt";
 			} else {
-				// Info and error messages are acknowledged with an empty
-				// response, or the conversation stalls.
+				// Info and error messages: Quickshell acknowledges them.
 				auth.message = message;
 				auth.messageIsError = error;
-				Greetd.respond("");
 			}
 		}
 
