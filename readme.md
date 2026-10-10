@@ -41,7 +41,8 @@ config.
 
 The module turns on greetd, writes `/etc/yokoso/config.json`, and passes on
 the keyboard layout from `services.xserver.xkb`. With `services.xserver.enable`
-it also turns on `startx` for X11 sessions.
+it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
+`/var/cache/yokoso`.
 
 ## Config
 

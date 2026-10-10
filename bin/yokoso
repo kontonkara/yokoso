@@ -170,6 +170,17 @@ export QT_QPA_PLATFORM=wayland QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 export QT_NO_XDG_DESKTOP_PORTAL=1 QSG_RHI_BACKEND=opengl
 unset QT_SCALE_FACTOR QT_SCREEN_SCALE_FACTORS
 
+# Mesa's shader cache and Qt's: a greeter's home is usually read-only
+# (/var/empty), so they go to /var/cache/yokoso where that's writable, else
+# to the runtime directory until a reboot.
+if [ -z "${XDG_CACHE_HOME:-}" ] && ! mkdir -p "${HOME:-/nonexistent}/.cache" 2>/dev/null; then
+	if [ -w /var/cache/yokoso ]; then
+		export XDG_CACHE_HOME=/var/cache/yokoso
+	else
+		export XDG_CACHE_HOME="$run_dir/cache"
+	fi
+fi
+
 # fakegreet binds ./greetd.sock (socket paths are short) and outlives the
 # greeter, so the greeter's command ends it.
 fake() {

@@ -11,6 +11,7 @@ let
   json = pkgs.formats.json { };
   xkb = config.services.xserver.xkb;
   sessions = config.services.displayManager.sessionData.desktops;
+  greeter = config.services.greetd.settings.default_session.user;
 in
 {
   options = {
@@ -66,6 +67,21 @@ in
     environment = {
       etc = {
         "yokoso/config.json".source = json.generate "yokoso-config.json" cfg.settings;
+      };
+    };
+
+    systemd = {
+      tmpfiles = {
+        settings = {
+          yokoso = {
+            # Mesa's shader cache and Qt's, kept between boots.
+            "/var/cache/yokoso".d = {
+              user = greeter;
+              group = config.users.users.${greeter}.group;
+              mode = "0700";
+            };
+          };
+        };
       };
     };
   };
