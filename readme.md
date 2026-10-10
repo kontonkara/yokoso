@@ -83,7 +83,9 @@ JSON file: `"theme": "mine"` reads `themes/mine.json` next to the config
     "accent": "#fab387",
     "error": "#f38ba8"
   },
-  "font": "Inter"
+  "font": "Inter",
+  "background": "wallpaper.jpg",
+  "backgroundDim": 0.4
 }
 ```
 
@@ -93,7 +95,7 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 
 | Key | |
 |---|---|
-| `colors.background` | behind everything |
+| `colors.background` | behind everything, where there's no image |
 | `colors.text` | the clock, the username and what's typed |
 | `colors.subtext` | the date and hints |
 | `colors.dim` | the field's placeholder and the power buttons |
@@ -101,6 +103,8 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 | `colors.accent` | a power button under the pointer, or armed |
 | `colors.error` | errors and the Caps Lock warning |
 | `font` | a font family; `""` for the default one |
+| `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
+| `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.

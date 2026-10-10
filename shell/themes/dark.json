@@ -8,5 +8,7 @@
     "accent": "#ffffff",
     "error": "#ee6666"
   },
-  "font": ""
+  "font": "",
+  "background": "",
+  "backgroundDim": 0.4
 }

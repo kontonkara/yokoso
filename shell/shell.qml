@@ -55,6 +55,14 @@ ShellRoot {
 	})
 	readonly property var colors: config.colors
 
+	// config.background's image for a screen (null: the window), as a URL:
+	// one path for every screen, or one per output, "*" for the rest.
+	function backgroundFor(screen) {
+		const bg = config.background;
+		const path = typeof bg === "string" ? bg : bg && (screen && bg[screen.name] || bg["*"]) || "";
+		return path ? "file://" + path.split("/").map(encodeURIComponent).join("/") : "";
+	}
+	readonly property string fontFamily: config.font || Qt.application.font.family
 
 	// The lid, read every second: closing it moves the form to another screen.
 	property bool lidClosed: false
@@ -270,6 +278,31 @@ ShellRoot {
 			HoverHandler {
 				enabled: root.config.output === "cursor" && !root.windowIsScreen
 				onPointChanged: root.pointAt(point.position)
+			}
+
+			// The background, decoded at each screen's size.
+			Repeater {
+				model: root.windowIsScreen ? [null] : Quickshell.screens
+
+				Image {
+					required property var modelData
+
+					x: modelData ? modelData.x - root.origin.x : 0
+					y: modelData ? modelData.y - root.origin.y : 0
+					width: modelData ? modelData.width : content.width
+					height: modelData ? modelData.height : content.height
+					source: root.backgroundFor(modelData)
+					sourceSize: Qt.size(width * root.dpr, height * root.dpr)
+					fillMode: Image.PreserveAspectCrop
+
+					// So that text stays readable on a bright image.
+					Rectangle {
+						anchors.fill: parent
+						visible: parent.status === Image.Ready
+						color: root.colors.background
+						opacity: root.config.backgroundDim
+					}
+				}
 			}
 
 			Column {
