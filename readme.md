@@ -38,7 +38,8 @@ config.
 ```
 
 The module turns on greetd, writes `/etc/yokoso/config.json`, and passes on
-the keyboard layout from `services.xserver.xkb`.
+the keyboard layout from `services.xserver.xkb`. With `services.xserver.enable`
+it also turns on `startx` for X11 sessions.
 
 ## Config
 
@@ -47,9 +48,10 @@ the keyboard layout from `services.xserver.xkb`.
 | Key | Default | |
 |---|---|---|
 | `user` | the first account | account to log in |
-| `session` | the first one | Wayland session, by desktop file name (`niri`) |
+| `session` | the first one | session, by desktop file name (`niri`, `i3`); Wayland's come first |
 | `output` | see below | screen with the form (`DP-1`) |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
+| `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
 
 With several screens the form goes on `output`, else on a laptop's own panel,
 or on an external screen while the lid is closed, else on the first screen.

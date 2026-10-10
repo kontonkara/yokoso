@@ -6,8 +6,11 @@ QtObject {
 	id: auth
 
 	required property string username
-	// { id, exec, desktopNames } from the launcher's snapshot, or null.
+	// { id, exec, desktopNames, type } from the launcher's snapshot, or null.
 	required property var session
+	// config.x11Wrapper: an X11 session's command goes after it, as greetd
+	// starts only the command, not an X server.
+	required property string x11Wrapper
 	property string failedText: "Wrong password"
 
 	// "starting", "prompt" (waiting for submit()), "verifying", "failed" or
@@ -85,11 +88,12 @@ QtObject {
 
 		function onReadyToLaunch() {
 			const s = auth.session;
+			const x11 = s.type === "x11";
 			const desktops = (s.desktopNames || "").split(";").filter(x => x);
 			const name = s.id.replace(/\.desktop$/, "");
 			auth.phase = "launching";
-			Greetd.launch([s.exec], [
-				"XDG_SESSION_TYPE=wayland",
+			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], [
+				`XDG_SESSION_TYPE=${x11 ? "x11" : "wayland"}`,
 				`XDG_CURRENT_DESKTOP=${desktops.join(":") || name}`,
 				`XDG_SESSION_DESKTOP=${desktops[0] || name}`,
 			], true);

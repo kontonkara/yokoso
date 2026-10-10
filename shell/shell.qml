@@ -40,6 +40,9 @@ ShellRoot {
 		output: "",
 		// 0: from the screen's physical size.
 		scale: 0,
+		// What starts an X server for an X11 session, with the session's
+		// command after it.
+		x11Wrapper: "startx /usr/bin/env",
 	}, parse(configFile.text()))
 
 	// The lid, read every second: closing it moves the form to another screen.
@@ -115,6 +118,7 @@ ShellRoot {
 		// fakegreet only knows "user".
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
+		x11Wrapper: root.config.x11Wrapper
 	}
 
 	FloatingWindow {
@@ -181,7 +185,7 @@ ShellRoot {
 						anchors.fill: input
 						verticalAlignment: Text.AlignVCenter
 						visible: input.text === ""
-						text: !root.session ? "No Wayland session found"
+						text: !root.session ? "No session found"
 							: auth.message || auth.prompt.replace(/:\s*$/, "")
 						color: auth.messageIsError || !root.session ? "#e66" : "#777"
 						font.pixelSize: root.u(15)

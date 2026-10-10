@@ -42,12 +42,22 @@ in
             # The console's keyboard layout: the password is typed in it.
             command = lib.concatStringsSep " " [
               "env"
-              "YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions"
+              "YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions"
               "XKB_DEFAULT_LAYOUT=${lib.escapeShellArg xkb.layout}"
               "XKB_DEFAULT_VARIANT=${lib.escapeShellArg xkb.variant}"
               "XKB_DEFAULT_OPTIONS=${lib.escapeShellArg xkb.options}"
               (lib.getExe cfg.package)
             ];
+          };
+        };
+      };
+
+      xserver = {
+        displayManager = {
+          # X11 sessions start through startx (config.x11Wrapper), which
+          # brings X up with NixOS's X server config.
+          startx = {
+            enable = lib.mkIf config.services.xserver.enable (lib.mkDefault true);
           };
         };
       };

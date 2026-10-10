@@ -87,33 +87,37 @@ screens_json() {
 	done | jq -s .
 }
 
-# Wayland session entries (the first of each file name), as id, name, exec
-# and desktop names.
+# Session entries (the first of each file name and type), Wayland's before
+# X11's, as id, name, exec, desktop names and type. YOKOSO_SESSION_DIRS
+# overrides the directories; those named xsessions hold X11 ones.
 sessions_json() {
 	dirs=${YOKOSO_SESSION_DIRS:-}
 	if [ -z "$dirs" ]; then
 		IFS=:
-		for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
-			dirs="$dirs:$d/wayland-sessions"
+		for kind in wayland-sessions xsessions; do
+			for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+				dirs="$dirs:$d/$kind"
+			done
 		done
 		unset IFS
 	fi
 	IFS=:
 	for d in $dirs; do
+		case $d in */xsessions) type=x11 ;; *) type=wayland ;; esac
 		for f in "$d"/*.desktop; do
 			[ -e "$f" ] || continue
-			awk -v id="${f##*/}" -F= '
+			awk -v id="${f##*/}" -v type="$type" -F= '
 				/^\[/ { entry = ($0 == "[Desktop Entry]"); next }
 				entry && !($1 in v) { k = $1; sub(/^[^=]*=/, ""); v[k] = $0 }
 				END {
 					if (v["Hidden"] == "true" || v["NoDisplay"] == "true" || v["Exec"] == "") exit
-					print id; print v["Name"]; print v["Exec"]; print v["DesktopNames"]
+					print id; print v["Name"]; print v["Exec"]; print v["DesktopNames"]; print type
 				}' "$f"
 		done
 	done | jq -R . | jq -s '
-		[range(0; length; 4) as $i | .[$i:$i + 4]
-			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3]}]
-		| reduce .[] as $s ([]; if any(.[]; .id == $s.id) then . else . + [$s] end)'
+		[range(0; length; 5) as $i | .[$i:$i + 5]
+			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3], type: .[4]}]
+		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)'
 	unset IFS
 }
 
