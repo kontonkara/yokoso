@@ -54,6 +54,7 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 |---|---|---|
 | `user` | the first account | account to log in, listed or not (LDAP) |
 | `session` | the first one | session, by desktop file name (`niri`, `i3`); Wayland's come first |
+| `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
@@ -63,3 +64,43 @@ or on an external screen while the lid is closed, else on the first screen.
 The other screens stay black. With `cursor`, the form starts there too and
 then moves to whichever screen the pointer moves onto, except a closed
 laptop panel.
+
+## Themes
+
+The built-in ones are `dark` (the default) and `light`. Any other theme is a
+JSON file: `"theme": "mine"` reads `themes/mine.json` next to the config
+(`/etc/yokoso/themes/mine.json`), and a path reads that file.
+
+```json
+{
+  "extends": "dark",
+  "colors": {
+    "background": "#1e1e2e",
+    "text": "#cdd6f4",
+    "subtext": "#a6adc8",
+    "dim": "#7f849c",
+    "field": "#313244",
+    "accent": "#fab387",
+    "error": "#f38ba8"
+  },
+  "font": "Inter"
+}
+```
+
+Every key is optional. A theme goes on top of the one it `extends` (`dark`
+when it doesn't say), and the config's own keys go on top of the theme, so
+`"colors": {"accent": "#fab387"}` in the config changes just that.
+
+| Key | |
+|---|---|
+| `colors.background` | behind everything |
+| `colors.text` | the clock, the username and what's typed |
+| `colors.subtext` | the date and hints |
+| `colors.dim` | the field's placeholder and the power buttons |
+| `colors.field` | the password field |
+| `colors.accent` | a power button under the pointer, or armed |
+| `colors.error` | errors and the Caps Lock warning |
+| `font` | a font family; `""` for the default one |
+
+A theme that can't be read is skipped (with a warning in the journal), so a
+broken one never stands between anyone and the login.

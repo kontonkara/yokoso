@@ -37,6 +37,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 shell_dir=${YOKOSO_SHELL_DIR:-$here/../share/yokoso/shell}
 run_dir=${XDG_RUNTIME_DIR:-/tmp}/yokoso
 mkdir -p "$run_dir"
+export YOKOSO_CONFIG="${YOKOSO_CONFIG:-/etc/yokoso/config.json}"
 
 # GPUs with a connected connector; the boot VGA device if none has one.
 cards() {
@@ -153,6 +154,36 @@ users_json() {
 		}' | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
 }
 
+# The theme: config.theme ("dark", "light", the name of a file in themes/
+# next to the config, or a file's path), on top of what it extends, and
+# that on top of the built-in dark one. A theme that can't be read is
+# skipped, with a warning.
+theme_json() {
+	base=$shell_dir/themes/dark.json
+	ref=$(jq -r '.theme // "dark"' "$YOKOSO_CONFIG" 2>/dev/null) || ref=dark
+	theme='{}'
+	depth=0
+	while [ "$depth" -lt 8 ]; do
+		case $ref in
+		/*) file=$ref ;;
+		*)
+			file=${YOKOSO_CONFIG%/*}/themes/$ref.json
+			[ -e "$file" ] || file=$shell_dir/themes/$ref.json
+			;;
+		esac
+		[ "$file" = "$base" ] && break
+		if layer=$(jq -ce 'objects' "$file" 2>/dev/null); then
+			theme=$(jq -nc --argjson low "$layer" --argjson high "$theme" '$low * $high')
+			ref=$(jq -nr --argjson layer "$layer" '$layer.extends // "dark"')
+		else
+			echo "yokoso: can't read the theme $ref ($file), using dark" >&2
+			ref=dark
+		fi
+		depth=$((depth + 1))
+	done
+	jq -c --argjson high "$theme" '. * $high | del(.extends)' "$base"
+}
+
 # The power actions logind allows us, in the buttons' order.
 power_json() {
 	for action in Suspend:suspend Reboot:reboot PowerOff:poweroff; do
@@ -173,13 +204,13 @@ done | jq -R . | jq -s .)
 
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
 	--argjson users "$(users_json)" --argjson power "$(power_json)" \
+	--argjson theme "$(theme_json)" \
 	--arg lid "$lid" --argjson capsLeds "$caps_leds" \
 	'{screens: $screens, sessions: $sessions, users: $users, power: $power,
-		lid: $lid, capsLeds: $capsLeds}' \
+		lid: $lid, capsLeds: $capsLeds, theme: $theme}' \
 	>"$run_dir/env.json"
 
 export YOKOSO_ENV="$run_dir/env.json" YOKOSO_MODE="$mode"
-export YOKOSO_CONFIG="${YOKOSO_CONFIG:-/etc/yokoso/config.json}"
 export QT_QPA_PLATFORM=wayland QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 export QT_NO_XDG_DESKTOP_PORTAL=1 QSG_RHI_BACKEND=opengl
 unset QT_SCALE_FACTOR QT_SCREEN_SCALE_FACTORS

@@ -1,0 +1,12 @@
+{
+  "colors": {
+    "background": "#000000",
+    "text": "#ffffff",
+    "subtext": "#aaaaaa",
+    "dim": "#777777",
+    "field": "#222222",
+    "accent": "#ffffff",
+    "error": "#ee6666"
+  },
+  "font": ""
+}

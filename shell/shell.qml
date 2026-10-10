@@ -24,7 +24,7 @@ ShellRoot {
 	}
 
 	FileView {
-		id: configFile
+		id: configFileView
 
 		path: Quickshell.env("YOKOSO_CONFIG") || ""
 		blockLoading: true
@@ -33,10 +33,15 @@ ShellRoot {
 
 	readonly property var env: parse(envFile.text())
 
-	// Every config key, with its default.
+	// Every config key, with its default, over the theme the launcher put
+	// together (themes/dark.json has its keys); colors merge key by key.
+	readonly property var configFile: parse(configFileView.text())
+	readonly property var theme: env.theme || {}
 	readonly property var config: Object.assign({
 		user: "",
 		session: "",
+		// "dark", "light", a theme's name or a theme file's path.
+		theme: "dark",
 		// The output with the form ("DP-1"), or "cursor" for the one the
 		// pointer is on; "" picks one, see screen below.
 		output: "",
@@ -45,7 +50,11 @@ ShellRoot {
 		// What starts an X server for an X11 session, with the session's
 		// command after it.
 		x11Wrapper: "startx /usr/bin/env",
-	}, parse(configFile.text()))
+	}, theme, configFile, {
+		colors: Object.assign({}, theme.colors, configFile.colors),
+	})
+	readonly property var colors: config.colors
+
 
 	// The lid, read every second: closing it moves the form to another screen.
 	property bool lidClosed: false
@@ -249,14 +258,14 @@ ShellRoot {
 		implicitWidth: 1280
 		implicitHeight: 720
 		title: "yokoso"
-		color: "black"
+		color: root.colors.background
 
 		Rectangle {
 			id: content
 
 			width: root.mode === "shot" && root.windowIsScreen ? root.shotSize[0] : window.width
 			height: root.mode === "shot" && root.windowIsScreen ? root.shotSize[1] : window.height
-			color: "black"
+			color: root.colors.background
 
 			HoverHandler {
 				enabled: root.config.output === "cursor" && !root.windowIsScreen
@@ -271,8 +280,9 @@ ShellRoot {
 				Text {
 					anchors.horizontalCenter: parent.horizontalCenter
 					text: clock.date.toLocaleTimeString(root.locale, Locale.ShortFormat)
-					color: "white"
+					color: root.colors.text
 					font.pixelSize: root.u(56)
+					font.family: root.fontFamily
 				}
 
 				// The locale's long date, without the year.
@@ -280,8 +290,9 @@ ShellRoot {
 					anchors.horizontalCenter: parent.horizontalCenter
 					text: clock.date.toLocaleDateString(root.locale,
 						root.locale.dateFormat(Locale.LongFormat).replace(/[\s,.]*y+[^dM]*/, ""))
-					color: "#aaa"
+					color: root.colors.subtext
 					font.pixelSize: root.u(16)
+					font.family: root.fontFamily
 				}
 			}
 
@@ -297,15 +308,16 @@ ShellRoot {
 					width: parent.width
 					horizontalAlignment: Text.AlignHCenter
 					text: root.user ? root.user.name : ""
-					color: "white"
+					color: root.colors.text
 					font.pixelSize: root.u(20)
+					font.family: root.fontFamily
 					elide: Text.ElideRight
 				}
 
 				Rectangle {
 					width: parent.width
 					height: root.u(36)
-					color: "#222"
+					color: root.colors.field
 					opacity: auth.phase === "prompt" ? 1 : 0.5
 
 					TextInput {
@@ -318,8 +330,9 @@ ShellRoot {
 						focus: true
 						readOnly: auth.phase !== "prompt"
 						echoMode: auth.secret ? TextInput.Password : TextInput.Normal
-						color: "white"
+						color: root.colors.text
 						font.pixelSize: root.u(15)
+						font.family: root.fontFamily
 						clip: true
 						onAccepted: {
 							auth.submit(text);
@@ -335,8 +348,9 @@ ShellRoot {
 						verticalAlignment: Text.AlignVCenter
 						visible: input.text === ""
 						text: root.problem || auth.message || auth.prompt.replace(/:\s*$/, "")
-						color: auth.messageIsError || root.problem ? "#e66" : "#777"
+						color: auth.messageIsError || root.problem ? root.colors.error : root.colors.dim
 						font.pixelSize: root.u(15)
+						font.family: root.fontFamily
 						elide: Text.ElideRight
 					}
 				}
@@ -346,8 +360,9 @@ ShellRoot {
 					width: parent.width
 					horizontalAlignment: Text.AlignHCenter
 					text: "Caps Lock is on"
-					color: "#e66"
+					color: root.colors.error
 					font.pixelSize: root.u(13)
+					font.family: root.fontFamily
 					opacity: root.capsLock ? 1 : 0
 				}
 			}
@@ -360,8 +375,9 @@ ShellRoot {
 				Text {
 					anchors.horizontalCenter: parent.horizontalCenter
 					text: root.powerError || (root.armed ? `Click ${root.powerLabels[root.armed]} again` : "")
-					color: root.powerError ? "#e66" : "#aaa"
+					color: root.powerError ? root.colors.error : root.colors.subtext
 					font.pixelSize: root.u(13)
+					font.family: root.fontFamily
 				}
 
 				Row {
@@ -375,8 +391,9 @@ ShellRoot {
 							required property string modelData
 
 							text: root.powerLabels[modelData] || modelData
-							color: root.armed === modelData || mouse.containsMouse ? "white" : "#777"
+							color: root.armed === modelData || mouse.containsMouse ? root.colors.accent : root.colors.dim
 							font.pixelSize: root.u(14)
+							font.family: root.fontFamily
 
 							MouseArea {
 								id: mouse
