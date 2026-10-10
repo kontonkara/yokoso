@@ -13,6 +13,26 @@ set -eu
 
 mode=${1:-greeter}
 
+# As greetd's greeter, any failure (here, in cage or in Quickshell) falls back
+# to greetd's text greeter, so a broken yokoso doesn't lock anyone out. It
+# logs in to the session yokoso would have started, or the user's shell.
+fallback() {
+	trap - EXIT
+	set +eu
+	echo "yokoso failed (journalctl -b -t yokoso), falling back to agreety" >&2
+	config=$(jq -c 'objects' "${YOKOSO_CONFIG:-/etc/yokoso/config.json}" 2>/dev/null)
+	[ -n "$config" ] || config={}
+	cmd=$(jq -r --argjson config "$config" '
+		($config.session // "") as $want
+		| [(.sessions[] | select(.id == $want or .id == "\($want).desktop")), .sessions[]][0] // empty
+		| if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end
+		' "$run_dir/env.json" 2>/dev/null)
+	exec agreety --cmd "${cmd:-\$SHELL}"
+}
+if [ "$mode" = greeter ]; then
+	trap '[ $? = 0 ] || fallback' EXIT
+fi
+
 here=$(cd "$(dirname "$0")" && pwd)
 shell_dir=${YOKOSO_SHELL_DIR:-$here/../share/yokoso/shell}
 run_dir=${XDG_RUNTIME_DIR:-/tmp}/yokoso
@@ -164,7 +184,12 @@ greeter)
 	# (journalctl -t yokoso) where systemd is there.
 	log=
 	command -v systemd-cat >/dev/null && log="systemd-cat -t yokoso --"
-	exec $log cage -s -- quickshell -p "$shell_dir"
+	# Not exec'd, so its failure reaches the fallback; a stop is passed on
+	# instead. Its input stays the VT.
+	$log cage -s -- quickshell -p "$shell_dir" <&0 &
+	cage=$!
+	trap 'kill "$cage" 2>/dev/null; wait "$cage" || true; exit 0' TERM INT HUP
+	wait "$cage"
 	;;
 preview)
 	fake "quickshell -p '$shell_dir'"

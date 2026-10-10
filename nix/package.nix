@@ -32,7 +32,7 @@ stdenvNoCC.mkDerivation {
     mkdir -p $out/share/yokoso
     cp -r shell $out/share/yokoso/shell
     install -Dm755 bin/yokoso $out/libexec/yokoso
-    # fakegreet (greetd) is only for `yokoso preview`.
+    # From greetd: agreety is the fallback, fakegreet is for `yokoso preview`.
     makeWrapper $out/libexec/yokoso $out/bin/yokoso \
       --set-default YOKOSO_SHELL_DIR $out/share/yokoso/shell \
       --prefix PATH : ${
