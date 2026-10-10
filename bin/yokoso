@@ -141,15 +141,16 @@ sessions_json() {
 	unset IFS
 }
 
-# Login accounts: UID_MIN..UID_MAX from login.defs, with a real shell.
+# Login accounts, from NSS so that systemd-homed's (UIDs 60001..60513) are
+# there too: UID_MIN..UID_MAX from login.defs, with a real shell.
 users_json() {
 	min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
 	max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
-	awk -F: -v min="${min:-1000}" -v max="${max:-60000}" '
-		$3 >= min && $3 <= max && $7 !~ /(nologin|false)$/ {
+	{ getent passwd 2>/dev/null || cat /etc/passwd; } | awk -F: -v min="${min:-1000}" -v max="${max:-60000}" '
+		($3 >= min && $3 <= max || $3 >= 60001 && $3 <= 60513) && $7 !~ /(nologin|false)$/ && !seen[$1]++ {
 			real = $5; sub(/,.*/, "", real)
 			print $1; print (real == "" ? $1 : real)
-		}' /etc/passwd | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
+		}' | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
 }
 
 # The lid's state file, on laptops.

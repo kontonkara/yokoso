@@ -49,7 +49,7 @@ it also turns on `startx` for X11 sessions.
 
 | Key | Default | |
 |---|---|---|
-| `user` | the first account | account to log in |
+| `user` | the first account | account to log in, listed or not (LDAP) |
 | `session` | the first one | session, by desktop file name (`niri`, `i3`); Wayland's come first |
 | `output` | see below | screen with the form (`DP-1`) |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |

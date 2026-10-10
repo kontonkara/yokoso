@@ -10,6 +10,7 @@
   gnugrep,
   systemd,
   greetd,
+  getent,
 }:
 
 stdenvNoCC.mkDerivation {
@@ -45,6 +46,7 @@ stdenvNoCC.mkDerivation {
           gnugrep
           systemd
           greetd
+          getent
         ]
       }
 

@@ -87,10 +87,15 @@ ShellRoot {
 	}
 
 	readonly property var users: env.users || []
-	readonly property var user: users.find(u => u.name === config.user) || users[0] || null
+	// config.user even when it isn't listed (LDAP accounts often aren't).
+	readonly property var user: users.find(u => u.name === config.user)
+		|| (config.user ? { name: config.user, realName: config.user } : users[0]) || null
 	readonly property var sessions: env.sessions || []
 	readonly property var session: sessions.find(s => s.id === config.session || s.id === `${config.session}.desktop`)
 		|| sessions[0] || null
+
+	// Why a login can't start, if it can't.
+	readonly property string problem: !user ? "No user found" : !session ? "No session found" : ""
 
 	// The UI scale: config.scale, else the screen's DPI / 96 rounded to 0.05
 	// (1 when its size is unknown), over what the compositor already scales.
@@ -185,9 +190,8 @@ ShellRoot {
 						anchors.fill: input
 						verticalAlignment: Text.AlignVCenter
 						visible: input.text === ""
-						text: !root.session ? "No session found"
-							: auth.message || auth.prompt.replace(/:\s*$/, "")
-						color: auth.messageIsError || !root.session ? "#e66" : "#777"
+						text: root.problem || auth.message || auth.prompt.replace(/:\s*$/, "")
+						color: auth.messageIsError || root.problem ? "#e66" : "#777"
 						font.pixelSize: root.u(15)
 						elide: Text.ElideRight
 					}
@@ -228,7 +232,7 @@ ShellRoot {
 
 	Component.onCompleted: {
 		Quickshell.watchFiles = mode !== "greeter";
-		if (session && auth.username)
+		if (!problem)
 			auth.start();
 	}
 }
