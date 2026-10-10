@@ -36,9 +36,52 @@ ShellRoot {
 	readonly property var config: Object.assign({
 		user: "",
 		session: "",
+		// The output with the form ("DP-1"); "" picks one, see screen below.
+		output: "",
 		// 0: from the screen's physical size.
 		scale: 0,
 	}, parse(configFile.text()))
+
+	// The lid, read every second: closing it moves the form to another screen.
+	property bool lidClosed: false
+
+	FileView {
+		id: lidFile
+
+		path: root.env.lid || ""
+		blockLoading: true
+		printErrors: false
+		onLoaded: root.lidClosed = text().indexOf("closed") >= 0
+	}
+
+	Timer {
+		interval: 1000
+		running: lidFile.path !== ""
+		repeat: true
+		onTriggered: lidFile.reload()
+	}
+
+	// The screen with the form: config.output; else a laptop's own panel, or
+	// with its lid closed an external screen; else the first one.
+	readonly property var screen: {
+		const screens = Quickshell.screens;
+		const internal = s => /^(eDP|LVDS|DSI)-/.test(s.name);
+		return screens.find(s => s.name === config.output)
+			|| (lidClosed ? screens.find(s => !internal(s)) : screens.find(internal))
+			|| screens[0] || null;
+	}
+
+	// Where that screen is in the window, which cage spreads over all of
+	// them. In preview (and a one-screen shot) the window stands for it.
+	readonly property bool windowIsScreen: mode === "preview" || (mode === "shot" && Quickshell.screens.length < 2)
+	readonly property rect area: {
+		if (windowIsScreen || !screen)
+			return Qt.rect(0, 0, content.width, content.height);
+		const screens = Quickshell.screens;
+		const left = Math.min(...screens.map(s => s.x));
+		const top = Math.min(...screens.map(s => s.y));
+		return Qt.rect(screen.x - left, screen.y - top, screen.width, screen.height);
+	}
 
 	readonly property var users: env.users || []
 	readonly property var user: users.find(u => u.name === config.user) || users[0] || null
@@ -49,7 +92,6 @@ ShellRoot {
 	// The UI scale: config.scale, else the screen's DPI / 96 rounded to 0.05
 	// (1 when its size is unknown), over what the compositor already scales.
 	readonly property var shotSize: (Quickshell.env("YOKOSO_SHOT_SIZE") || "2560x1440").split("x").map(Number)
-	readonly property var screen: Quickshell.screens[0] || null
 	readonly property real dpr: mode === "shot" || !screen ? 1 : screen.devicePixelRatio
 	readonly property real uiScale: {
 		if (config.scale > 0)
@@ -88,12 +130,13 @@ ShellRoot {
 		Rectangle {
 			id: content
 
-			width: root.mode === "shot" ? root.shotSize[0] : window.width
-			height: root.mode === "shot" ? root.shotSize[1] : window.height
+			width: root.mode === "shot" && root.windowIsScreen ? root.shotSize[0] : window.width
+			height: root.mode === "shot" && root.windowIsScreen ? root.shotSize[1] : window.height
 			color: "black"
 
 			Column {
-				anchors.centerIn: parent
+				x: root.area.x + (root.area.width - width) / 2
+				y: root.area.y + (root.area.height - height) / 2
 				width: root.u(300)
 				spacing: root.u(10)
 
@@ -168,11 +211,15 @@ ShellRoot {
 	Timer {
 		running: root.shotFile !== ""
 		interval: Number(Quickshell.env("YOKOSO_SHOT_DELAY") || 500)
-		onTriggered: content.grabToImage(result => {
-			result.saveToFile(root.shotFile);
-			if (!root.answers.length)
-				Qt.quit();
-		})
+		onTriggered: {
+			const screens = Quickshell.screens.map(s => `${s.name} ${s.width}x${s.height}`);
+			console.info(`yokoso: window ${window.width}x${window.height}, screens ${screens.join(", ")}, form on ${root.screen ? root.screen.name : "-"} at ${root.area}, lid "${lidFile.text().trim()}"`);
+			content.grabToImage(result => {
+				result.saveToFile(root.shotFile);
+				if (!root.answers.length)
+					Qt.quit();
+			});
+		}
 	}
 
 	Component.onCompleted: {

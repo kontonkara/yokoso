@@ -48,4 +48,9 @@ the keyboard layout from `services.xserver.xkb`.
 |---|---|---|
 | `user` | the first account | account to log in |
 | `session` | the first one | Wayland session, by desktop file name (`niri`) |
+| `output` | see below | screen with the form (`DP-1`) |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
+
+With several screens the form goes on `output`, else on a laptop's own panel,
+or on an external screen while the lid is closed, else on the first screen.
+The other screens stay black.

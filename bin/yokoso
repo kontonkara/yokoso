@@ -128,8 +128,15 @@ users_json() {
 		}' /etc/passwd | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
 }
 
+# The lid's state file, on laptops.
+lid=
+for f in /proc/acpi/button/lid/*/state; do
+	[ -e "$f" ] && lid=$f && break
+done
+
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
-	--argjson users "$(users_json)" '{screens: $screens, sessions: $sessions, users: $users}' \
+	--argjson users "$(users_json)" --arg lid "$lid" \
+	'{screens: $screens, sessions: $sessions, users: $users, lid: $lid}' \
 	>"$run_dir/env.json"
 
 export YOKOSO_ENV="$run_dir/env.json" YOKOSO_MODE="$mode"
