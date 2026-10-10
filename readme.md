@@ -54,10 +54,12 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 |---|---|---|
 | `user` | the first account | account to log in, listed or not (LDAP) |
 | `session` | the first one | session, by desktop file name (`niri`, `i3`); Wayland's come first |
-| `output` | see below | screen with the form (`DP-1`) |
+| `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
 
 With several screens the form goes on `output`, else on a laptop's own panel,
 or on an external screen while the lid is closed, else on the first screen.
-The other screens stay black.
+The other screens stay black. With `cursor`, the form starts there too and
+then moves to whichever screen the pointer moves onto, except a closed
+laptop panel.

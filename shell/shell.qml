@@ -37,7 +37,8 @@ ShellRoot {
 	readonly property var config: Object.assign({
 		user: "",
 		session: "",
-		// The output with the form ("DP-1"); "" picks one, see screen below.
+		// The output with the form ("DP-1"), or "cursor" for the one the
+		// pointer is on; "" picks one, see screen below.
 		output: "",
 		// 0: from the screen's physical size.
 		scale: 0,
@@ -65,26 +66,48 @@ ShellRoot {
 		onTriggered: lidFile.reload()
 	}
 
-	// The screen with the form: config.output; else a laptop's own panel, or
-	// with its lid closed an external screen; else the first one.
+	// The screen with the form: the one the pointer last moved onto (with
+	// output "cursor", and never a closed lid's panel), or config.output;
+	// else a laptop's own panel, or with its lid closed an external screen;
+	// else the first one.
+	property var pointerScreen: null
+
 	readonly property var screen: {
 		const screens = Quickshell.screens;
 		const internal = s => /^(eDP|LVDS|DSI)-/.test(s.name);
-		return screens.find(s => s.name === config.output)
+		const pointed = screens.includes(pointerScreen) && !(lidClosed && internal(pointerScreen));
+		return (pointed ? pointerScreen : null)
+			|| screens.find(s => s.name === config.output)
 			|| (lidClosed ? screens.find(s => !internal(s)) : screens.find(internal))
 			|| screens[0] || null;
 	}
 
-	// Where that screen is in the window, which cage spreads over all of
-	// them. In preview (and a one-screen shot) the window stands for it.
+	// The window's top-left corner among the screens: cage spreads it over
+	// all of them.
+	readonly property point origin: Qt.point(Math.min(...Quickshell.screens.map(s => s.x)),
+		Math.min(...Quickshell.screens.map(s => s.y)))
+
+	// Where cage put the pointer doesn't count, only a move does.
+	property var pointerStart: null
+
+	function pointAt(p) {
+		if (!pointerStart)
+			pointerStart = Qt.point(p.x, p.y);
+		if (p.x === pointerStart.x && p.y === pointerStart.y)
+			return;
+		const s = Quickshell.screens.find(s => p.x >= s.x - origin.x && p.x < s.x - origin.x + s.width
+			&& p.y >= s.y - origin.y && p.y < s.y - origin.y + s.height);
+		if (s && s !== pointerScreen)
+			pointerScreen = s;
+	}
+
+	// Where the form's screen is in the window. In preview (and a one-screen
+	// shot) the window stands for it.
 	readonly property bool windowIsScreen: mode === "preview" || (mode === "shot" && Quickshell.screens.length < 2)
 	readonly property rect area: {
 		if (windowIsScreen || !screen)
 			return Qt.rect(0, 0, content.width, content.height);
-		const screens = Quickshell.screens;
-		const left = Math.min(...screens.map(s => s.x));
-		const top = Math.min(...screens.map(s => s.y));
-		return Qt.rect(screen.x - left, screen.y - top, screen.width, screen.height);
+		return Qt.rect(screen.x - origin.x, screen.y - origin.y, screen.width, screen.height);
 	}
 
 	readonly property var users: env.users || []
@@ -234,6 +257,11 @@ ShellRoot {
 			width: root.mode === "shot" && root.windowIsScreen ? root.shotSize[0] : window.width
 			height: root.mode === "shot" && root.windowIsScreen ? root.shotSize[1] : window.height
 			color: "black"
+
+			HoverHandler {
+				enabled: root.config.output === "cursor" && !root.windowIsScreen
+				onPointChanged: root.pointAt(point.position)
+			}
 
 			Column {
 				x: root.area.x + (root.area.width - width) / 2
