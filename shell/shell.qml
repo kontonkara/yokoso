@@ -3,6 +3,9 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
+// The core: what yokoso knows (the config, screens, users and sessions)
+// and does (the login, power, memory). Look.qml draws it, from the
+// properties and functions here.
 ShellRoot {
 	id: root
 
@@ -57,11 +60,11 @@ ShellRoot {
 	})
 	readonly property var colors: config.colors
 
-	// config.background's image for a screen (null: the window), as a URL:
-	// one path for every screen, or one per output, "*" for the rest.
-	function backgroundFor(screen) {
+	// config.background's image for a screen, by its name ("" for the window),
+	// as a URL: one path for every screen, or one per output, "*" for the rest.
+	function backgroundFor(name) {
 		const bg = config.background;
-		const path = typeof bg === "string" ? bg : bg && (screen && bg[screen.name] || bg["*"]) || "";
+		const path = typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || "";
 		return path ? "file://" + path.split("/").map(encodeURIComponent).join("/") : "";
 	}
 	readonly property string fontFamily: config.font || Qt.application.font.family
@@ -129,6 +132,10 @@ ShellRoot {
 		return Qt.rect(screen.x - origin.x, screen.y - origin.y, screen.width, screen.height);
 	}
 
+	// Every screen in the window, as { name, rect }, for what goes on each.
+	readonly property var screens: windowIsScreen ? [{ name: "", rect: Qt.rect(0, 0, content.width, content.height) }]
+		: Quickshell.screens.map(s => ({ name: s.name, rect: Qt.rect(s.x - origin.x, s.y - origin.y, s.width, s.height) }))
+
 	// Who logged in last, and each user's last session, as { user, sessions:
 	// { <user>: { id, type } } }: written at a login, in /var/lib/yokoso.
 	FileView {
@@ -182,54 +189,26 @@ ShellRoot {
 		return s.type === "x11" && sessions.some(o => o !== s && o.name === s.name) ? `${s.name} (X11)` : s.name;
 	}
 
-	// The list open under the user's or the session's name: "user",
-	// "session" or "".
-	property string picking: ""
-	readonly property var pickList: picking === "user"
-		? users.map(u => ({ label: u.name, detail: u.realName !== u.name ? u.realName : "", current: u === user }))
-		: picking === "session"
-		? sessions.map(s => ({ label: sessionName(s), detail: "", current: s === session }))
-		: []
-
-	// Not while a password is checked (another user) or a session starts.
+	// "user" or "session": whether there's another to pick. Not while a
+	// password is checked (another user) or a session starts.
 	function canPick(which) {
 		return (which === "user" ? users : sessions).length > 1 && auth.phase !== "launching"
 			&& !(which === "user" && auth.phase === "verifying");
 	}
 
-	function togglePicker(which) {
-		if (picking === which || !canPick(which)) {
-			closePicker();
+	// One of users: the login starts over for them.
+	function pickUser(u) {
+		if (u === user || !canPick("user"))
 			return;
-		}
-		picking = which;
-		list.currentIndex = pickList.findIndex(item => item.current);
-		list.forceActiveFocus();
+		pickedUser = u.name;
+		pickedSession = null;
+		auth.restart();
 	}
 
-	function closePicker() {
-		picking = "";
-		input.forceActiveFocus();
-	}
-
-	function pick(index) {
-		if (picking === "user" && users[index] !== user) {
-			pickedUser = users[index].name;
-			pickedSession = null;
-			auth.restart();
-		} else if (picking === "session") {
-			pickedSession = sessions[index];
-		}
-		closePicker();
-	}
-
-	// F2 opens or closes the user list, F3 the session list.
-	function pickerKey(event) {
-		const which = event.key === Qt.Key_F2 ? "user" : event.key === Qt.Key_F3 ? "session" : "";
-		if (which) {
-			togglePicker(which);
-			event.accepted = true;
-		}
+	// One of sessions.
+	function pickSession(s) {
+		if (canPick("session"))
+			pickedSession = s;
 	}
 
 	// Why a login can't start, if it can't.
@@ -265,6 +244,8 @@ ShellRoot {
 		precision: SystemClock.Minutes
 	}
 
+	readonly property var now: clock.date
+
 	// Caps Lock, from the keyboards' LEDs, read every 250 ms.
 	property bool capsLock: false
 
@@ -296,8 +277,10 @@ ShellRoot {
 		}
 	}
 
-	// Power: a button's first click arms it, a second one within 3 s acts.
-	// Outside the greeter it only says what it would run.
+	// Power: the actions logind allows ("suspend", "reboot", "poweroff"). A
+	// press() arms one, a second within 3 s acts. Outside the greeter it
+	// only says what it would run.
+	readonly property var power: env.power || []
 	readonly property var powerLabels: ({ suspend: "Suspend", reboot: "Reboot", poweroff: "Power off" })
 	property string armed: ""
 	property string powerError: ""
@@ -314,9 +297,9 @@ ShellRoot {
 			console.info(`yokoso: would run systemctl ${action}`);
 			return;
 		}
-		power.action = action;
-		power.command = ["systemctl", action];
-		power.running = true;
+		systemctl.action = action;
+		systemctl.command = ["systemctl", action];
+		systemctl.running = true;
 	}
 
 	Timer {
@@ -330,7 +313,7 @@ ShellRoot {
 	}
 
 	Process {
-		id: power
+		id: systemctl
 
 		property string action
 
@@ -346,9 +329,9 @@ ShellRoot {
 		}
 	}
 
-	Auth {
-		id: auth
-
+	// The login with greetd: phase, prompt, secret, message, messageIsError,
+	// submit() (Auth.qml).
+	readonly property Auth auth: Auth {
 		// fakegreet only knows "user".
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
@@ -386,308 +369,11 @@ ShellRoot {
 				onPointChanged: root.pointAt(point.position)
 			}
 
-			// The background, decoded at each screen's size.
-			Repeater {
-				model: root.windowIsScreen ? [null] : Quickshell.screens
-
-				Image {
-					required property var modelData
-
-					x: modelData ? modelData.x - root.origin.x : 0
-					y: modelData ? modelData.y - root.origin.y : 0
-					width: modelData ? modelData.width : content.width
-					height: modelData ? modelData.height : content.height
-					source: root.backgroundFor(modelData)
-					sourceSize: Qt.size(width * root.dpr, height * root.dpr)
-					fillMode: Image.PreserveAspectCrop
-
-					// So that text stays readable on a bright image.
-					Rectangle {
-						anchors.fill: parent
-						visible: parent.status === Image.Ready
-						color: root.colors.background
-						opacity: root.config.backgroundDim
-					}
-				}
-			}
-
-			Column {
-				x: root.area.x + (root.area.width - width) / 2
-				y: form.y - height - root.u(48)
-				spacing: root.u(4)
-
-				Text {
-					anchors.horizontalCenter: parent.horizontalCenter
-					text: clock.date.toLocaleTimeString(root.locale, Locale.ShortFormat)
-					color: root.colors.text
-					font.pixelSize: root.u(56)
-					font.family: root.fontFamily
-				}
-
-				// The locale's long date, without the year.
-				Text {
-					anchors.horizontalCenter: parent.horizontalCenter
-					text: clock.date.toLocaleDateString(root.locale,
-						root.locale.dateFormat(Locale.LongFormat).replace(/[\s,.]*y+[^dM]*/, ""))
-					color: root.colors.subtext
-					font.pixelSize: root.u(16)
-					font.family: root.fontFamily
-				}
-			}
-
-			Column {
-				id: form
-
-				x: root.area.x + (root.area.width - width) / 2
-				y: root.area.y + (root.area.height - height) / 2
-				width: root.u(300)
-				spacing: root.u(10)
-
-				// The user, and the session when there's more than one: a
-				// click (or F2, F3) opens the list to pick another from.
-				Repeater {
-					id: labels
-
-					model: ["user", "session"]
-
-					Item {
-						id: label
-
-						required property string modelData
-						readonly property bool isUser: modelData === "user"
-
-						width: parent.width
-						height: name.height
-						visible: isUser || root.sessions.length > 1
-
-						Row {
-							id: row
-
-							anchors.horizontalCenter: parent.horizontalCenter
-							spacing: root.u(6)
-
-							Text {
-								id: name
-
-								width: Math.min(implicitWidth, label.width - (chevron.visible ? chevron.width + row.spacing : 0))
-								text: label.isUser ? (root.user ? root.user.name : "") : root.sessionName(root.session)
-								color: mouse.containsMouse && root.canPick(label.modelData) ? root.colors.accent
-									: label.isUser ? root.colors.text : root.colors.subtext
-								font.pixelSize: root.u(label.isUser ? 20 : 14)
-								font.family: root.fontFamily
-								elide: Text.ElideRight
-							}
-
-							Text {
-								id: chevron
-
-								anchors.verticalCenter: name.verticalCenter
-								visible: (label.isUser ? root.users : root.sessions).length > 1
-								text: "▾"
-								color: mouse.containsMouse && root.canPick(label.modelData) ? root.colors.accent : root.colors.dim
-								font.pixelSize: root.u(label.isUser ? 14 : 11)
-								font.family: root.fontFamily
-							}
-						}
-
-						MouseArea {
-							id: mouse
-
-							anchors.fill: row
-							anchors.margins: -root.u(4)
-							hoverEnabled: true
-							cursorShape: Qt.PointingHandCursor
-							onClicked: root.togglePicker(label.modelData)
-						}
-					}
-				}
-
-				Rectangle {
-					width: parent.width
-					height: root.u(36)
-					color: root.colors.field
-					opacity: auth.phase === "prompt" ? 1 : 0.5
-
-					TextInput {
-						id: input
-
-						anchors.fill: parent
-						anchors.leftMargin: root.u(10)
-						anchors.rightMargin: root.u(10)
-						verticalAlignment: TextInput.AlignVCenter
-						focus: true
-						readOnly: auth.phase !== "prompt"
-						echoMode: auth.secret ? TextInput.Password : TextInput.Normal
-						color: root.colors.text
-						font.pixelSize: root.u(15)
-						font.family: root.fontFamily
-						clip: true
-						onAccepted: {
-							auth.submit(text);
-							text = "";
-						}
-						Keys.onEscapePressed: text = ""
-						Keys.onPressed: event => root.pickerKey(event)
-					}
-
-					// PAM's question, or its last message (a failed attempt
-					// included) until something is typed.
-					Text {
-						anchors.fill: input
-						verticalAlignment: Text.AlignVCenter
-						visible: input.text === ""
-						text: root.problem || auth.message || auth.prompt.replace(/:\s*$/, "")
-						color: auth.messageIsError || root.problem ? root.colors.error : root.colors.dim
-						font.pixelSize: root.u(15)
-						font.family: root.fontFamily
-						elide: Text.ElideRight
-					}
-				}
-
-				// Hidden rather than gone, so the form doesn't move.
-				Text {
-					width: parent.width
-					horizontalAlignment: Text.AlignHCenter
-					text: "Caps Lock is on"
-					color: root.colors.error
-					font.pixelSize: root.u(13)
-					font.family: root.fontFamily
-					opacity: root.capsLock ? 1 : 0
-				}
-			}
-
-			Column {
-				x: root.area.x + (root.area.width - width) / 2
-				y: root.area.y + root.area.height - height - root.u(32)
-				spacing: root.u(12)
-
-				Text {
-					anchors.horizontalCenter: parent.horizontalCenter
-					text: root.powerError || (root.armed ? `Click ${root.powerLabels[root.armed]} again` : "")
-					color: root.powerError ? root.colors.error : root.colors.subtext
-					font.pixelSize: root.u(13)
-					font.family: root.fontFamily
-				}
-
-				Row {
-					anchors.horizontalCenter: parent.horizontalCenter
-					spacing: root.u(32)
-
-					Repeater {
-						model: root.env.power || []
-
-						Text {
-							required property string modelData
-
-							text: root.powerLabels[modelData] || modelData
-							color: root.armed === modelData || mouse.containsMouse ? root.colors.accent : root.colors.dim
-							font.pixelSize: root.u(14)
-							font.family: root.fontFamily
-
-							MouseArea {
-								id: mouse
-
-								anchors.fill: parent
-								anchors.margins: -root.u(8)
-								hoverEnabled: true
-								cursorShape: Qt.PointingHandCursor
-								onClicked: root.press(parent.modelData)
-							}
-						}
-					}
-				}
-			}
-
-			// A click anywhere else closes the list.
-			MouseArea {
+			// What's on screen, given the core as `greeter`.
+			Loader {
 				anchors.fill: parent
-				visible: root.picking !== ""
-				onClicked: root.closePicker()
-			}
-
-			Rectangle {
-				readonly property var label: labels.itemAt(root.picking === "session" ? 1 : 0)
-
-				x: form.x
-				y: label ? form.y + label.y + label.height + root.u(6) : 0
-				width: form.width
-				height: Math.min(list.count, 8) * root.u(32) + 2
-				visible: root.picking !== ""
-				color: root.colors.field
-				border.color: root.colors.dim
-				border.width: 1
-
-				ListView {
-					id: list
-
-					anchors.fill: parent
-					anchors.margins: 1
-					clip: true
-					boundsBehavior: Flickable.StopAtBounds
-					model: root.pickList
-					onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
-					Keys.onReturnPressed: root.pick(currentIndex)
-					Keys.onEnterPressed: root.pick(currentIndex)
-					Keys.onEscapePressed: root.closePicker()
-					Keys.onPressed: event => root.pickerKey(event)
-
-					delegate: Item {
-						required property var modelData
-						required property int index
-
-						width: ListView.view.width
-						height: root.u(32)
-
-						Rectangle {
-							anchors.fill: parent
-							visible: list.currentIndex === parent.index
-							color: root.colors.accent
-							opacity: 0.15
-						}
-
-						// The one picked now.
-						Rectangle {
-							width: root.u(3)
-							height: parent.height
-							visible: parent.modelData.current
-							color: root.colors.accent
-						}
-
-						Text {
-							anchors.left: parent.left
-							anchors.right: detail.left
-							anchors.leftMargin: root.u(10)
-							anchors.rightMargin: root.u(10)
-							anchors.verticalCenter: parent.verticalCenter
-							text: parent.modelData.label
-							color: root.colors.text
-							font.pixelSize: root.u(15)
-							font.family: root.fontFamily
-							elide: Text.ElideRight
-						}
-
-						Text {
-							id: detail
-
-							anchors.right: parent.right
-							anchors.rightMargin: root.u(10)
-							anchors.verticalCenter: parent.verticalCenter
-							width: Math.min(implicitWidth, parent.width / 2)
-							text: parent.modelData.detail
-							color: root.colors.dim
-							font.pixelSize: root.u(13)
-							font.family: root.fontFamily
-							elide: Text.ElideRight
-						}
-
-						MouseArea {
-							anchors.fill: parent
-							hoverEnabled: true
-							onEntered: list.currentIndex = parent.index
-							onClicked: root.pick(parent.index)
-						}
-					}
-				}
+				focus: true
+				Component.onCompleted: setSource("Look.qml", { greeter: root })
 			}
 		}
 	}
@@ -712,8 +398,8 @@ ShellRoot {
 		running: root.shotFile !== ""
 		interval: Number(Quickshell.env("YOKOSO_SHOT_DELAY") || 500)
 		onTriggered: {
-			const screens = Quickshell.screens.map(s => `${s.name} ${s.width}x${s.height}`);
-			console.info(`yokoso: window ${window.width}x${window.height}, screens ${screens.join(", ")}, form on ${root.screen ? root.screen.name : "-"} at ${root.area}, lid "${lidFile.text().trim()}"`);
+			const outputs = Quickshell.screens.map(s => `${s.name} ${s.width}x${s.height}`);
+			console.info(`yokoso: window ${window.width}x${window.height}, screens ${outputs.join(", ")}, form on ${root.screen ? root.screen.name : "-"} at ${root.area}, lid "${lidFile.text().trim()}"`);
 			content.grabToImage(result => {
 				result.saveToFile(root.shotFile);
 				if (!root.answers.length)
