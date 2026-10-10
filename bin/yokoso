@@ -1,0 +1,167 @@
+#!/bin/sh
+# yokoso: a greetd greeter on Quickshell.
+#
+#   yokoso           as greetd's greeter: cage on the GPU that drives the screens
+#   yokoso preview   a window in the current Wayland session, logging in against
+#                    greetd's fakegreet (password "password", then "9")
+#   yokoso shot <png>  development: render headless and save a screenshot
+#
+# Before anything draws, this takes a snapshot for the QML side (screens with
+# their physical size, sessions, users) and keeps the stack on the GPU that
+# drives the screens, so an idle discrete GPU stays asleep.
+set -eu
+
+mode=${1:-greeter}
+
+here=$(cd "$(dirname "$0")" && pwd)
+shell_dir=${YOKOSO_SHELL_DIR:-$here/../share/yokoso/shell}
+run_dir=${XDG_RUNTIME_DIR:-/tmp}/yokoso
+mkdir -p "$run_dir"
+
+# GPUs with a connected connector; the boot VGA device if none has one.
+cards() {
+	for card in /sys/class/drm/card[0-9]*; do
+		case ${card##*/} in *-*) continue ;; esac
+		echo "${card##*/}"
+	done
+}
+display_cards=
+for card in $(cards); do
+	for conn in "/sys/class/drm/$card"-*; do
+		if [ "$(cat "$conn/status" 2>/dev/null)" = connected ]; then
+			display_cards="$display_cards $card"
+			break
+		fi
+	done
+done
+if [ -z "$display_cards" ]; then
+	for card in $(cards); do
+		[ "$(cat "/sys/class/drm/$card/device/boot_vga" 2>/dev/null)" = 1 ] && display_cards=$card
+	done
+fi
+
+drm_devices=
+render_node=
+uses_nvidia=false
+for card in $display_cards; do
+	drm_devices=${drm_devices:+$drm_devices:}/dev/dri/$card
+	[ "$(basename "$(readlink -f "/sys/class/drm/$card/device/driver")")" = nvidia ] && uses_nvidia=true
+	for r in "/sys/class/drm/$card/device/drm/"renderD*; do
+		[ -z "$render_node" ] && [ -e "$r" ] && render_node=/dev/dri/${r##*/}
+	done
+done
+
+# With no screen on an NVIDIA GPU, only Mesa's EGL is offered: libglvnd would
+# otherwise load NVIDIA's first, which wakes the GPU from D3cold and costs
+# about two seconds before the first frame.
+if [ "$uses_nvidia" = false ]; then
+	for f in /run/opengl-driver/share/glvnd/egl_vendor.d/*mesa*.json \
+		/etc/glvnd/egl_vendor.d/*mesa*.json /usr/share/glvnd/egl_vendor.d/*mesa*.json; do
+		if [ -e "$f" ]; then
+			export __EGL_VENDOR_LIBRARY_FILENAMES="$f"
+			break
+		fi
+	done
+fi
+
+# Connected screens and the physical size their EDID gives (first detailed
+# timing, else the basic block's centimetres; 0 when unknown).
+screens_json() {
+	for card in $display_cards; do
+		for conn in "/sys/class/drm/$card"-*; do
+			[ "$(cat "$conn/status" 2>/dev/null)" = connected ] || continue
+			name=${conn##*/}
+			od -An -tu1 -v "$conn/edid" 2>/dev/null | awk -v name="${name#"$card"-}" '
+				{ for (i = 1; i <= NF; i++) b[n++] = $i }
+				END {
+					w = 0; h = 0
+					if (n >= 128 && (b[54] || b[55])) {
+						w = b[66] + int(b[68] / 16) * 256
+						h = b[67] + (b[68] % 16) * 256
+					}
+					if ((w < 50 || h < 50) && n >= 128) { w = b[21] * 10; h = b[22] * 10 }
+					if (w < 50 || h < 50 || w > 3000 || h > 3000) { w = 0; h = 0 }
+					printf "{\"name\":\"%s\",\"widthMm\":%d}\n", name, w
+				}'
+		done
+	done | jq -s .
+}
+
+# Wayland session entries (the first of each file name), as id, name, exec
+# and desktop names.
+sessions_json() {
+	dirs=${YOKOSO_SESSION_DIRS:-}
+	if [ -z "$dirs" ]; then
+		IFS=:
+		for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+			dirs="$dirs:$d/wayland-sessions"
+		done
+		unset IFS
+	fi
+	IFS=:
+	for d in $dirs; do
+		for f in "$d"/*.desktop; do
+			[ -e "$f" ] || continue
+			awk -v id="${f##*/}" -F= '
+				/^\[/ { entry = ($0 == "[Desktop Entry]"); next }
+				entry && !($1 in v) { k = $1; sub(/^[^=]*=/, ""); v[k] = $0 }
+				END {
+					if (v["Hidden"] == "true" || v["NoDisplay"] == "true" || v["Exec"] == "") exit
+					print id; print v["Name"]; print v["Exec"]; print v["DesktopNames"]
+				}' "$f"
+		done
+	done | jq -R . | jq -s '
+		[range(0; length; 4) as $i | .[$i:$i + 4]
+			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3]}]
+		| reduce .[] as $s ([]; if any(.[]; .id == $s.id) then . else . + [$s] end)'
+	unset IFS
+}
+
+# Login accounts: UID_MIN..UID_MAX from login.defs, with a real shell.
+users_json() {
+	min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
+	max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
+	awk -F: -v min="${min:-1000}" -v max="${max:-60000}" '
+		$3 >= min && $3 <= max && $7 !~ /(nologin|false)$/ {
+			real = $5; sub(/,.*/, "", real)
+			print $1; print (real == "" ? $1 : real)
+		}' /etc/passwd | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
+}
+
+jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
+	--argjson users "$(users_json)" '{screens: $screens, sessions: $sessions, users: $users}' \
+	>"$run_dir/env.json"
+
+export YOKOSO_ENV="$run_dir/env.json" YOKOSO_MODE="$mode"
+export YOKOSO_CONFIG="${YOKOSO_CONFIG:-/etc/yokoso/config.json}"
+export QT_QPA_PLATFORM=wayland QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+export QT_NO_XDG_DESKTOP_PORTAL=1 QSG_RHI_BACKEND=opengl
+unset QT_SCALE_FACTOR QT_SCREEN_SCALE_FACTORS
+
+# fakegreet binds ./greetd.sock (socket paths are short) and outlives the
+# greeter, so the greeter's command ends it.
+fake() {
+	mkdir -p "$run_dir/fake"
+	cd "$run_dir/fake"
+	exec fakegreet "$1; kill \$PPID"
+}
+
+case $mode in
+greeter)
+	export WLR_DRM_DEVICES="$drm_devices"
+	exec cage -s -- quickshell -p "$shell_dir"
+	;;
+preview)
+	fake "quickshell -p '$shell_dir'"
+	;;
+shot)
+	export YOKOSO_SCREENSHOT="${2:?usage: yokoso shot <file.png>}"
+	export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDER_DRM_DEVICE="$render_node"
+	unset WAYLAND_DISPLAY DISPLAY NIRI_SOCKET DBUS_SESSION_BUS_ADDRESS
+	fake "cage -s -- quickshell -p '$shell_dir'"
+	;;
+*)
+	echo "usage: yokoso [greeter | preview | shot <file.png>]" >&2
+	exit 2
+	;;
+esac
