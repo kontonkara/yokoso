@@ -215,6 +215,15 @@ jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" 
 		lid: $lid, capsLeds: $capsLeds, theme: $theme}' \
 	>"$run_dir/env.json"
 
+# Who logged in last and with which session, written at a login: in
+# /var/lib/yokoso, which the greeter user must own, and for a preview in the
+# runtime directory.
+case $mode in
+greeter) state=/var/lib/yokoso/state.json ;;
+*) state=$run_dir/state.json ;;
+esac
+export YOKOSO_STATE="${YOKOSO_STATE:-$state}"
+
 export YOKOSO_ENV="$run_dir/env.json" YOKOSO_MODE="$mode"
 export QT_QPA_PLATFORM=wayland QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 export QT_NO_XDG_DESKTOP_PORTAL=1 QSG_RHI_BACKEND=opengl

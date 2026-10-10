@@ -98,6 +98,12 @@ in
               group = config.users.users.${greeter}.group;
               mode = "0700";
             };
+            # The last login's user and session.
+            "/var/lib/yokoso".d = {
+              user = greeter;
+              group = config.users.users.${greeter}.group;
+              mode = "0700";
+            };
           };
         };
       };

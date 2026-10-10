@@ -40,6 +40,8 @@ ShellRoot {
 	readonly property var config: Object.assign({
 		user: "",
 		session: "",
+		// Start with the user and the session of the last login.
+		remember: true,
 		// "dark", "light", a theme's name or a theme file's path.
 		theme: "dark",
 		// The output with the form ("DP-1"), or "cursor" for the one the
@@ -127,6 +129,29 @@ ShellRoot {
 		return Qt.rect(screen.x - origin.x, screen.y - origin.y, screen.width, screen.height);
 	}
 
+	// Who logged in last, and each user's last session, as { user, sessions:
+	// { <user>: { id, type } } }: written at a login, in /var/lib/yokoso.
+	FileView {
+		id: stateFile
+
+		path: root.config.remember ? Quickshell.env("YOKOSO_STATE") || "" : ""
+		blockLoading: true
+		blockWrites: true
+		printErrors: false
+		onSaveFailed: console.warn(`yokoso: can't write ${path}`)
+	}
+
+	readonly property var remembered: parse(stateFile.text())
+
+	function remember() {
+		if (!stateFile.path || !user || !session)
+			return;
+		const last = Object.assign({}, remembered.sessions, {
+			[user.name]: { id: session.id, type: session.type },
+		});
+		stateFile.setText(JSON.stringify({ user: user.name, sessions: last }) + "\n");
+	}
+
 	// The users to pick from, config.user too when it isn't listed (LDAP
 	// accounts often aren't).
 	readonly property var users: {
@@ -136,14 +161,19 @@ ShellRoot {
 	}
 	readonly property var sessions: env.sessions || []
 
-	// The ones picked here, else config's, else the first.
+	// The ones picked here, else the last login's, else config's, else the
+	// first. Picking a user brings back their last session.
 	property string pickedUser: ""
 	property var pickedSession: null
-	readonly property var user: [pickedUser, config.user]
+	readonly property var user: [pickedUser, remembered.user, config.user]
 		.map(name => users.find(u => u.name === name)).find(u => u) || users[0] || null
-	readonly property var session: pickedSession
-		|| sessions.find(s => s.id === config.session || s.id === `${config.session}.desktop`)
-		|| sessions[0] || null
+	readonly property var session: {
+		const last = user && remembered.sessions && remembered.sessions[user.name] || {};
+		return pickedSession
+			|| sessions.find(s => s.id === last.id && s.type === last.type)
+			|| sessions.find(s => s.id === config.session || s.id === `${config.session}.desktop`)
+			|| sessions[0] || null;
+	}
 
 	// A session's name, with "(X11)" when a Wayland one has the same.
 	function sessionName(s) {
@@ -323,6 +353,15 @@ ShellRoot {
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
 		x11Wrapper: root.config.x11Wrapper
+	}
+
+	Connections {
+		target: auth
+
+		function onPhaseChanged() {
+			if (auth.phase === "launching")
+				root.remember();
+		}
 	}
 
 	FloatingWindow {

@@ -12,7 +12,7 @@ logs into.
   asleep.
 - PAM's prompts and messages are shown as PAM sends them.
 - With more than one account or session, a click on the name (or F2, F3)
-  picks another.
+  picks another, and the next login starts with the last one's.
 - A clock in the system's locale, a Caps Lock warning, and the power
   buttons logind allows (a second click confirms).
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
@@ -47,7 +47,8 @@ The module turns on greetd, writes `/etc/yokoso/config.json` (and
 `services.yokoso.themes` into `/etc/yokoso/themes`), and passes on the
 keyboard layout from `services.xserver.xkb`. With `services.xserver.enable`
 it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
-`/var/cache/yokoso`.
+`/var/cache/yokoso`, and the last login's user and session in
+`/var/lib/yokoso`.
 
 ## Config
 
@@ -57,10 +58,15 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 |---|---|---|
 | `user` | the first account | account to start with, listed or not (LDAP) |
 | `session` | the first one | session to start with, by desktop file name (`niri`, `i3`); Wayland's come first |
+| `remember` | `true` | start with the last login's user and that user's last session instead |
 | `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
+
+The last login is kept in `/var/lib/yokoso/state.json`, so the greeter's
+account has to own `/var/lib/yokoso` (the NixOS module makes it). Without
+it nothing is remembered, and `user` and `session` decide.
 
 With several screens the form goes on `output`, else on a laptop's own panel,
 or on an external screen while the lid is closed, else on the first screen.
