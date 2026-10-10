@@ -127,13 +127,80 @@ ShellRoot {
 		return Qt.rect(screen.x - origin.x, screen.y - origin.y, screen.width, screen.height);
 	}
 
-	readonly property var users: env.users || []
-	// config.user even when it isn't listed (LDAP accounts often aren't).
-	readonly property var user: users.find(u => u.name === config.user)
-		|| (config.user ? { name: config.user, realName: config.user } : users[0]) || null
+	// The users to pick from, config.user too when it isn't listed (LDAP
+	// accounts often aren't).
+	readonly property var users: {
+		const listed = env.users || [];
+		const name = config.user;
+		return !name || listed.some(u => u.name === name) ? listed : [{ name, realName: name }].concat(listed);
+	}
 	readonly property var sessions: env.sessions || []
-	readonly property var session: sessions.find(s => s.id === config.session || s.id === `${config.session}.desktop`)
+
+	// The ones picked here, else config's, else the first.
+	property string pickedUser: ""
+	property var pickedSession: null
+	readonly property var user: [pickedUser, config.user]
+		.map(name => users.find(u => u.name === name)).find(u => u) || users[0] || null
+	readonly property var session: pickedSession
+		|| sessions.find(s => s.id === config.session || s.id === `${config.session}.desktop`)
 		|| sessions[0] || null
+
+	// A session's name, with "(X11)" when a Wayland one has the same.
+	function sessionName(s) {
+		if (!s)
+			return "";
+		return s.type === "x11" && sessions.some(o => o !== s && o.name === s.name) ? `${s.name} (X11)` : s.name;
+	}
+
+	// The list open under the user's or the session's name: "user",
+	// "session" or "".
+	property string picking: ""
+	readonly property var pickList: picking === "user"
+		? users.map(u => ({ label: u.name, detail: u.realName !== u.name ? u.realName : "", current: u === user }))
+		: picking === "session"
+		? sessions.map(s => ({ label: sessionName(s), detail: "", current: s === session }))
+		: []
+
+	// Not while a password is checked (another user) or a session starts.
+	function canPick(which) {
+		return (which === "user" ? users : sessions).length > 1 && auth.phase !== "launching"
+			&& !(which === "user" && auth.phase === "verifying");
+	}
+
+	function togglePicker(which) {
+		if (picking === which || !canPick(which)) {
+			closePicker();
+			return;
+		}
+		picking = which;
+		list.currentIndex = pickList.findIndex(item => item.current);
+		list.forceActiveFocus();
+	}
+
+	function closePicker() {
+		picking = "";
+		input.forceActiveFocus();
+	}
+
+	function pick(index) {
+		if (picking === "user" && users[index] !== user) {
+			pickedUser = users[index].name;
+			pickedSession = null;
+			auth.restart();
+		} else if (picking === "session") {
+			pickedSession = sessions[index];
+		}
+		closePicker();
+	}
+
+	// F2 opens or closes the user list, F3 the session list.
+	function pickerKey(event) {
+		const which = event.key === Qt.Key_F2 ? "user" : event.key === Qt.Key_F3 ? "session" : "";
+		if (which) {
+			togglePicker(which);
+			event.accepted = true;
+		}
+	}
 
 	// Why a login can't start, if it can't.
 	readonly property string problem: !user ? "No user found" : !session ? "No session found" : ""
@@ -337,14 +404,63 @@ ShellRoot {
 				width: root.u(300)
 				spacing: root.u(10)
 
-				Text {
-					width: parent.width
-					horizontalAlignment: Text.AlignHCenter
-					text: root.user ? root.user.name : ""
-					color: root.colors.text
-					font.pixelSize: root.u(20)
-					font.family: root.fontFamily
-					elide: Text.ElideRight
+				// The user, and the session when there's more than one: a
+				// click (or F2, F3) opens the list to pick another from.
+				Repeater {
+					id: labels
+
+					model: ["user", "session"]
+
+					Item {
+						id: label
+
+						required property string modelData
+						readonly property bool isUser: modelData === "user"
+
+						width: parent.width
+						height: name.height
+						visible: isUser || root.sessions.length > 1
+
+						Row {
+							id: row
+
+							anchors.horizontalCenter: parent.horizontalCenter
+							spacing: root.u(6)
+
+							Text {
+								id: name
+
+								width: Math.min(implicitWidth, label.width - (chevron.visible ? chevron.width + row.spacing : 0))
+								text: label.isUser ? (root.user ? root.user.name : "") : root.sessionName(root.session)
+								color: mouse.containsMouse && root.canPick(label.modelData) ? root.colors.accent
+									: label.isUser ? root.colors.text : root.colors.subtext
+								font.pixelSize: root.u(label.isUser ? 20 : 14)
+								font.family: root.fontFamily
+								elide: Text.ElideRight
+							}
+
+							Text {
+								id: chevron
+
+								anchors.verticalCenter: name.verticalCenter
+								visible: (label.isUser ? root.users : root.sessions).length > 1
+								text: "▾"
+								color: mouse.containsMouse && root.canPick(label.modelData) ? root.colors.accent : root.colors.dim
+								font.pixelSize: root.u(label.isUser ? 14 : 11)
+								font.family: root.fontFamily
+							}
+						}
+
+						MouseArea {
+							id: mouse
+
+							anchors.fill: row
+							anchors.margins: -root.u(4)
+							hoverEnabled: true
+							cursorShape: Qt.PointingHandCursor
+							onClicked: root.togglePicker(label.modelData)
+						}
+					}
 				}
 
 				Rectangle {
@@ -372,6 +488,7 @@ ShellRoot {
 							text = "";
 						}
 						Keys.onEscapePressed: text = ""
+						Keys.onPressed: event => root.pickerKey(event)
 					}
 
 					// PAM's question, or its last message (a failed attempt
@@ -437,6 +554,98 @@ ShellRoot {
 								cursorShape: Qt.PointingHandCursor
 								onClicked: root.press(parent.modelData)
 							}
+						}
+					}
+				}
+			}
+
+			// A click anywhere else closes the list.
+			MouseArea {
+				anchors.fill: parent
+				visible: root.picking !== ""
+				onClicked: root.closePicker()
+			}
+
+			Rectangle {
+				readonly property var label: labels.itemAt(root.picking === "session" ? 1 : 0)
+
+				x: form.x
+				y: label ? form.y + label.y + label.height + root.u(6) : 0
+				width: form.width
+				height: Math.min(list.count, 8) * root.u(32) + 2
+				visible: root.picking !== ""
+				color: root.colors.field
+				border.color: root.colors.dim
+				border.width: 1
+
+				ListView {
+					id: list
+
+					anchors.fill: parent
+					anchors.margins: 1
+					clip: true
+					boundsBehavior: Flickable.StopAtBounds
+					model: root.pickList
+					onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+					Keys.onReturnPressed: root.pick(currentIndex)
+					Keys.onEnterPressed: root.pick(currentIndex)
+					Keys.onEscapePressed: root.closePicker()
+					Keys.onPressed: event => root.pickerKey(event)
+
+					delegate: Item {
+						required property var modelData
+						required property int index
+
+						width: ListView.view.width
+						height: root.u(32)
+
+						Rectangle {
+							anchors.fill: parent
+							visible: list.currentIndex === parent.index
+							color: root.colors.accent
+							opacity: 0.15
+						}
+
+						// The one picked now.
+						Rectangle {
+							width: root.u(3)
+							height: parent.height
+							visible: parent.modelData.current
+							color: root.colors.accent
+						}
+
+						Text {
+							anchors.left: parent.left
+							anchors.right: detail.left
+							anchors.leftMargin: root.u(10)
+							anchors.rightMargin: root.u(10)
+							anchors.verticalCenter: parent.verticalCenter
+							text: parent.modelData.label
+							color: root.colors.text
+							font.pixelSize: root.u(15)
+							font.family: root.fontFamily
+							elide: Text.ElideRight
+						}
+
+						Text {
+							id: detail
+
+							anchors.right: parent.right
+							anchors.rightMargin: root.u(10)
+							anchors.verticalCenter: parent.verticalCenter
+							width: Math.min(implicitWidth, parent.width / 2)
+							text: parent.modelData.detail
+							color: root.colors.dim
+							font.pixelSize: root.u(13)
+							font.family: root.fontFamily
+							elide: Text.ElideRight
+						}
+
+						MouseArea {
+							anchors.fill: parent
+							hoverEnabled: true
+							onEntered: list.currentIndex = parent.index
+							onClicked: root.pick(parent.index)
 						}
 					}
 				}

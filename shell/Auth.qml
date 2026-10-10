@@ -34,6 +34,19 @@ QtObject {
 		Greetd.createSession(username);
 	}
 
+	// Starts over, for another user: the conversation going on is cancelled,
+	// and the new one waits as after a failure.
+	function restart() {
+		prompt = "";
+		message = "";
+		phase = "starting";
+		retry = true;
+		if (Greetd.state === GreetdState.Inactive)
+			retryTimer.restart();
+		else
+			Greetd.cancelSession();
+	}
+
 	function submit(text) {
 		if (phase !== "prompt")
 			return;

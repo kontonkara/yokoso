@@ -11,6 +11,8 @@ logs into.
   GPU, only Mesa's EGL is loaded, so a PRIME laptop's discrete GPU stays
   asleep.
 - PAM's prompts and messages are shown as PAM sends them.
+- With more than one account or session, a click on the name (or F2, F3)
+  picks another.
 - A clock in the system's locale, a Caps Lock warning, and the power
   buttons logind allows (a second click confirms).
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
@@ -53,8 +55,8 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 
 | Key | Default | |
 |---|---|---|
-| `user` | the first account | account to log in, listed or not (LDAP) |
-| `session` | the first one | session, by desktop file name (`niri`, `i3`); Wayland's come first |
+| `user` | the first account | account to start with, listed or not (LDAP) |
+| `session` | the first one | session to start with, by desktop file name (`niri`, `i3`); Wayland's come first |
 | `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
@@ -97,11 +99,11 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 | Key | |
 |---|---|
 | `colors.background` | behind everything, where there's no image |
-| `colors.text` | the clock, the username and what's typed |
-| `colors.subtext` | the date and hints |
-| `colors.dim` | the field's placeholder and the power buttons |
-| `colors.field` | the password field |
-| `colors.accent` | a power button under the pointer, or armed |
+| `colors.text` | the clock, the username, the lists' entries and what's typed |
+| `colors.subtext` | the date, the session and hints |
+| `colors.dim` | the field's placeholder, the power buttons and the lists' arrows |
+| `colors.field` | the password field and the user and session lists |
+| `colors.accent` | what's under the pointer, an armed power button, the picked entry in a list |
 | `colors.error` | errors and the Caps Lock warning |
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
