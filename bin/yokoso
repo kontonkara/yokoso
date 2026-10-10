@@ -153,6 +153,15 @@ users_json() {
 		}' | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
 }
 
+# The power actions logind allows us, in the buttons' order.
+power_json() {
+	for action in Suspend:suspend Reboot:reboot PowerOff:poweroff; do
+		[ "$(busctl call org.freedesktop.login1 /org/freedesktop/login1 \
+			org.freedesktop.login1.Manager "Can${action%:*}" 2>/dev/null)" = 's "yes"' ] &&
+			echo "${action#*:}"
+	done | jq -R . | jq -s .
+}
+
 # The lid's state file, on laptops, and the keyboards' Caps Lock LEDs.
 lid=
 for f in /proc/acpi/button/lid/*/state; do
@@ -163,9 +172,10 @@ caps_leds=$(for f in /sys/class/leds/*::capslock/brightness; do
 done | jq -R . | jq -s .)
 
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
-	--argjson users "$(users_json)" --arg lid "$lid" --argjson capsLeds "$caps_leds" \
-	'{screens: $screens, sessions: $sessions, users: $users, lid: $lid,
-		capsLeds: $capsLeds}' \
+	--argjson users "$(users_json)" --argjson power "$(power_json)" \
+	--arg lid "$lid" --argjson capsLeds "$caps_leds" \
+	'{screens: $screens, sessions: $sessions, users: $users, power: $power,
+		lid: $lid, capsLeds: $capsLeds}' \
 	>"$run_dir/env.json"
 
 export YOKOSO_ENV="$run_dir/env.json" YOKOSO_MODE="$mode"

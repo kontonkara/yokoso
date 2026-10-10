@@ -11,6 +11,8 @@ logs into.
   GPU, only Mesa's EGL is loaded, so a PRIME laptop's discrete GPU stays
   asleep.
 - PAM's prompts and messages are shown as PAM sends them.
+- A clock in the system's locale, a Caps Lock warning, and the power
+  buttons logind allows (a second click confirms).
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
   and logs in to the same session.
 

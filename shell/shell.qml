@@ -159,6 +159,56 @@ ShellRoot {
 		}
 	}
 
+	// Power: a button's first click arms it, a second one within 3 s acts.
+	// Outside the greeter it only says what it would run.
+	readonly property var powerLabels: ({ suspend: "Suspend", reboot: "Reboot", poweroff: "Power off" })
+	property string armed: ""
+	property string powerError: ""
+
+	function press(action) {
+		powerError = "";
+		if (armed !== action) {
+			armed = action;
+			disarm.restart();
+			return;
+		}
+		armed = "";
+		if (mode !== "greeter") {
+			console.info(`yokoso: would run systemctl ${action}`);
+			return;
+		}
+		power.action = action;
+		power.command = ["systemctl", action];
+		power.running = true;
+	}
+
+	Timer {
+		id: disarm
+
+		interval: 3000
+		onTriggered: {
+			root.armed = "";
+			root.powerError = "";
+		}
+	}
+
+	Process {
+		id: power
+
+		property string action
+
+		stderr: StdioCollector {
+			onStreamFinished: if (text)
+				console.warn(`yokoso: ${text.trim()}`)
+		}
+		onExited: code => {
+			if (code === 0)
+				return;
+			root.powerError = `${root.powerLabels[action]} failed`;
+			disarm.restart();
+		}
+	}
+
 	Auth {
 		id: auth
 
@@ -271,6 +321,46 @@ ShellRoot {
 					color: "#e66"
 					font.pixelSize: root.u(13)
 					opacity: root.capsLock ? 1 : 0
+				}
+			}
+
+			Column {
+				x: root.area.x + (root.area.width - width) / 2
+				y: root.area.y + root.area.height - height - root.u(32)
+				spacing: root.u(12)
+
+				Text {
+					anchors.horizontalCenter: parent.horizontalCenter
+					text: root.powerError || (root.armed ? `Click ${root.powerLabels[root.armed]} again` : "")
+					color: root.powerError ? "#e66" : "#aaa"
+					font.pixelSize: root.u(13)
+				}
+
+				Row {
+					anchors.horizontalCenter: parent.horizontalCenter
+					spacing: root.u(32)
+
+					Repeater {
+						model: root.env.power || []
+
+						Text {
+							required property string modelData
+
+							text: root.powerLabels[modelData] || modelData
+							color: root.armed === modelData || mouse.containsMouse ? "white" : "#777"
+							font.pixelSize: root.u(14)
+
+							MouseArea {
+								id: mouse
+
+								anchors.fill: parent
+								anchors.margins: -root.u(8)
+								hoverEnabled: true
+								cursorShape: Qt.PointingHandCursor
+								onClicked: root.press(parent.modelData)
+							}
+						}
+					}
 				}
 			}
 		}
