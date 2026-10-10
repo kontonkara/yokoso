@@ -156,7 +156,11 @@ fake() {
 case $mode in
 greeter)
 	export WLR_DRM_DEVICES="$drm_devices"
-	exec cage -s -- quickshell -p "$shell_dir"
+	# greetd leaves the greeter's output on its VT: keep it in the journal
+	# (journalctl -t yokoso) where systemd is there.
+	log=
+	command -v systemd-cat >/dev/null && log="systemd-cat -t yokoso --"
+	exec $log cage -s -- quickshell -p "$shell_dir"
 	;;
 preview)
 	fake "quickshell -p '$shell_dir'"
