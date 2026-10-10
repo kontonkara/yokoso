@@ -30,6 +30,18 @@ in
           default = { };
           description = "yokoso's config.json; unset keys keep their defaults (see the README).";
         };
+
+        themes = lib.mkOption {
+          type = lib.types.attrsOf json.type;
+          default = { };
+          example = {
+            mine = {
+              extends = "dark";
+              colors.accent = "#fab387";
+            };
+          };
+          description = "Themes by name, as /etc/yokoso/themes/<name>.json; settings.theme picks one.";
+        };
       };
     };
   };
@@ -67,7 +79,13 @@ in
     environment = {
       etc = {
         "yokoso/config.json".source = json.generate "yokoso-config.json" cfg.settings;
-      };
+      }
+      // lib.mapAttrs' (
+        name: theme:
+        lib.nameValuePair "yokoso/themes/${name}.json" {
+          source = json.generate "yokoso-theme-${name}.json" theme;
+        }
+      ) cfg.themes;
     };
 
     systemd = {

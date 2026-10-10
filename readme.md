@@ -41,8 +41,9 @@ config.
 }
 ```
 
-The module turns on greetd, writes `/etc/yokoso/config.json`, and passes on
-the keyboard layout from `services.xserver.xkb`. With `services.xserver.enable`
+The module turns on greetd, writes `/etc/yokoso/config.json` (and
+`services.yokoso.themes` into `/etc/yokoso/themes`), and passes on the
+keyboard layout from `services.xserver.xkb`. With `services.xserver.enable`
 it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 `/var/cache/yokoso`.
 
@@ -108,3 +109,4 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.
+On NixOS, `services.yokoso.themes.<name>` writes them.
