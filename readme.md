@@ -109,4 +109,5 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.
-On NixOS, `services.yokoso.themes.<name>` writes them.
+[`examples/catppuccin-mocha.json`](examples/catppuccin-mocha.json) is one to
+start from. On NixOS, `services.yokoso.themes.<name>` writes them.

@@ -1,0 +1,11 @@
+{
+  "colors": {
+    "background": "#1e1e2e",
+    "text": "#cdd6f4",
+    "subtext": "#a6adc8",
+    "dim": "#7f849c",
+    "field": "#313244",
+    "accent": "#fab387",
+    "error": "#f38ba8"
+  }
+}
