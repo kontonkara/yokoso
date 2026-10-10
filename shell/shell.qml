@@ -1,3 +1,4 @@
+import QtQml.Models
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -127,6 +128,37 @@ ShellRoot {
 		precision: SystemClock.Minutes
 	}
 
+	// Caps Lock, from the keyboards' LEDs, read every 250 ms.
+	property bool capsLock: false
+
+	Instantiator {
+		id: capsLeds
+
+		model: root.env.capsLeds || []
+		delegate: FileView {
+			required property string modelData
+
+			path: modelData
+			blockLoading: true
+			printErrors: false
+		}
+	}
+
+	Timer {
+		interval: 250
+		running: capsLeds.count > 0
+		repeat: true
+		onTriggered: {
+			let on = false;
+			for (let i = 0; i < capsLeds.count; i++) {
+				const led = capsLeds.objectAt(i);
+				led.reload();
+				on = on || Number(led.text()) > 0;
+			}
+			root.capsLock = on;
+		}
+	}
+
 	Auth {
 		id: auth
 
@@ -229,6 +261,16 @@ ShellRoot {
 						font.pixelSize: root.u(15)
 						elide: Text.ElideRight
 					}
+				}
+
+				// Hidden rather than gone, so the form doesn't move.
+				Text {
+					width: parent.width
+					horizontalAlignment: Text.AlignHCenter
+					text: "Caps Lock is on"
+					color: "#e66"
+					font.pixelSize: root.u(13)
+					opacity: root.capsLock ? 1 : 0
 				}
 			}
 		}

@@ -153,15 +153,19 @@ users_json() {
 		}' | jq -R . | jq -s '[range(0; length; 2) as $i | {name: .[$i], realName: .[$i + 1]}]'
 }
 
-# The lid's state file, on laptops.
+# The lid's state file, on laptops, and the keyboards' Caps Lock LEDs.
 lid=
 for f in /proc/acpi/button/lid/*/state; do
 	[ -e "$f" ] && lid=$f && break
 done
+caps_leds=$(for f in /sys/class/leds/*::capslock/brightness; do
+	[ -e "$f" ] && echo "$f"
+done | jq -R . | jq -s .)
 
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
-	--argjson users "$(users_json)" --arg lid "$lid" \
-	'{screens: $screens, sessions: $sessions, users: $users, lid: $lid}' \
+	--argjson users "$(users_json)" --arg lid "$lid" --argjson capsLeds "$caps_leds" \
+	'{screens: $screens, sessions: $sessions, users: $users, lid: $lid,
+		capsLeds: $capsLeds}' \
 	>"$run_dir/env.json"
 
 export YOKOSO_ENV="$run_dir/env.json" YOKOSO_MODE="$mode"
