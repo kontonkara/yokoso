@@ -83,7 +83,10 @@ QtObject {
 		}
 
 		function onError(error) {
-			auth.fail(error);
+			// While a retry waits, an error is greetd's answer to the cancel
+			// after a failure: by then (0.10) the session's worker is gone.
+			if (!auth.retry)
+				auth.fail(error);
 		}
 
 		function onReadyToLaunch() {
