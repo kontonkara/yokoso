@@ -118,7 +118,7 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
-| `animations` | a fade in at the start and out as the session starts, a shake at a wrong password, the spinner and lists that drop in; `false` for none |
+| `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner and lists that drop in; `false` for none |
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.

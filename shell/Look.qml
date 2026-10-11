@@ -9,10 +9,50 @@ Item {
 
 	required property var greeter
 
-	// Fades in from black and out to it as the session starts, a shake at
-	// a wrong password, lists that drop in: config.animations.
+	// Everything that moves (fades, slides, the shake at a wrong password,
+	// buttons answering the pointer): config.animations.
 	readonly property bool animate: !!greeter.config.animations
 	property real shaken: 1
+
+	// The form's screen in the window. When the form goes to another
+	// screen (the pointer's, with output "cursor"), it slides there.
+	property rect area: greeter.area
+
+	Behavior on area {
+		enabled: look.animate && !greeter.windowIsScreen
+
+		PropertyAnimation {
+			duration: 500
+			easing.type: Easing.InOutCubic
+		}
+	}
+
+	// The parts (0 the clock, 1 the avatar, 2 the names, 3 the field, 4
+	// the power buttons) come in one after another, rising, as `intro`
+	// goes from 0 to 1, and go up and away as `outro` does.
+	property real intro: animate ? 0 : 1
+	property real outro: 0
+
+	function entered(part) {
+		const t = Math.min(1, Math.max(0, (intro * introAnim.duration - part * 70) / 450));
+		return 1 - Math.pow(1 - t, 3);
+	}
+
+	function fade(part) {
+		return entered(part) * (1 - outro);
+	}
+
+	function lift(part) {
+		return (1 - entered(part)) * greeter.u(16) - outro * greeter.u(24);
+	}
+
+	// The user on show: the one before slides out, the new one in.
+	property var shownUser: greeter.user
+	property real userShift: 0
+	property real userFade: 1
+
+	// What's left of an armed power button's time, 1 to 0.
+	property real armLeft: 0
 
 	// Line icons on a 24x24 grid, as SVG paths.
 	readonly property var icons: ({
@@ -83,8 +123,14 @@ Item {
 			event.accepted = false;
 	}
 
-	Component.onCompleted: if (animate)
-		fadeIn.start()
+	Component.onCompleted: {
+		// From here on it changes only by userSwitch.
+		shownUser = greeter.user;
+		if (animate) {
+			fadeIn.start();
+			introAnim.start();
+		}
+	}
 
 	Connections {
 		target: greeter.auth
@@ -99,7 +145,24 @@ Item {
 				// is over.
 				fadeIn.stop();
 				fadeOut.start();
+				outroAnim.start();
 			}
+		}
+	}
+
+	Connections {
+		target: greeter
+
+		function onUserChanged() {
+			if (look.animate)
+				userSwitch.restart();
+			else
+				look.shownUser = greeter.user;
+		}
+
+		function onArmedChanged() {
+			if (greeter.armed && look.animate)
+				armCountdown.restart();
 		}
 	}
 
@@ -157,9 +220,13 @@ Item {
 	// The clock: large and light, with figures of one width so that it
 	// doesn't shift as the minutes go.
 	Column {
-		x: greeter.area.x + (greeter.area.width - width) / 2
+		x: look.area.x + (look.area.width - width) / 2
 		y: form.y - height - greeter.u(72)
 		spacing: greeter.u(2)
+		opacity: look.fade(0)
+		transform: Translate {
+			y: look.lift(0)
+		}
 
 		Text {
 			anchors.horizontalCenter: parent.horizontalCenter
@@ -188,25 +255,50 @@ Item {
 	Column {
 		id: form
 
-		x: greeter.area.x + (greeter.area.width - width) / 2
-		y: greeter.area.y + (greeter.area.height - height) / 2 + greeter.u(40)
+		x: look.area.x + (look.area.width - width) / 2
+		y: look.area.y + (look.area.height - height) / 2 + greeter.u(40)
 		width: greeter.u(340)
 		spacing: greeter.u(14)
 
 		// The user's initial in a ring of the accent; a click picks
 		// another user, like one on the name.
 		Rectangle {
+			readonly property bool hovered: avatarMouse.containsMouse && greeter.canPick("user")
+
 			anchors.horizontalCenter: parent.horizontalCenter
 			width: greeter.u(92)
 			height: width
 			radius: width / 2
 			color: Qt.alpha(greeter.colors.accent, 0.14)
 			border.width: greeter.u(2)
-			border.color: Qt.alpha(greeter.colors.accent, avatarMouse.containsMouse && greeter.canPick("user") ? 1 : 0.55)
+			border.color: Qt.alpha(greeter.colors.accent, hovered ? 1 : 0.55)
+			scale: hovered ? 1.04 : 1
+			opacity: look.fade(1) * look.userFade
+			transform: Translate {
+				x: look.userShift
+				y: look.lift(1)
+			}
+
+			Behavior on border.color {
+				enabled: look.animate
+
+				ColorAnimation {
+					duration: 150
+				}
+			}
+
+			Behavior on scale {
+				enabled: look.animate
+
+				NumberAnimation {
+					duration: 150
+					easing.type: Easing.OutCubic
+				}
+			}
 
 			Text {
 				anchors.centerIn: parent
-				text: greeter.user ? greeter.user.name.charAt(0).toUpperCase() : ""
+				text: look.shownUser ? look.shownUser.name.charAt(0).toUpperCase() : ""
 				color: greeter.colors.accent
 				font.pixelSize: greeter.u(38)
 				font.weight: Font.DemiBold
@@ -240,6 +332,11 @@ Item {
 				width: parent.width
 				height: isUser ? name.height : greeter.u(30)
 				visible: isUser || greeter.sessions.length > 1
+				opacity: look.fade(2) * (isUser ? look.userFade : 1)
+				transform: Translate {
+					x: label.isUser ? look.userShift : 0
+					y: look.lift(2)
+				}
 
 				Rectangle {
 					anchors.centerIn: row
@@ -260,7 +357,7 @@ Item {
 						id: name
 
 						width: Math.min(implicitWidth, label.width - greeter.u(40))
-						text: label.isUser ? (greeter.user ? greeter.user.name : "") : greeter.sessionName(greeter.session)
+						text: label.isUser ? (look.shownUser ? look.shownUser.name : "") : greeter.sessionName(greeter.session)
 						color: label.hovered ? greeter.colors.accent : label.isUser ? greeter.colors.text : greeter.colors.subtext
 						font.pixelSize: greeter.u(label.isUser ? 24 : 13)
 						font.weight: label.isUser ? Font.DemiBold : Font.Medium
@@ -313,9 +410,11 @@ Item {
 			border.color: error ? greeter.colors.error
 				: greeter.auth.phase === "prompt" && input.activeFocus ? Qt.alpha(greeter.colors.accent, input.text ? 0.9 : 0.4)
 				: Qt.alpha(greeter.colors.text, 0.08)
+			opacity: look.fade(3)
 			// A shake, dying down as look.shaken goes from 0 to 1.
 			transform: Translate {
 				x: Math.sin(look.shaken * Math.PI * 6) * (1 - look.shaken) * greeter.u(10)
+				y: look.lift(3)
 			}
 
 			Behavior on border.color {
@@ -373,6 +472,9 @@ Item {
 				height: width
 				radius: width / 2
 				color: ready ? greeter.colors.accent : Qt.alpha(greeter.colors.text, 0.06)
+				// It grows under the pointer and gives under a press, once
+				// there's something to send.
+				scale: !ready ? 1 : buttonMouse.pressed ? 0.9 : buttonMouse.containsMouse ? 1.08 : 1
 
 				Behavior on color {
 					enabled: look.animate
@@ -382,21 +484,81 @@ Item {
 					}
 				}
 
+				Behavior on scale {
+					enabled: look.animate
+
+					NumberAnimation {
+						duration: 150
+						easing.type: Easing.OutCubic
+					}
+				}
+
+				// The arrow: it comes up as something is typed, leans
+				// forward under the pointer, and gives way to the spinner.
 				Icon {
 					anchors.centerIn: parent
-					visible: !field.busy
 					path: look.icons.arrow
 					size: greeter.u(18)
 					color: button.ready ? greeter.colors.background : greeter.colors.dim
+					opacity: field.busy ? 0 : 1
+					scale: button.ready ? 1 : 0.8
+					transform: Translate {
+						x: button.ready && buttonMouse.containsMouse ? greeter.u(2) : 0
+
+						Behavior on x {
+							enabled: look.animate
+
+							NumberAnimation {
+								duration: 150
+								easing.type: Easing.OutCubic
+							}
+						}
+					}
+
+					Behavior on color {
+						enabled: look.animate
+
+						ColorAnimation {
+							duration: 150
+						}
+					}
+
+					Behavior on opacity {
+						enabled: look.animate
+
+						NumberAnimation {
+							duration: 150
+						}
+					}
+
+					Behavior on scale {
+						enabled: look.animate
+
+						NumberAnimation {
+							duration: 200
+							easing.type: Easing.OutBack
+						}
+					}
 				}
 
 				// Three quarters of a ring, turning.
 				Shape {
+					id: spinner
+
 					anchors.centerIn: parent
 					width: greeter.u(18)
 					height: width
-					visible: field.busy
+					visible: opacity > 0
+					opacity: field.busy ? 1 : 0
 					preferredRendererType: Shape.CurveRenderer
+
+					Behavior on opacity {
+						enabled: look.animate
+
+						NumberAnimation {
+							duration: 150
+						}
+					}
 
 					ShapePath {
 						strokeColor: greeter.colors.accent
@@ -414,7 +576,7 @@ Item {
 					}
 
 					RotationAnimator on rotation {
-						running: field.busy && look.animate
+						running: spinner.visible && look.animate
 						from: 0
 						to: 360
 						duration: 800
@@ -423,7 +585,10 @@ Item {
 				}
 
 				MouseArea {
+					id: buttonMouse
+
 					anchors.fill: parent
+					hoverEnabled: true
 					cursorShape: button.ready ? Qt.PointingHandCursor : Qt.ArrowCursor
 					onClicked: if (button.ready)
 						look.submit()
@@ -440,25 +605,48 @@ Item {
 			font.pixelSize: greeter.u(13)
 			font.weight: Font.Medium
 			font.family: greeter.fontFamily
-			opacity: greeter.capsLock ? 1 : 0
+			opacity: greeter.capsLock ? look.fade(3) : 0
+			transform: Translate {
+				y: look.lift(3)
+			}
 		}
 	}
 
 	// Power: round buttons with icons. Above them, what the one under the
 	// pointer does, or that an armed one wants a second click.
 	Column {
-		x: greeter.area.x + (greeter.area.width - width) / 2
-		y: greeter.area.y + greeter.area.height - height - greeter.u(40)
+		x: look.area.x + (look.area.width - width) / 2
+		y: look.area.y + look.area.height - height - greeter.u(40)
 		spacing: greeter.u(10)
+		opacity: look.fade(4)
+		transform: Translate {
+			y: look.lift(4)
+		}
 
+		// It fades in and out, and keeps its last words while it fades
+		// out.
 		Text {
-			anchors.horizontalCenter: parent.horizontalCenter
-			text: greeter.powerError || (greeter.armed ? `Click again to ${greeter.powerLabels[greeter.armed].toLowerCase()}`
+			readonly property string says: greeter.powerError || (greeter.armed ? `Click again to ${greeter.powerLabels[greeter.armed].toLowerCase()}`
 				: greeter.powerLabels[powerRow.hovered] || "")
+			property string said: ""
+
+			anchors.horizontalCenter: parent.horizontalCenter
+			text: says || said
+			opacity: says ? 1 : 0
 			color: greeter.powerError ? greeter.colors.error : greeter.armed ? greeter.colors.accent : greeter.colors.subtext
 			font.pixelSize: greeter.u(13)
 			font.weight: Font.Medium
 			font.family: greeter.fontFamily
+			onSaysChanged: if (says)
+				said = says
+
+			Behavior on opacity {
+				enabled: look.animate
+
+				NumberAnimation {
+					duration: 150
+				}
+			}
 		}
 
 		Row {
@@ -483,6 +671,7 @@ Item {
 					height: width
 					radius: width / 2
 					color: armed ? greeter.colors.accent : Qt.alpha(greeter.colors.text, powerMouse.containsMouse ? 0.1 : 0.04)
+					scale: powerMouse.pressed ? 0.92 : powerMouse.containsMouse ? 1.08 : 1
 
 					Behavior on color {
 						enabled: look.animate
@@ -492,11 +681,48 @@ Item {
 						}
 					}
 
+					Behavior on scale {
+						enabled: look.animate
+
+						NumberAnimation {
+							duration: 150
+							easing.type: Easing.OutCubic
+						}
+					}
+
 					Icon {
 						anchors.centerIn: parent
 						path: look.icons[power.modelData] || look.icons.poweroff
 						size: greeter.u(20)
 						color: power.armed ? greeter.colors.background : powerMouse.containsMouse ? greeter.colors.text : greeter.colors.subtext
+					}
+
+					// Armed, a ring around it runs out as the time for the
+					// second click does.
+					Shape {
+						id: countdown
+
+						anchors.centerIn: parent
+						width: parent.width + greeter.u(12)
+						height: width
+						visible: power.armed && look.animate
+						preferredRendererType: Shape.CurveRenderer
+
+						ShapePath {
+							strokeColor: greeter.colors.accent
+							strokeWidth: greeter.u(2)
+							fillColor: "transparent"
+							capStyle: ShapePath.RoundCap
+
+							PathAngleArc {
+								centerX: countdown.width / 2
+								centerY: countdown.height / 2
+								radiusX: countdown.width / 2 - greeter.u(1)
+								radiusY: radiusX
+								startAngle: -90
+								sweepAngle: 360 * look.armLeft
+							}
+						}
 					}
 
 					MouseArea {
@@ -685,14 +911,96 @@ Item {
 		easing.type: Easing.OutQuad
 	}
 
-	NumberAnimation {
+	// After the form has begun to leave; the core gives it 450 ms.
+	SequentialAnimation {
 		id: fadeOut
 
-		target: curtain
-		property: "opacity"
+		PauseAnimation {
+			duration: 120
+		}
+
+		NumberAnimation {
+			target: curtain
+			property: "opacity"
+			to: 1
+			duration: 300
+			easing.type: Easing.InQuad
+		}
+	}
+
+	NumberAnimation {
+		id: introAnim
+
+		target: look
+		property: "intro"
+		from: 0
 		to: 1
-		duration: 300
-		easing.type: Easing.InQuad
+		duration: 4 * 70 + 450
+	}
+
+	NumberAnimation {
+		id: outroAnim
+
+		target: look
+		property: "outro"
+		to: 1
+		duration: 350
+		easing.type: Easing.InOutQuad
+	}
+
+	SequentialAnimation {
+		id: userSwitch
+
+		ParallelAnimation {
+			NumberAnimation {
+				target: look
+				property: "userFade"
+				to: 0
+				duration: 120
+			}
+
+			NumberAnimation {
+				target: look
+				property: "userShift"
+				to: -greeter.u(24)
+				duration: 120
+				easing.type: Easing.InCubic
+			}
+		}
+
+		ScriptAction {
+			script: {
+				look.shownUser = greeter.user;
+				look.userShift = greeter.u(24);
+			}
+		}
+
+		ParallelAnimation {
+			NumberAnimation {
+				target: look
+				property: "userFade"
+				to: 1
+				duration: 180
+			}
+
+			NumberAnimation {
+				target: look
+				property: "userShift"
+				to: 0
+				duration: 220
+				easing.type: Easing.OutCubic
+			}
+		}
+	}
+
+	NumberAnimation {
+		id: armCountdown
+
+		target: look
+		property: "armLeft"
+		from: 1
+		to: 0
+		duration: greeter.armedFor
 	}
 
 	NumberAnimation {

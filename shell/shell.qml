@@ -397,11 +397,12 @@ ShellRoot {
 	}
 
 	// Power: the actions logind allows ("suspend", "reboot", "poweroff"). A
-	// press() arms one, a second within 3 s acts. Outside the greeter it
-	// only says what it would run.
+	// press() arms one, a second within armedFor ms acts. Outside the greeter
+	// it only says what it would run.
 	readonly property var power: env.power || []
 	readonly property var powerLabels: ({ suspend: "Suspend", reboot: "Reboot", poweroff: "Power off" })
 	property string armed: ""
+	readonly property int armedFor: 3000
 	property string powerError: ""
 
 	function press(action) {
@@ -424,7 +425,7 @@ ShellRoot {
 	Timer {
 		id: disarm
 
-		interval: 3000
+		interval: root.armedFor
 		onTriggered: {
 			root.armed = "";
 			root.powerError = "";
@@ -455,7 +456,7 @@ ShellRoot {
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
 		x11Wrapper: root.config.x11Wrapper
-		launchDelay: root.config.animations ? 400 : 0
+		launchDelay: root.config.animations ? 450 : 0
 	}
 
 	Connections {
