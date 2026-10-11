@@ -39,6 +39,7 @@ QtObject {
 	function restart() {
 		prompt = "";
 		message = "";
+		messageIsError = false;
 		phase = "starting";
 		retry = true;
 		if (Greetd.state === GreetdState.Inactive)
@@ -52,6 +53,7 @@ QtObject {
 			return;
 		phase = "verifying";
 		message = "";
+		messageIsError = false;
 		Greetd.respond(text);
 	}
 
