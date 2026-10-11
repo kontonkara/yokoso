@@ -109,7 +109,8 @@ JSON file: `"theme": "mine"` reads `themes/mine.json` next to the config
 
 Every key is optional. A theme goes on top of the one it `extends` (`dark`
 when it doesn't say), and the config's own keys go on top of the theme, so
-`"colors": {"accent": "#fab387"}` in the config changes just that.
+`"colors": {"accent": "#fab387"}` in the config changes just that (`layout`
+merges the same way).
 
 | Key | |
 |---|---|
@@ -124,7 +125,15 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
 | `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner and lists that drop in; `false` for none |
-| `status` | what the top right corner shows: `"hostname"`, `"battery"` (a laptop's), both by default; `[]` for nothing |
+| `status` | what a top corner shows: `"hostname"`, `"battery"` (a laptop's), both by default; `[]` for nothing |
+| `layout.form` | the form in the `"center"` of the screen, on the `"left"` or on the `"right"` |
+| `layout.clock` | the clock `"above"` the form, at the `"top"` of the screen, or `"none"` |
+| `layout.power` | the power buttons at the `"bottom"`, in its right `"corner"`, or `"none"` |
+| `layout.status` | the status in the `"top-right"` or `"top-left"` corner |
+| `clockFormat` | the time as a [Qt format](https://doc.qt.io/qt-6/qml-qtqml-qt.html#formatDateTime-method) (`"HH:mm"`); `""` for the locale's short one |
+| `dateFormat` | the date likewise (`"dddd d MMMM"`); `""` for the locale's long one without the year |
+| `radius` | the corners of the field, the buttons, the lists and the avatar, in pixels; `null` for round |
+| `fieldWidth` | the form's width, in pixels |
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.

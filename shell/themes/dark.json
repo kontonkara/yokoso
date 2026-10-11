@@ -12,5 +12,15 @@
   "background": "",
   "backgroundDim": 0.4,
   "animations": true,
-  "status": ["hostname", "battery"]
+  "status": ["hostname", "battery"],
+  "layout": {
+    "form": "center",
+    "clock": "above",
+    "power": "bottom",
+    "status": "top-right"
+  },
+  "clockFormat": "",
+  "dateFormat": "",
+  "radius": null,
+  "fieldWidth": 340
 }

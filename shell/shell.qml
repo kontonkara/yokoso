@@ -37,7 +37,8 @@ ShellRoot {
 	readonly property var env: parse(envFile.text())
 
 	// Every config key, with its default, over the theme the launcher put
-	// together (themes/dark.json has its keys); colors merge key by key.
+	// together (themes/dark.json has its keys); colors and layout merge key
+	// by key.
 	readonly property var configFile: parse(configFileView.text())
 	readonly property var theme: env.theme || {}
 	readonly property var config: Object.assign({
@@ -59,6 +60,7 @@ ShellRoot {
 		x11Wrapper: "startx /usr/bin/env",
 	}, theme, configFile, {
 		colors: Object.assign({}, theme.colors, configFile.colors),
+		layout: Object.assign({}, theme.layout, configFile.layout),
 	})
 	readonly property var colors: config.colors
 

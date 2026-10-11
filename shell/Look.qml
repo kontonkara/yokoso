@@ -15,6 +15,17 @@ Item {
 	readonly property bool animate: !!greeter.config.animations
 	property real shaken: 1
 
+	// Where the parts go, and how round they are (the theme's layout and
+	// radius; see the README).
+	readonly property var layout: greeter.config.layout || {}
+	readonly property real radius: typeof greeter.config.radius === "number" ? greeter.u(greeter.config.radius) : -1
+
+	// The corner radius for something `size` across: round, unless the
+	// theme sets one; `inset`, how far inside a rounded thing it sits.
+	function round(size, inset) {
+		return radius < 0 ? size / 2 : Math.min(size / 2, Math.max(0, radius - (inset || 0)));
+	}
+
 	// The form's screen in the window. When the form goes to another
 	// screen (the pointer's, with output "cursor"), it slides there.
 	property rect area: greeter.area
@@ -220,10 +231,14 @@ Item {
 	}
 
 	// The clock: large and light, with figures of one width so that it
-	// doesn't shift as the minutes go.
+	// doesn't shift as the minutes go. Above the form, or at the top of
+	// the screen (layout.clock).
 	Column {
-		x: look.area.x + (look.area.width - width) / 2
-		y: form.y - height - greeter.u(72)
+		readonly property bool atTop: look.layout.clock === "top"
+
+		x: atTop ? look.area.x + (look.area.width - width) / 2 : form.x + (form.width - width) / 2
+		y: atTop ? look.area.y + greeter.u(72) : form.y - height - greeter.u(72)
+		visible: look.layout.clock !== "none"
 		spacing: greeter.u(2)
 		opacity: look.fade(0)
 		transform: Translate {
@@ -232,7 +247,8 @@ Item {
 
 		Text {
 			anchors.horizontalCenter: parent.horizontalCenter
-			text: greeter.now.toLocaleTimeString(greeter.locale, Locale.ShortFormat)
+			text: greeter.config.clockFormat ? greeter.now.toLocaleTimeString(greeter.locale, greeter.config.clockFormat)
+				: greeter.now.toLocaleTimeString(greeter.locale, Locale.ShortFormat)
 			color: greeter.colors.text
 			font.pixelSize: greeter.u(120)
 			font.weight: Font.Light
@@ -241,11 +257,12 @@ Item {
 			font.family: greeter.fontFamily
 		}
 
-		// The locale's long date, without the year.
+		// The theme's dateFormat, else the locale's long date without the
+		// year.
 		Text {
 			anchors.horizontalCenter: parent.horizontalCenter
-			text: greeter.now.toLocaleDateString(greeter.locale,
-				greeter.locale.dateFormat(Locale.LongFormat).replace(/[\s,.]*y+[^dM]*/, "")).toUpperCase()
+			text: greeter.now.toLocaleDateString(greeter.locale, greeter.config.dateFormat
+				|| greeter.locale.dateFormat(Locale.LongFormat).replace(/[\s,.]*y+[^dM]*/, "")).toUpperCase()
 			color: greeter.colors.subtext
 			font.pixelSize: greeter.u(15)
 			font.weight: Font.Medium
@@ -254,11 +271,12 @@ Item {
 		}
 	}
 
-	// Top right, what the theme's `status` lists: "hostname", "battery".
+	// In a top corner (layout.status), what the theme's `status` lists:
+	// "hostname", "battery".
 	Row {
 		readonly property var shows: greeter.config.status || []
 
-		x: look.area.x + look.area.width - width - greeter.u(28)
+		x: look.layout.status === "top-left" ? look.area.x + greeter.u(28) : look.area.x + look.area.width - width - greeter.u(28)
 		y: look.area.y + greeter.u(24)
 		spacing: greeter.u(18)
 		opacity: look.fade(0)
@@ -343,12 +361,18 @@ Item {
 		}
 	}
 
+	// In the middle of the screen, or to one side (layout.form); a little
+	// low when the clock is above it.
 	Column {
 		id: form
 
-		x: look.area.x + (look.area.width - width) / 2
-		y: look.area.y + (look.area.height - height) / 2 + greeter.u(40)
-		width: greeter.u(340)
+		readonly property real side: Math.max(greeter.u(64), look.area.width * 0.1)
+
+		x: look.layout.form === "left" ? look.area.x + side
+			: look.layout.form === "right" ? look.area.x + look.area.width - width - side
+			: look.area.x + (look.area.width - width) / 2
+		y: look.area.y + (look.area.height - height) / 2 + (look.layout.clock === "above" ? greeter.u(40) : 0)
+		width: greeter.u(greeter.config.fieldWidth || 340)
 		spacing: greeter.u(14)
 
 		// The user's picture, or else their initial, in a ring of the
@@ -361,7 +385,7 @@ Item {
 			anchors.horizontalCenter: parent.horizontalCenter
 			width: greeter.u(92)
 			height: width
-			radius: width / 2
+			radius: look.round(width)
 			color: Qt.alpha(greeter.colors.accent, 0.14)
 			scale: hovered ? 1.04 : 1
 			opacity: look.fade(1) * look.userFade
@@ -410,7 +434,7 @@ Item {
 
 				Rectangle {
 					anchors.fill: parent
-					radius: width / 2
+					radius: look.round(width)
 				}
 			}
 
@@ -427,7 +451,7 @@ Item {
 			// The ring, over the picture's edge.
 			Rectangle {
 				anchors.fill: parent
-				radius: width / 2
+				radius: look.round(width)
 				color: "transparent"
 				border.width: greeter.u(2)
 				border.color: Qt.alpha(greeter.colors.accent, avatar.hovered ? 1 : 0.55)
@@ -478,7 +502,7 @@ Item {
 					anchors.centerIn: row
 					width: row.width + greeter.u(24)
 					height: greeter.u(30)
-					radius: height / 2
+					radius: look.round(height)
 					visible: !label.isUser
 					color: Qt.alpha(greeter.colors.text, label.hovered ? 0.12 : 0.06)
 				}
@@ -540,7 +564,7 @@ Item {
 
 			width: parent.width
 			height: greeter.u(50)
-			radius: height / 2
+			radius: look.round(height)
 			color: greeter.colors.field
 			border.width: greeter.u(2)
 			border.color: error ? greeter.colors.error
@@ -606,7 +630,7 @@ Item {
 				anchors.verticalCenter: parent.verticalCenter
 				width: greeter.u(36)
 				height: width
-				radius: width / 2
+				radius: look.round(width, greeter.u(7))
 				color: ready ? greeter.colors.accent : Qt.alpha(greeter.colors.text, 0.06)
 				// It grows under the pointer and gives under a press, once
 				// there's something to send.
@@ -748,11 +772,15 @@ Item {
 		}
 	}
 
-	// Power: round buttons with icons. Above them, what the one under the
-	// pointer does, or that an armed one wants a second click.
+	// Power: round buttons with icons, at the bottom or in its right
+	// corner (layout.power). Above them, what the one under the pointer
+	// does, or that an armed one wants a second click.
 	Column {
-		x: look.area.x + (look.area.width - width) / 2
-		y: look.area.y + look.area.height - height - greeter.u(40)
+		readonly property bool corner: look.layout.power === "corner"
+
+		x: corner ? look.area.x + look.area.width - width - greeter.u(32) : look.area.x + (look.area.width - width) / 2
+		y: look.area.y + look.area.height - height - greeter.u(corner ? 32 : 40)
+		visible: look.layout.power !== "none"
 		spacing: greeter.u(10)
 		opacity: look.fade(4)
 		transform: Translate {
@@ -805,7 +833,7 @@ Item {
 
 					width: greeter.u(48)
 					height: width
-					radius: width / 2
+					radius: look.round(width)
 					color: armed ? greeter.colors.accent : Qt.alpha(greeter.colors.text, powerMouse.containsMouse ? 0.1 : 0.04)
 					scale: powerMouse.pressed ? 0.92 : powerMouse.containsMouse ? 1.08 : 1
 
@@ -897,7 +925,7 @@ Item {
 		width: form.width
 		height: Math.min(list.count, 8) * greeter.u(40) + greeter.u(12)
 		visible: look.picking !== ""
-		radius: greeter.u(16)
+		radius: look.radius < 0 ? greeter.u(16) : look.radius
 		color: greeter.colors.field
 		border.color: Qt.alpha(greeter.colors.text, 0.1)
 		border.width: 1
@@ -925,7 +953,7 @@ Item {
 
 				Rectangle {
 					anchors.fill: parent
-					radius: greeter.u(10)
+					radius: Math.max(0, popup.radius - greeter.u(6))
 					visible: list.currentIndex === parent.index
 					color: Qt.alpha(greeter.colors.accent, 0.15)
 				}
