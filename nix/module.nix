@@ -42,6 +42,13 @@ in
           };
           description = "Themes by name, as /etc/yokoso/themes/<name>.json; settings.theme picks one.";
         };
+
+        avatars = lib.mkOption {
+          type = lib.types.attrsOf lib.types.path;
+          default = { };
+          example = lib.literalExpression "{ alice = ./alice.png; }";
+          description = "Pictures by user name, as /etc/yokoso/avatars/<name>; AccountsService's are used for the rest.";
+        };
       };
     };
   };
@@ -85,7 +92,10 @@ in
         lib.nameValuePair "yokoso/themes/${name}.json" {
           source = json.generate "yokoso-theme-${name}.json" theme;
         }
-      ) cfg.themes;
+      ) cfg.themes
+      // lib.mapAttrs' (
+        name: picture: lib.nameValuePair "yokoso/avatars/${name}" { source = picture; }
+      ) cfg.avatars;
     };
 
     systemd = {

@@ -72,6 +72,11 @@ The last login is kept in `/var/lib/yokoso/state.json`, so the greeter's
 account has to own `/var/lib/yokoso` (the NixOS module makes it). Without
 it nothing is remembered, and `user` and `session` decide.
 
+A user's picture is `avatars/<name>` next to the config
+(`/etc/yokoso/avatars/alice`, in any format Qt reads), else AccountsService's
+(`/var/lib/AccountsService/icons/alice`); without one, it's their initial. On
+NixOS, `services.yokoso.avatars.alice = ./alice.png;` puts it there.
+
 With several screens the form goes on `output`, else on a laptop's own panel,
 or on an external screen while the lid is closed, else on the first screen.
 The other screens stay black. With `cursor`, the form starts there too and

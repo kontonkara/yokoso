@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Shapes
 
 // The built-in look: the clock, the form and the power buttons over the
@@ -260,9 +261,11 @@ Item {
 		width: greeter.u(340)
 		spacing: greeter.u(14)
 
-		// The user's initial in a ring of the accent; a click picks
-		// another user, like one on the name.
+		// The user's picture, or else their initial, in a ring of the
+		// accent; a click picks another user, like one on the name.
 		Rectangle {
+			id: avatar
+
 			readonly property bool hovered: avatarMouse.containsMouse && greeter.canPick("user")
 
 			anchors.horizontalCenter: parent.horizontalCenter
@@ -270,21 +273,11 @@ Item {
 			height: width
 			radius: width / 2
 			color: Qt.alpha(greeter.colors.accent, 0.14)
-			border.width: greeter.u(2)
-			border.color: Qt.alpha(greeter.colors.accent, hovered ? 1 : 0.55)
 			scale: hovered ? 1.04 : 1
 			opacity: look.fade(1) * look.userFade
 			transform: Translate {
 				x: look.userShift
 				y: look.lift(1)
-			}
-
-			Behavior on border.color {
-				enabled: look.animate
-
-				ColorAnimation {
-					duration: 150
-				}
 			}
 
 			Behavior on scale {
@@ -296,13 +289,66 @@ Item {
 				}
 			}
 
+			Image {
+				id: picture
+
+				anchors.fill: parent
+				visible: false
+				source: look.shownUser && look.shownUser.icon ? "file://" + look.shownUser.icon.split("/").map(encodeURIComponent).join("/") : ""
+				sourceSize: Qt.size(width * greeter.dpr, height * greeter.dpr)
+				fillMode: Image.PreserveAspectCrop
+				asynchronous: true
+			}
+
+			// The picture, cut round.
+			MultiEffect {
+				anchors.fill: parent
+				visible: picture.status === Image.Ready
+				source: picture
+				maskEnabled: true
+				maskSource: round
+				maskThresholdMin: 0.5
+				maskSpreadAtMin: 1
+			}
+
+			Item {
+				id: round
+
+				anchors.fill: parent
+				visible: false
+				layer.enabled: true
+
+				Rectangle {
+					anchors.fill: parent
+					radius: width / 2
+				}
+			}
+
 			Text {
 				anchors.centerIn: parent
+				visible: picture.status !== Image.Ready
 				text: look.shownUser ? look.shownUser.name.charAt(0).toUpperCase() : ""
 				color: greeter.colors.accent
 				font.pixelSize: greeter.u(38)
 				font.weight: Font.DemiBold
 				font.family: greeter.fontFamily
+			}
+
+			// The ring, over the picture's edge.
+			Rectangle {
+				anchors.fill: parent
+				radius: width / 2
+				color: "transparent"
+				border.width: greeter.u(2)
+				border.color: Qt.alpha(greeter.colors.accent, avatar.hovered ? 1 : 0.55)
+
+				Behavior on border.color {
+					enabled: look.animate
+
+					ColorAnimation {
+						duration: 150
+					}
+				}
 			}
 
 			MouseArea {
