@@ -285,6 +285,43 @@ ShellRoot {
 		}
 	}
 
+	// The machine's name, and its battery as { level (0 to 100), plugged },
+	// or null without one, read every 10 s.
+	readonly property string hostname: env.hostname || ""
+	property var battery: null
+
+	FileView {
+		id: batteryLevel
+
+		path: root.env.battery ? `${root.env.battery}/capacity` : ""
+		blockLoading: true
+		printErrors: false
+	}
+
+	FileView {
+		id: batteryStatus
+
+		path: root.env.battery ? `${root.env.battery}/status` : ""
+		blockLoading: true
+		printErrors: false
+	}
+
+	Timer {
+		interval: 10000
+		running: !!root.env.battery
+		repeat: true
+		triggeredOnStart: true
+		onTriggered: {
+			batteryLevel.reload();
+			batteryStatus.reload();
+			const level = parseInt(batteryLevel.text());
+			root.battery = isNaN(level) ? null : {
+				level: Math.max(0, Math.min(100, level)),
+				plugged: batteryStatus.text().trim() !== "Discharging",
+			};
+		}
+	}
+
 	// Idle: after config.idle seconds without input the screen goes dark
 	// and its backlights low (logind lets the session's owner set them),
 	// until any input wakes it. The pointer is watched here; the look

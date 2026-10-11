@@ -234,6 +234,17 @@ caps_leds=$(for f in /sys/class/leds/*::capslock/brightness; do
 	[ -e "$f" ] && echo "$f"
 done | jq -R . | jq -s .)
 
+# The machine's battery, not a mouse's or a keyboard's (their scope is
+# "Device").
+battery=
+for d in /sys/class/power_supply/*; do
+	if [ "$(cat "$d/type" 2>/dev/null)" = Battery ] && [ "$(cat "$d/scope" 2>/dev/null)" != Device ] &&
+		[ "$(cat "$d/present" 2>/dev/null || echo 1)" = 1 ]; then
+		battery=$d
+		break
+	fi
+done
+
 # Backlights, to dim when idle, but not an NVIDIA GPU's while it drives no
 # screen: reading one would wake the GPU.
 backlights=$(for b in /sys/class/backlight/*; do
@@ -250,10 +261,11 @@ done | jq -s .)
 
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
 	--argjson users "$(users_json)" --argjson power "$(power_json)" \
-	--argjson theme "$(theme_json)" \
-	--arg lid "$lid" --argjson capsLeds "$caps_leds" --argjson backlights "$backlights" \
+	--argjson theme "$(theme_json)" --arg hostname "$(cat /proc/sys/kernel/hostname 2>/dev/null)" \
+	--arg lid "$lid" --argjson capsLeds "$caps_leds" --argjson backlights "$backlights" --arg battery "$battery" \
 	'{screens: $screens, sessions: $sessions, users: $users, power: $power,
-		lid: $lid, capsLeds: $capsLeds, backlights: $backlights, theme: $theme}' \
+		lid: $lid, capsLeds: $capsLeds, backlights: $backlights, battery: $battery,
+		hostname: $hostname, theme: $theme}' \
 	>"$run_dir/env.json"
 
 # Who logged in last and with which session, written at a login: in

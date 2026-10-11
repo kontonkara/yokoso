@@ -62,6 +62,7 @@ Item {
 		suspend: "M12 3a6.5 6.5 0 0 0 9 9A9 9 0 1 1 12 3z",
 		arrow: "M5 12h14 M13 6l6 6-6 6",
 		chevron: "M6 9l6 6 6-6",
+		bolt: "M13 3L5 13h6l-1 8 8-10h-6l1-8z",
 	})
 
 	// The list open under the user's or the session's name: "user",
@@ -250,6 +251,95 @@ Item {
 			font.weight: Font.Medium
 			font.letterSpacing: greeter.u(3)
 			font.family: greeter.fontFamily
+		}
+	}
+
+	// Top right, what the theme's `status` lists: "hostname", "battery".
+	Row {
+		readonly property var shows: greeter.config.status || []
+
+		x: look.area.x + look.area.width - width - greeter.u(28)
+		y: look.area.y + greeter.u(24)
+		spacing: greeter.u(18)
+		opacity: look.fade(0)
+		transform: Translate {
+			y: look.lift(0)
+		}
+
+		Text {
+			anchors.verticalCenter: parent.verticalCenter
+			visible: parent.shows.includes("hostname") && text !== ""
+			text: greeter.hostname
+			color: greeter.colors.subtext
+			font.pixelSize: greeter.u(13)
+			font.weight: Font.Medium
+			font.family: greeter.fontFamily
+		}
+
+		// The battery: a gauge, a bolt while it's plugged in, the level;
+		// in the error color when low and not plugged in.
+		Row {
+			readonly property var battery: greeter.battery
+			readonly property color tint: battery && battery.level <= 15 && !battery.plugged ? greeter.colors.error : greeter.colors.subtext
+
+			anchors.verticalCenter: parent.verticalCenter
+			visible: parent.shows.includes("battery") && battery !== null
+			spacing: greeter.u(6)
+
+			Icon {
+				anchors.verticalCenter: parent.verticalCenter
+				visible: parent.battery !== null && parent.battery.plugged
+				path: look.icons.bolt
+				size: greeter.u(14)
+				color: parent.tint
+			}
+
+			Item {
+				anchors.verticalCenter: parent.verticalCenter
+				width: greeter.u(26)
+				height: greeter.u(13)
+
+				Rectangle {
+					id: cell
+
+					width: parent.width - greeter.u(3)
+					height: parent.height
+					radius: greeter.u(3)
+					color: "transparent"
+					border.width: Math.max(1, greeter.u(1.5))
+					border.color: parent.parent.tint
+				}
+
+				Rectangle {
+					x: cell.width + greeter.u(1)
+					anchors.verticalCenter: parent.verticalCenter
+					width: greeter.u(2)
+					height: greeter.u(5)
+					radius: greeter.u(1)
+					color: parent.parent.tint
+				}
+
+				Rectangle {
+					readonly property real inset: cell.border.width + greeter.u(1.5)
+
+					x: inset
+					y: inset
+					width: Math.max(greeter.u(2), (cell.width - inset * 2) * (parent.parent.battery ? parent.parent.battery.level : 0) / 100)
+					height: cell.height - inset * 2
+					radius: greeter.u(1)
+					color: parent.parent.tint
+				}
+			}
+
+			Text {
+				anchors.verticalCenter: parent.verticalCenter
+				text: parent.battery ? `${parent.battery.level}%` : ""
+				color: parent.tint
+				font.pixelSize: greeter.u(13)
+				font.weight: Font.Medium
+				font.features: { "tnum": 1 }
+				font.family: greeter.fontFamily
+			}
 		}
 	}
 

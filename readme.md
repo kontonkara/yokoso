@@ -115,15 +115,16 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 |---|---|
 | `colors.background` | behind everything, where there's no image |
 | `colors.text` | the clock, the username, the lists' entries, what's typed and the icon of a power button under the pointer |
-| `colors.subtext` | the date, the session, hints and the power buttons' icons |
+| `colors.subtext` | the date, the session, hints, the power buttons' icons and the status in the corner |
 | `colors.dim` | the field's placeholder, its arrow until something is typed and the arrows by the names |
 | `colors.field` | the password field and the user and session lists |
 | `colors.accent` | the avatar, what's under the pointer, an armed power button, the picked entry in a list, the field's outline and its button once something is typed, and the spinner while a password is checked |
-| `colors.error` | errors (and the field's outline with one) and the Caps Lock warning |
+| `colors.error` | errors (and the field's outline with one), the Caps Lock warning and a low battery |
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
 | `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner and lists that drop in; `false` for none |
+| `status` | what the top right corner shows: `"hostname"`, `"battery"` (a laptop's), both by default; `[]` for nothing |
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.

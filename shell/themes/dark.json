@@ -11,5 +11,6 @@
   "font": "",
   "background": "",
   "backgroundDim": 0.4,
-  "animations": true
+  "animations": true,
+  "status": ["hostname", "battery"]
 }
