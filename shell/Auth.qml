@@ -11,7 +11,12 @@ QtObject {
 	// config.x11Wrapper: an X11 session's command goes after it, as greetd
 	// starts only the command, not an X server.
 	required property string x11Wrapper
+	// What a failed attempt says, unless PAM said why: a wrong password; a
+	// password to change, which greetd (0.10) can't do; an account PAM
+	// turns away.
 	property string failedText: "Wrong password"
+	property string expiredText: "The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)"
+	property string deniedText: "This account can't log in now"
 	// How long "launching" lasts before the session starts: the look's
 	// time to fade out.
 	property int launchDelay: 0
@@ -109,8 +114,15 @@ QtObject {
 			}
 		}
 
+		// greetd's word for it: "pam_authenticate: AUTH_ERR",
+		// "pam_acct_mgmt: NEW_AUTHTOK_REQD", ...
 		function onAuthFailure(message) {
-			auth.fail(auth.failedText);
+			if (message.includes("NEW_AUTHTOK_REQD"))
+				auth.fail(auth.expiredText);
+			else if (auth.messageIsError && auth.message)
+				auth.fail(auth.message);
+			else
+				auth.fail(message.startsWith("pam_acct_mgmt") ? auth.deniedText : auth.failedText);
 		}
 
 		function onError(error) {

@@ -11,5 +11,7 @@
   "Click again to power off": "Нажмите ещё раз, чтобы выключить",
   "Suspend failed": "Не удалось уйти в сон",
   "Reboot failed": "Не удалось перезагрузить",
-  "Power off failed": "Не удалось выключить"
+  "Power off failed": "Не удалось выключить",
+  "The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)": "Пароль устарел: смените его командой passwd в текстовой консоли (Ctrl+Alt+F2)",
+  "This account can't log in now": "Этой учётной записи сейчас нельзя войти"
 }

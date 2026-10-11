@@ -10,7 +10,9 @@ logs into.
 - Only the GPU that drives the screens is used. With no screen on an NVIDIA
   GPU, only Mesa's EGL is loaded, so a PRIME laptop's discrete GPU stays
   asleep.
-- PAM's prompts and messages are shown as PAM sends them.
+- PAM's prompts and messages are shown as PAM sends them, a fingerprint
+  reader's included; one too long for the field goes under it. greetd can't
+  change an expired password, so for one yokoso says where to change it.
 - With more than one account or session, a click on the name (or F2, F3)
   picks another, and the next login starts with the last one's.
 - After a minute without input the screen goes dark and a laptop's backlight

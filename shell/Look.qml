@@ -739,16 +739,28 @@ Item {
 			}
 
 			// PAM's question, or its last message (a failed attempt
-			// included) until something is typed.
+			// included) until something is typed; a message too long for
+			// the field goes under it (`note`).
 			Text {
+				id: placeholder
+
+				readonly property bool messageFits: messageWidth.advanceWidth <= input.width
+
 				anchors.fill: input
 				verticalAlignment: Text.AlignVCenter
 				visible: input.text === ""
-				text: greeter.problem || greeter.auth.message || greeter.auth.prompt.replace(/:\s*$/, "")
-				color: greeter.auth.messageIsError || greeter.problem ? greeter.colors.error : greeter.colors.dim
+				text: greeter.problem || (messageFits ? greeter.auth.message : "") || greeter.auth.prompt.replace(/:\s*$/, "")
+				color: greeter.problem || greeter.auth.messageIsError && messageFits && greeter.auth.message ? greeter.colors.error : greeter.colors.dim
 				font.pixelSize: greeter.u(16)
 				font.family: greeter.fontFamily
 				elide: Text.ElideRight
+
+				TextMetrics {
+					id: messageWidth
+
+					font: placeholder.font
+					text: greeter.auth.message
+				}
 			}
 
 			Rectangle {
@@ -887,30 +899,57 @@ Item {
 			}
 		}
 
-		// Hidden rather than gone, so the form doesn't move.
-		Text {
-			id: caps
-
-			// Fading in and out on its own, apart from the way in and out.
-			property real shown: greeter.capsLock ? 1 : 0
-
+		// A line under the field, kept so that the form doesn't move: a
+		// message too long for the field (onto more lines below, if it
+		// must), else the Caps Lock warning.
+		Item {
 			width: parent.width
-			horizontalAlignment: Text.AlignHCenter
-			text: greeter.tr("Caps Lock is on")
-			color: greeter.colors.error
-			font.pixelSize: greeter.u(13)
-			font.weight: Font.Medium
-			font.family: greeter.fontFamily
-			opacity: shown * look.fade(3)
+			height: caps.implicitHeight
+			opacity: look.fade(3)
 			transform: Translate {
-				y: look.lift(3) + (1 - caps.shown) * -greeter.u(4)
+				y: look.lift(3)
 			}
 
-			Behavior on shown {
-				enabled: look.animate
+			Text {
+				id: note
 
-				NumberAnimation {
-					duration: 180
+				readonly property bool shown: greeter.auth.message !== "" && !placeholder.messageFits
+
+				width: parent.width
+				horizontalAlignment: Text.AlignHCenter
+				visible: shown
+				text: shown ? greeter.auth.message : ""
+				color: greeter.auth.messageIsError ? greeter.colors.error : greeter.colors.subtext
+				font.pixelSize: greeter.u(13)
+				font.weight: Font.Medium
+				font.family: greeter.fontFamily
+				wrapMode: Text.Wrap
+			}
+
+			Text {
+				id: caps
+
+				// Fading in and out on its own.
+				property real shown: greeter.capsLock && !note.shown ? 1 : 0
+
+				width: parent.width
+				horizontalAlignment: Text.AlignHCenter
+				text: greeter.tr("Caps Lock is on")
+				color: greeter.colors.error
+				font.pixelSize: greeter.u(13)
+				font.weight: Font.Medium
+				font.family: greeter.fontFamily
+				opacity: shown
+				transform: Translate {
+					y: (1 - caps.shown) * -greeter.u(4)
+				}
+
+				Behavior on shown {
+					enabled: look.animate
+
+					NumberAnimation {
+						duration: 180
+					}
 				}
 			}
 		}

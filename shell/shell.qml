@@ -511,6 +511,8 @@ ShellRoot {
 		x11Wrapper: root.config.x11Wrapper
 		launchDelay: root.config.animations ? 450 : 0
 		failedText: root.tr("Wrong password")
+		expiredText: root.tr("The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)")
+		deniedText: root.tr("This account can't log in now")
 	}
 
 	Connections {
