@@ -336,6 +336,7 @@ ShellRoot {
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
 		x11Wrapper: root.config.x11Wrapper
+		launchDelay: root.config.animations ? 400 : 0
 	}
 
 	Connections {

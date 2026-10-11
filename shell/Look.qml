@@ -8,6 +8,11 @@ Item {
 
 	required property var greeter
 
+	// Fades in from black and out to it as the session starts, a shake at
+	// a wrong password, lists that drop in: config.animations.
+	readonly property bool animate: !!greeter.config.animations
+	property real shaken: 1
+
 	// The list open under the user's or the session's name: "user",
 	// "session" or "".
 	property string picking: ""
@@ -25,6 +30,8 @@ Item {
 		picking = which;
 		list.currentIndex = pickList.findIndex(item => item.current);
 		list.forceActiveFocus();
+		if (animate)
+			popupIn.restart();
 	}
 
 	function closePicker() {
@@ -46,6 +53,26 @@ Item {
 		if (which) {
 			togglePicker(which);
 			event.accepted = true;
+		}
+	}
+
+	Component.onCompleted: if (animate)
+		fadeIn.start()
+
+	Connections {
+		target: greeter.auth
+
+		function onPhaseChanged() {
+			if (!look.animate)
+				return;
+			if (greeter.auth.phase === "failed")
+				shake.restart();
+			else if (greeter.auth.phase === "launching") {
+				// A login without a password can come before the fade in
+				// is over.
+				fadeIn.stop();
+				fadeOut.start();
+			}
 		}
 	}
 
@@ -165,45 +192,93 @@ Item {
 			}
 		}
 
-		Rectangle {
+		// The password field, with a line under it: the accent while it
+		// waits for typing, the error color under an error, and a bar
+		// running along it while the password is checked.
+		Item {
+			id: field
+
+			// The placeholder below shows an error.
+			readonly property bool error: input.text === "" && (greeter.auth.messageIsError || greeter.problem !== "")
+
 			width: parent.width
 			height: greeter.u(36)
-			color: greeter.colors.field
-			opacity: greeter.auth.phase === "prompt" ? 1 : 0.5
-
-			TextInput {
-				id: input
-
-				anchors.fill: parent
-				anchors.leftMargin: greeter.u(10)
-				anchors.rightMargin: greeter.u(10)
-				verticalAlignment: TextInput.AlignVCenter
-				focus: true
-				readOnly: greeter.auth.phase !== "prompt"
-				echoMode: greeter.auth.secret ? TextInput.Password : TextInput.Normal
-				color: greeter.colors.text
-				font.pixelSize: greeter.u(15)
-				font.family: greeter.fontFamily
-				clip: true
-				onAccepted: {
-					greeter.auth.submit(text);
-					text = "";
-				}
-				Keys.onEscapePressed: text = ""
-				Keys.onPressed: event => look.pickerKey(event)
+			// A shake, dying down as look.shaken goes from 0 to 1.
+			transform: Translate {
+				x: Math.sin(look.shaken * Math.PI * 6) * (1 - look.shaken) * greeter.u(10)
 			}
 
-			// PAM's question, or its last message (a failed attempt
-			// included) until something is typed.
-			Text {
-				anchors.fill: input
-				verticalAlignment: Text.AlignVCenter
-				visible: input.text === ""
-				text: greeter.problem || greeter.auth.message || greeter.auth.prompt.replace(/:\s*$/, "")
-				color: greeter.auth.messageIsError || greeter.problem ? greeter.colors.error : greeter.colors.dim
-				font.pixelSize: greeter.u(15)
-				font.family: greeter.fontFamily
-				elide: Text.ElideRight
+			Rectangle {
+				anchors.fill: parent
+				color: greeter.colors.field
+				opacity: greeter.auth.phase === "prompt" ? 1 : 0.5
+
+				TextInput {
+					id: input
+
+					anchors.fill: parent
+					anchors.leftMargin: greeter.u(10)
+					anchors.rightMargin: greeter.u(10)
+					verticalAlignment: TextInput.AlignVCenter
+					focus: true
+					readOnly: greeter.auth.phase !== "prompt"
+					echoMode: greeter.auth.secret ? TextInput.Password : TextInput.Normal
+					color: greeter.colors.text
+					font.pixelSize: greeter.u(15)
+					font.family: greeter.fontFamily
+					clip: true
+					onAccepted: {
+						greeter.auth.submit(text);
+						text = "";
+					}
+					Keys.onEscapePressed: text = ""
+					Keys.onPressed: event => look.pickerKey(event)
+				}
+
+				// PAM's question, or its last message (a failed attempt
+				// included) until something is typed.
+				Text {
+					anchors.fill: input
+					verticalAlignment: Text.AlignVCenter
+					visible: input.text === ""
+					text: greeter.problem || greeter.auth.message || greeter.auth.prompt.replace(/:\s*$/, "")
+					color: greeter.auth.messageIsError || greeter.problem ? greeter.colors.error : greeter.colors.dim
+					font.pixelSize: greeter.u(15)
+					font.family: greeter.fontFamily
+					elide: Text.ElideRight
+				}
+			}
+
+			Item {
+				anchors.left: parent.left
+				anchors.right: parent.right
+				anchors.bottom: parent.bottom
+				height: greeter.u(2)
+				clip: true
+
+				Rectangle {
+					anchors.fill: parent
+					visible: field.error || greeter.auth.phase === "prompt" && input.activeFocus
+					color: field.error ? greeter.colors.error : greeter.colors.accent
+				}
+
+				Rectangle {
+					id: bar
+
+					width: parent.width / 3
+					height: parent.height
+					visible: look.animate && (greeter.auth.phase === "verifying" || greeter.auth.phase === "launching")
+					color: greeter.colors.accent
+
+					NumberAnimation on x {
+						running: bar.visible
+						loops: Animation.Infinite
+						from: -bar.width
+						to: field.width
+						duration: 1100
+						easing.type: Easing.InOutSine
+					}
+				}
 			}
 		}
 
@@ -269,6 +344,8 @@ Item {
 	}
 
 	Rectangle {
+		id: popup
+
 		readonly property var label: labels.itemAt(look.picking === "session" ? 1 : 0)
 
 		x: form.x
@@ -279,6 +356,9 @@ Item {
 		color: greeter.colors.field
 		border.color: greeter.colors.dim
 		border.width: 1
+		transform: Translate {
+			id: popupShift
+		}
 
 		ListView {
 			id: list
@@ -350,6 +430,68 @@ Item {
 					onClicked: look.pick(parent.index)
 				}
 			}
+		}
+	}
+
+	// Black over everything, while the look fades in from cage's black
+	// and out as the session starts.
+	Rectangle {
+		id: curtain
+
+		anchors.fill: parent
+		visible: opacity > 0
+		color: "black"
+		opacity: look.animate ? 1 : 0
+	}
+
+	NumberAnimation {
+		id: fadeIn
+
+		target: curtain
+		property: "opacity"
+		to: 0
+		duration: 400
+		easing.type: Easing.OutQuad
+	}
+
+	NumberAnimation {
+		id: fadeOut
+
+		target: curtain
+		property: "opacity"
+		to: 1
+		duration: 300
+		easing.type: Easing.InQuad
+	}
+
+	NumberAnimation {
+		id: shake
+
+		target: look
+		property: "shaken"
+		from: 0
+		to: 1
+		duration: 450
+	}
+
+	ParallelAnimation {
+		id: popupIn
+
+		NumberAnimation {
+			target: popup
+			property: "opacity"
+			from: 0
+			to: 1
+			duration: 150
+		}
+
+		NumberAnimation {
+			target: popupShift
+			property: "y"
+			from: -greeter.u(6)
+			to: 0
+			duration: 150
+			easing.type: Easing.OutCubic
 		}
 	}
 }

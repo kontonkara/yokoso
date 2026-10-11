@@ -12,6 +12,9 @@ QtObject {
 	// starts only the command, not an X server.
 	required property string x11Wrapper
 	property string failedText: "Wrong password"
+	// How long "launching" lasts before the session starts: the look's
+	// time to fade out.
+	property int launchDelay: 0
 
 	// "starting", "prompt" (waiting for submit()), "verifying", "failed" or
 	// "launching".
@@ -71,6 +74,21 @@ QtObject {
 		onTriggered: auth.start()
 	}
 
+	property Timer launchTimer: Timer {
+		interval: auth.launchDelay
+		onTriggered: {
+			const s = auth.session;
+			const x11 = s.type === "x11";
+			const desktops = (s.desktopNames || "").split(";").filter(x => x);
+			const name = s.id.replace(/\.desktop$/, "");
+			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], [
+				`XDG_SESSION_TYPE=${x11 ? "x11" : "wayland"}`,
+				`XDG_CURRENT_DESKTOP=${desktops.join(":") || name}`,
+				`XDG_SESSION_DESKTOP=${desktops[0] || name}`,
+			], true);
+		}
+	}
+
 	property Connections greetd: Connections {
 		target: Greetd
 
@@ -103,16 +121,8 @@ QtObject {
 		}
 
 		function onReadyToLaunch() {
-			const s = auth.session;
-			const x11 = s.type === "x11";
-			const desktops = (s.desktopNames || "").split(";").filter(x => x);
-			const name = s.id.replace(/\.desktop$/, "");
 			auth.phase = "launching";
-			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], [
-				`XDG_SESSION_TYPE=${x11 ? "x11" : "wayland"}`,
-				`XDG_CURRENT_DESKTOP=${desktops.join(":") || name}`,
-				`XDG_SESSION_DESKTOP=${desktops[0] || name}`,
-			], true);
+			auth.launchTimer.start();
 		}
 	}
 }

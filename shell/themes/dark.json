@@ -10,5 +10,6 @@
   },
   "font": "",
   "background": "",
-  "backgroundDim": 0.4
+  "backgroundDim": 0.4,
+  "animations": true
 }

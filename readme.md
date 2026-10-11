@@ -109,11 +109,12 @@ when it doesn't say), and the config's own keys go on top of the theme, so
 | `colors.subtext` | the date, the session and hints |
 | `colors.dim` | the field's placeholder, the power buttons and the lists' arrows |
 | `colors.field` | the password field and the user and session lists |
-| `colors.accent` | what's under the pointer, an armed power button, the picked entry in a list |
-| `colors.error` | errors and the Caps Lock warning |
+| `colors.accent` | what's under the pointer, an armed power button, the picked entry in a list, the line under the field and the bar along it while a password is checked |
+| `colors.error` | errors (and the line under the field with one) and the Caps Lock warning |
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
+| `animations` | a fade in at the start and out as the session starts, a shake at a wrong password, the bar and lists that drop in; `false` for none |
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.
