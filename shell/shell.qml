@@ -149,7 +149,9 @@ ShellRoot {
 
 		path: root.config.remember ? Quickshell.env("YOKOSO_STATE") || "" : ""
 		blockLoading: true
-		blockWrites: true
+		// In the background, so that the fade out doesn't wait for the
+		// disk; Qt finishes the write before it quits.
+		blockWrites: false
 		printErrors: false
 		onSaveFailed: console.warn(`yokoso: can't write ${path}`)
 	}
