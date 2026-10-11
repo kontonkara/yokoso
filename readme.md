@@ -66,6 +66,7 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
 | `idle` | `60` | seconds without input before the screen goes dark and the backlight low; `0` for never |
+| `language` | the locale's | the language of yokoso's own few words: `"en"` or `"ru"` (from `shell/i18n`); PAM's follow greetd's locale |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
 
 The last login is kept in `/var/lib/yokoso/state.json`, so the greeter's
@@ -159,6 +160,7 @@ does the login, the power buttons and the memory, and watches the pointer.
 | | |
 |---|---|
 | `config`, `colors`, `fontFamily` | the config over the theme, its colors, its font |
+| `tr(text)` | yokoso's English words in the config's language, when `shell/i18n` has them |
 | `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL |
 | `u(n)`, `dpr` | `n` pixels at the UI scale; the screen's device pixel ratio |
 | `now`, `locale` | the time, by the minute; the system's locale for dates |

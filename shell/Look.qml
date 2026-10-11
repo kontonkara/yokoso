@@ -896,7 +896,7 @@ Item {
 
 			width: parent.width
 			horizontalAlignment: Text.AlignHCenter
-			text: "Caps Lock is on"
+			text: greeter.tr("Caps Lock is on")
 			color: greeter.colors.error
 			font.pixelSize: greeter.u(13)
 			font.weight: Font.Medium
@@ -934,7 +934,7 @@ Item {
 		// It fades in and out, and keeps its last words while it fades
 		// out.
 		Text {
-			readonly property string says: greeter.powerError || (greeter.armed ? `Click again to ${greeter.powerLabels[greeter.armed].toLowerCase()}`
+			readonly property string says: greeter.powerError || (greeter.armed ? greeter.tr({ suspend: "Click again to suspend", reboot: "Click again to reboot", poweroff: "Click again to power off" }[greeter.armed] || greeter.powerLabels[greeter.armed])
 				: greeter.powerLabels[powerRow.hovered] || "")
 			property string said: ""
 

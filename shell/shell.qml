@@ -36,6 +36,12 @@ ShellRoot {
 
 	readonly property var env: parse(envFile.text())
 
+	// yokoso's own words (English ones) in the config's language, else the
+	// locale's, when shell/i18n has it.
+	function tr(text) {
+		return env.strings && env.strings[text] || text;
+	}
+
 	// Every config key, with its default, over the theme the launcher put
 	// together (themes/dark.json has its keys); colors and layout merge key
 	// by key.
@@ -53,6 +59,8 @@ ShellRoot {
 		output: "",
 		// 0: from the screen's physical size.
 		scale: 0,
+		// The language of yokoso's own words ("ru"); "" for the locale's.
+		language: "",
 		// Seconds without input before the screen goes dark; 0 for never.
 		idle: 60,
 		// What starts an X server for an X11 session, with the session's
@@ -226,7 +234,7 @@ ShellRoot {
 	}
 
 	// Why a login can't start, if it can't.
-	readonly property string problem: !user ? "No user found" : !session ? "No session found" : ""
+	readonly property string problem: !user ? tr("No user found") : !session ? tr("No session found") : ""
 
 	// The UI scale: config.scale, else the screen's DPI / 96 rounded to 0.05
 	// (1 when its size is unknown), over what the compositor already scales.
@@ -445,7 +453,7 @@ ShellRoot {
 	// press() arms one, a second within armedFor ms acts. Outside the greeter
 	// it only says what it would run.
 	readonly property var power: env.power || []
-	readonly property var powerLabels: ({ suspend: "Suspend", reboot: "Reboot", poweroff: "Power off" })
+	readonly property var powerLabels: ({ suspend: tr("Suspend"), reboot: tr("Reboot"), poweroff: tr("Power off") })
 	property string armed: ""
 	readonly property int armedFor: 3000
 	property string powerError: ""
@@ -489,7 +497,7 @@ ShellRoot {
 		onExited: code => {
 			if (code === 0)
 				return;
-			root.powerError = `${root.powerLabels[action]} failed`;
+			root.powerError = root.tr({ suspend: "Suspend failed", reboot: "Reboot failed", poweroff: "Power off failed" }[action] || `${action} failed`);
 			disarm.restart();
 		}
 	}
@@ -502,6 +510,7 @@ ShellRoot {
 		session: root.session
 		x11Wrapper: root.config.x11Wrapper
 		launchDelay: root.config.animations ? 450 : 0
+		failedText: root.tr("Wrong password")
 	}
 
 	Connections {

@@ -1,0 +1,15 @@
+{
+  "Wrong password": "Неверный пароль",
+  "Caps Lock is on": "Включён Caps Lock",
+  "No user found": "Нет ни одного пользователя",
+  "No session found": "Нет ни одной сессии",
+  "Suspend": "Сон",
+  "Reboot": "Перезагрузка",
+  "Power off": "Выключение",
+  "Click again to suspend": "Нажмите ещё раз, чтобы уйти в сон",
+  "Click again to reboot": "Нажмите ещё раз, чтобы перезагрузить",
+  "Click again to power off": "Нажмите ещё раз, чтобы выключить",
+  "Suspend failed": "Не удалось уйти в сон",
+  "Reboot failed": "Не удалось перезагрузить",
+  "Power off failed": "Не удалось выключить"
+}
