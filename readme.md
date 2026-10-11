@@ -124,7 +124,7 @@ merges the same way).
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
-| `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner and lists that drop in; `false` for none |
+| `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner, password dots that pop up, the clock's figures rolling over, lists that drop in with a highlight that slides; `false` for none |
 | `status` | what a top corner shows: `"hostname"`, `"battery"` (a laptop's), both by default; `[]` for nothing |
 | `layout.form` | the form in the `"center"` of the screen, on the `"left"` or on the `"right"` |
 | `layout.clock` | the clock `"above"` the form, at the `"top"` of the screen, or `"none"` |

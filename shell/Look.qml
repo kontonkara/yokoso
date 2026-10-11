@@ -245,16 +245,73 @@ Item {
 			y: look.lift(0)
 		}
 
-		Text {
-			anchors.horizontalCenter: parent.horizontalCenter
-			text: greeter.config.clockFormat ? greeter.now.toLocaleTimeString(greeter.locale, greeter.config.clockFormat)
+		// The time, a character to an item, so that one that changes rolls
+		// up: the old one fading out upwards, the new one in from below.
+		Row {
+			id: time
+
+			readonly property string text: greeter.config.clockFormat ? greeter.now.toLocaleTimeString(greeter.locale, greeter.config.clockFormat)
 				: greeter.now.toLocaleTimeString(greeter.locale, Locale.ShortFormat)
-			color: greeter.colors.text
-			font.pixelSize: greeter.u(120)
-			font.weight: Font.Light
-			font.letterSpacing: -greeter.u(3)
-			font.features: { "tnum": 1 }
-			font.family: greeter.fontFamily
+
+			anchors.horizontalCenter: parent.horizontalCenter
+			spacing: -greeter.u(3)
+
+			Repeater {
+				model: time.text.length
+
+				Item {
+					id: glyph
+
+					required property int index
+					readonly property string character: time.text.charAt(index)
+					property string was: ""
+					property real roll: 0
+
+					width: current.implicitWidth
+					height: current.implicitHeight
+					Component.onCompleted: was = character
+					onCharacterChanged: {
+						previous.text = was;
+						was = character;
+						if (look.animate)
+							rollAnim.restart();
+					}
+
+					Text {
+						id: current
+
+						y: glyph.roll * glyph.height * 0.3
+						opacity: 1 - glyph.roll
+						text: glyph.character
+						color: greeter.colors.text
+						font.pixelSize: greeter.u(120)
+						font.weight: Font.Light
+						font.features: { "tnum": 1 }
+						font.family: greeter.fontFamily
+					}
+
+					Text {
+						id: previous
+
+						y: (glyph.roll - 1) * glyph.height * 0.3
+						opacity: glyph.roll
+						visible: glyph.roll > 0
+						color: current.color
+						font: current.font
+					}
+
+					NumberAnimation {
+						id: rollAnim
+
+						target: glyph
+						property: "roll"
+						from: 1
+						to: 0
+						duration: 500
+						easing.type: Easing.OutCubic
+					}
+				}
+			}
 		}
 
 		// The theme's dateFormat, else the locale's long date without the
@@ -597,14 +654,88 @@ Item {
 				focus: true
 				readOnly: greeter.auth.phase !== "prompt"
 				echoMode: greeter.auth.secret ? TextInput.Password : TextInput.Normal
-				passwordCharacter: "•"
-				color: greeter.colors.text
-				font.pixelSize: greeter.u(greeter.auth.secret && text ? 22 : 16)
-				font.letterSpacing: greeter.auth.secret ? greeter.u(2) : 0
+				// A secret is drawn by `dots` below: its own echo, cursor
+				// (in this color too) and selection stay hidden, and the
+				// cursor stays at the end.
+				color: greeter.auth.secret ? "transparent" : greeter.colors.text
+				selectionColor: greeter.auth.secret ? "transparent" : Qt.alpha(greeter.colors.accent, 0.3)
+				font.pixelSize: greeter.u(16)
 				font.family: greeter.fontFamily
 				clip: true
 				onAccepted: look.submit()
+				onCursorPositionChanged: if (greeter.auth.secret && cursorPosition !== text.length)
+					cursorPosition = text.length
+				onTextChanged: {
+					const count = greeter.auth.secret ? text.length : 0;
+					while (dotModel.count > count)
+						dotModel.remove(dotModel.count - 1);
+					while (dotModel.count < count)
+						dotModel.append({});
+				}
 				Keys.onPressed: event => look.keyPressed(event)
+
+				// One per character, kept as the text grows, so that only
+				// a new one pops up.
+				ListModel {
+					id: dotModel
+				}
+
+				// The blink of the cursor after the dots.
+				Timer {
+					id: blink
+
+					property bool on: true
+
+					interval: 530
+					running: input.activeFocus && greeter.auth.secret && greeter.auth.phase === "prompt" && !greeter.idle
+					repeat: true
+					onRunningChanged: on = true
+					onTriggered: on = !on
+				}
+			}
+
+			// The secret: a dot for each character, the last ones in view,
+			// and the cursor after them.
+			Item {
+				anchors.fill: input
+				visible: greeter.auth.secret
+				clip: true
+
+				Row {
+					id: dots
+
+					x: Math.min(0, parent.width - width - greeter.u(6))
+					anchors.verticalCenter: parent.verticalCenter
+					spacing: greeter.u(7)
+
+					Repeater {
+						model: dotModel
+
+						Rectangle {
+							width: greeter.u(8)
+							height: width
+							radius: width / 2
+							color: greeter.colors.text
+
+							NumberAnimation on scale {
+								running: look.animate
+								from: 0.2
+								to: 1
+								duration: 180
+								easing.type: Easing.OutBack
+							}
+						}
+					}
+				}
+
+				Rectangle {
+					x: dots.x + dots.width + (dotModel.count ? greeter.u(6) : 0)
+					anchors.verticalCenter: parent.verticalCenter
+					width: Math.max(1, greeter.u(1.5))
+					height: greeter.u(20)
+					visible: input.activeFocus && greeter.auth.phase === "prompt" && blink.on
+					color: greeter.colors.text
+				}
 			}
 
 			// PAM's question, or its last message (a failed attempt
@@ -758,6 +889,11 @@ Item {
 
 		// Hidden rather than gone, so the form doesn't move.
 		Text {
+			id: caps
+
+			// Fading in and out on its own, apart from the way in and out.
+			property real shown: greeter.capsLock ? 1 : 0
+
 			width: parent.width
 			horizontalAlignment: Text.AlignHCenter
 			text: "Caps Lock is on"
@@ -765,9 +901,17 @@ Item {
 			font.pixelSize: greeter.u(13)
 			font.weight: Font.Medium
 			font.family: greeter.fontFamily
-			opacity: greeter.capsLock ? look.fade(3) : 0
+			opacity: shown * look.fade(3)
 			transform: Translate {
-				y: look.lift(3)
+				y: look.lift(3) + (1 - caps.shown) * -greeter.u(4)
+			}
+
+			Behavior on shown {
+				enabled: look.animate
+
+				NumberAnimation {
+					duration: 180
+				}
 			}
 		}
 	}
@@ -942,6 +1086,15 @@ Item {
 			boundsBehavior: Flickable.StopAtBounds
 			model: look.pickList
 			onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
+			// Under the entry the keys or the pointer are on, sliding from
+			// one to the next.
+			highlight: Rectangle {
+				radius: Math.max(0, popup.radius - greeter.u(6))
+				color: Qt.alpha(greeter.colors.accent, 0.15)
+			}
+			highlightMoveDuration: look.animate ? 120 : 0
+			highlightMoveVelocity: -1
+			highlightResizeDuration: 0
 			Keys.onPressed: event => look.keyPressed(event)
 
 			delegate: Item {
@@ -951,12 +1104,6 @@ Item {
 				width: ListView.view.width
 				height: greeter.u(40)
 
-				Rectangle {
-					anchors.fill: parent
-					radius: Math.max(0, popup.radius - greeter.u(6))
-					visible: list.currentIndex === parent.index
-					color: Qt.alpha(greeter.colors.accent, 0.15)
-				}
 
 				// A dot by the one picked now.
 				Rectangle {
