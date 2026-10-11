@@ -134,8 +134,42 @@ merges the same way).
 | `dateFormat` | the date likewise (`"dddd d MMMM"`); `""` for the locale's long one without the year |
 | `radius` | the corners of the field, the buttons, the lists and the avatar, in pixels; `null` for round |
 | `fieldWidth` | the form's width, in pixels |
+| `look` | a QML file that draws the login screen instead; see below |
 
 A theme that can't be read is skipped (with a warning in the journal), so a
 broken one never stands between anyone and the login.
 [`examples/catppuccin-mocha.json`](examples/catppuccin-mocha.json) is one to
 start from. On NixOS, `services.yokoso.themes.<name>` writes them.
+
+## Your own look
+
+A theme's `look` is a QML file (a path relative to the theme, like
+`background`) that draws the login screen in place of the built-in one,
+[`shell/Look.qml`](shell/Look.qml). If it can't be loaded, the built-in one
+comes up instead, with a warning in the journal. One that loads but doesn't
+work can still lock you out, so try it with `yokoso preview` first
+(`YOKOSO_CONFIG=<file>`). [`examples/minimal.qml`](examples/minimal.qml),
+with [`examples/minimal.json`](examples/minimal.json), is about the smallest
+one that works. On NixOS, `look = ./mine.qml;` in a theme copies the file to
+the store; a look in several files is `look = "${./mine}/Look.qml";`.
+
+Its root item has `required property var greeter`: yokoso's core, which
+does the login, the power buttons and the memory, and watches the pointer.
+
+| | |
+|---|---|
+| `config`, `colors`, `fontFamily` | the config over the theme, its colors, its font |
+| `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL |
+| `u(n)`, `dpr` | `n` pixels at the UI scale; the screen's device pixel ratio |
+| `now`, `locale` | the time, by the minute; the system's locale for dates |
+| `users`, `user`, `pickUser(u)` | the accounts as `{ name, realName, icon }`; the one logging in; another one, whose login then starts over |
+| `sessions`, `session`, `pickSession(s)`, `sessionName(s)` | the sessions as `{ id, name, exec, type }`; the one to start; another one; a name to show |
+| `canPick(which)` | whether another `"user"` or `"session"` can be picked now |
+| `auth.phase` | `"starting"`, `"prompt"`, `"verifying"`, `"failed"` or `"launching"` |
+| `auth.prompt`, `auth.secret`, `auth.submit(text)` | PAM's question and whether the answer is secret; answering it |
+| `auth.message`, `auth.messageIsError` | PAM's last message, or "Wrong password", and whether it's an error |
+| `problem` | why no login can start (no user or no session), else `""` |
+| `capsLock`, `hostname`, `battery` | Caps Lock; the machine's name; `{ level, plugged }`, or `null` without one |
+| `power`, `powerLabels`, `press(action)` | the power actions logind allows, their names, and a press: a second one within `armedFor` ms acts |
+| `armed`, `armedFor`, `powerError` | the action waiting for its second press; how long it waits; why one failed |
+| `idle`, `wake()` | whether the screen is asleep (the core dims the backlight, the look darkens the rest); call `wake()` on every key and click, and when it returns `true` the input only woke the screen |

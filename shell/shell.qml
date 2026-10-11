@@ -4,8 +4,8 @@ import Quickshell
 import Quickshell.Io
 
 // The core: what yokoso knows (the config, screens, users and sessions)
-// and does (the login, power, memory). Look.qml draws it, from the
-// properties and functions here.
+// and does (the login, power, memory). Look.qml, or a theme's look,
+// draws it from the properties and functions here.
 ShellRoot {
 	id: root
 
@@ -68,7 +68,11 @@ ShellRoot {
 	// as a URL: one path for every screen, or one per output, "*" for the rest.
 	function backgroundFor(name) {
 		const bg = config.background;
-		const path = typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || "";
+		return fileUrl(typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || "");
+	}
+
+	// A file's path as a URL, "" for "".
+	function fileUrl(path) {
 		return path ? "file://" + path.split("/").map(encodeURIComponent).join("/") : "";
 	}
 	readonly property string fontFamily: config.font || Qt.application.font.family
@@ -531,11 +535,22 @@ ShellRoot {
 				onPointChanged: root.pointAt(point.position)
 			}
 
-			// What's on screen, given the core as `greeter`.
+			// What's on screen, given the core as `greeter`: the theme's
+			// look, or the built-in one (Look.qml) when there's none or it
+			// can't be loaded.
 			Loader {
+				property bool builtIn: !root.config.look
+
 				anchors.fill: parent
 				focus: true
-				Component.onCompleted: setSource("Look.qml", { greeter: root })
+				Component.onCompleted: setSource(builtIn ? "Look.qml" : root.fileUrl(root.config.look), { greeter: root })
+				onStatusChanged: {
+					if (status !== Loader.Error || builtIn)
+						return;
+					console.warn(`yokoso: can't load the look ${root.config.look}, using the built-in one`);
+					builtIn = true;
+					Qt.callLater(() => setSource("Look.qml", { greeter: root }));
+				}
 			}
 		}
 	}

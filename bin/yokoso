@@ -204,7 +204,8 @@ theme_json() {
 			| def resolve: if type == "string" and . != "" and (startswith("/") | not) then "\($dir)/\(.)" else . end;
 			if .background | type == "object" then .background |= map_values(resolve)
 			else .background |= resolve end
-			| if .background == null then del(.background) else . end' "$file" 2>/dev/null); then
+			| if .background == null then del(.background) else . end
+			| if .look == null then . else .look |= resolve end' "$file" 2>/dev/null); then
 			theme=$(jq -nc --argjson low "$layer" --argjson high "$theme" '$low * $high')
 			ref=$(jq -nr --argjson layer "$layer" '$layer.extends // "dark"')
 		else
