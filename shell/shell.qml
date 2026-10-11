@@ -52,6 +52,8 @@ ShellRoot {
 		output: "",
 		// 0: from the screen's physical size.
 		scale: 0,
+		// Seconds without input before the screen goes dark; 0 for never.
+		idle: 60,
 		// What starts an X server for an X11 session, with the session's
 		// command after it.
 		x11Wrapper: "startx /usr/bin/env",
@@ -109,13 +111,17 @@ ShellRoot {
 	readonly property point origin: Qt.point(Math.min(...Quickshell.screens.map(s => s.x)),
 		Math.min(...Quickshell.screens.map(s => s.y)))
 
-	// Where cage put the pointer doesn't count, only a move does.
-	property var pointerStart: null
+	// The pointer's last position in the window. Where cage put it doesn't
+	// count, only a move does.
+	property point pointer: Qt.point(-1, -1)
 
 	function pointAt(p) {
-		if (!pointerStart)
-			pointerStart = Qt.point(p.x, p.y);
-		if (p.x === pointerStart.x && p.y === pointerStart.y)
+		const moved = pointer.x >= 0 && (p.x !== pointer.x || p.y !== pointer.y);
+		pointer = Qt.point(p.x, p.y);
+		if (!moved)
+			return;
+		wake();
+		if (config.output !== "cursor" || windowIsScreen)
 			return;
 		const s = Quickshell.screens.find(s => p.x >= s.x - origin.x && p.x < s.x - origin.x + s.width
 			&& p.y >= s.y - origin.y && p.y < s.y - origin.y + s.height);
@@ -277,6 +283,119 @@ ShellRoot {
 		}
 	}
 
+	// Idle: after config.idle seconds without input the screen goes dark
+	// and its backlights low (logind lets the session's owner set them),
+	// until any input wakes it. The pointer is watched here; the look
+	// reports keys with wake().
+	property bool idle: false
+	// The backlights' levels from before, while dim; in YOKOSO_BACKLIGHT
+	// too, for the launcher to set back if yokoso stops before waking.
+	property var dimmed: ({})
+	onDimmedChanged: if (backlightFile.path)
+		backlightFile.setText(JSON.stringify(dimmed) + "\n")
+
+	// Returns whether the screen was asleep, so that the key or the click
+	// that wakes it can be dropped.
+	function wake() {
+		if (!idle) {
+			if (idleTimer.running)
+				idleTimer.restart();
+			return false;
+		}
+		idle = false;
+		setBacklights(dimmed);
+		dimmed = {};
+		return true;
+	}
+
+	function sleep() {
+		idle = true;
+		const levels = {};
+		const low = {};
+		for (let i = 0; i < backlights.count; i++) {
+			const b = backlights.objectAt(i);
+			b.reload();
+			const level = Number(b.text());
+			const least = Math.max(1, Math.round(b.modelData.max / 100));
+			if (level > least) {
+				levels[b.modelData.name] = level;
+				low[b.modelData.name] = least;
+			}
+		}
+		dimmed = levels;
+		setBacklights(low);
+	}
+
+	Timer {
+		id: idleTimer
+
+		interval: root.config.idle * 1000
+		running: root.config.idle > 0 && !root.idle && root.auth.phase !== "launching"
+		onTriggered: root.sleep()
+	}
+
+	Instantiator {
+		id: backlights
+
+		model: root.env.backlights || []
+		delegate: FileView {
+			required property var modelData
+
+			path: `/sys/class/backlight/${modelData.name}/brightness`
+			blockLoading: true
+			printErrors: false
+		}
+	}
+
+	FileView {
+		id: backlightFile
+
+		path: Quickshell.env("YOKOSO_BACKLIGHT") || ""
+		blockWrites: true
+		printErrors: false
+	}
+
+	// { <name>: level } through logind, one call after another: a wake
+	// right after the dimming waits for it. Outside the greeter it only
+	// says what it would set.
+	property var nextBacklights: null
+
+	function setBacklights(levels) {
+		const args = [];
+		for (const name in levels)
+			args.push(name, String(levels[name]));
+		if (!args.length)
+			return;
+		if (mode !== "greeter") {
+			console.info(`yokoso: would set the backlights to ${JSON.stringify(levels)}`);
+			return;
+		}
+		if (brightness.running) {
+			nextBacklights = levels;
+			return;
+		}
+		brightness.command = ["sh", "-c", `while [ $# -gt 0 ]; do
+			busctl call org.freedesktop.login1 /org/freedesktop/login1/session/auto \\
+				org.freedesktop.login1.Session SetBrightness ssu backlight "$1" "$2"
+			shift 2
+		done`, "sh", ...args];
+		brightness.running = true;
+	}
+
+	Process {
+		id: brightness
+
+		stderr: StdioCollector {
+			onStreamFinished: if (text)
+				console.warn(`yokoso: ${text.trim()}`)
+		}
+		onExited: if (root.nextBacklights) {
+			const levels = root.nextBacklights;
+			root.nextBacklights = null;
+			Qt.callLater(() => root.setBacklights(levels));
+		}
+	}
+
 	// Power: the actions logind allows ("suspend", "reboot", "poweroff"). A
 	// press() arms one, a second within 3 s acts. Outside the greeter it
 	// only says what it would run.
@@ -365,8 +484,8 @@ ShellRoot {
 			height: root.mode === "shot" && root.windowIsScreen ? root.shotSize[1] : window.height
 			color: root.colors.background
 
+			// The pointer, for idle and for output "cursor".
 			HoverHandler {
-				enabled: root.config.output === "cursor" && !root.windowIsScreen
 				onPointChanged: root.pointAt(point.position)
 			}
 

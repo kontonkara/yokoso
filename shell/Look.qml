@@ -47,13 +47,25 @@ Item {
 		closePicker();
 	}
 
-	// F2 opens or closes the user list, F3 the session list.
-	function pickerKey(event) {
-		const which = event.key === Qt.Key_F2 ? "user" : event.key === Qt.Key_F3 ? "session" : "";
-		if (which) {
-			togglePicker(which);
-			event.accepted = true;
-		}
+	// Every key press, before the field or the list gets it: it keeps the
+	// screen awake, or wakes it and goes no further. F2 opens or closes
+	// the user list, F3 the session list; in a list Enter picks and Escape
+	// closes it, and Escape clears the field.
+	function keyPressed(event) {
+		event.accepted = true;
+		if (greeter.wake())
+			return;
+		const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter;
+		if (event.key === Qt.Key_F2 || event.key === Qt.Key_F3)
+			togglePicker(event.key === Qt.Key_F2 ? "user" : "session");
+		else if (picking && enter)
+			pick(list.currentIndex);
+		else if (picking && event.key === Qt.Key_Escape)
+			closePicker();
+		else if (event.key === Qt.Key_Escape)
+			input.text = "";
+		else
+			event.accepted = false;
 	}
 
 	Component.onCompleted: if (animate)
@@ -231,8 +243,7 @@ Item {
 						greeter.auth.submit(text);
 						text = "";
 					}
-					Keys.onEscapePressed: text = ""
-					Keys.onPressed: event => look.pickerKey(event)
+					Keys.onPressed: event => look.keyPressed(event)
 				}
 
 				// PAM's question, or its last message (a failed attempt
@@ -369,10 +380,7 @@ Item {
 			boundsBehavior: Flickable.StopAtBounds
 			model: look.pickList
 			onCurrentIndexChanged: positionViewAtIndex(currentIndex, ListView.Contain)
-			Keys.onReturnPressed: look.pick(currentIndex)
-			Keys.onEnterPressed: look.pick(currentIndex)
-			Keys.onEscapePressed: look.closePicker()
-			Keys.onPressed: event => look.pickerKey(event)
+			Keys.onPressed: event => look.keyPressed(event)
 
 			delegate: Item {
 				required property var modelData
@@ -430,6 +438,53 @@ Item {
 					onClicked: look.pick(parent.index)
 				}
 			}
+		}
+	}
+
+	// Dark while the screen is idle, with the pointer hidden; a click on
+	// it only wakes the screen.
+	Rectangle {
+		id: dark
+
+		anchors.fill: parent
+		visible: opacity > 0
+		color: "black"
+		opacity: 0
+		states: State {
+			name: "asleep"
+			when: greeter.idle
+
+			PropertyChanges {
+				dark.opacity: 1
+			}
+		}
+		transitions: [
+			Transition {
+				to: "asleep"
+				enabled: look.animate
+
+				NumberAnimation {
+					property: "opacity"
+					duration: 1000
+				}
+			},
+			Transition {
+				from: "asleep"
+				enabled: look.animate
+
+				NumberAnimation {
+					property: "opacity"
+					duration: 150
+				}
+			}
+		]
+
+		MouseArea {
+			anchors.fill: parent
+			enabled: greeter.idle
+			hoverEnabled: true
+			cursorShape: Qt.BlankCursor
+			onPressed: greeter.wake()
 		}
 	}
 

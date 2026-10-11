@@ -13,6 +13,9 @@ logs into.
 - PAM's prompts and messages are shown as PAM sends them.
 - With more than one account or session, a click on the name (or F2, F3)
   picks another, and the next login starts with the last one's.
+- After a minute without input the screen goes dark and a laptop's backlight
+  low (through logind). A key, a click or a move brings it back; that key or
+  click does nothing else.
 - A clock in the system's locale, a Caps Lock warning, and the power
   buttons logind allows (a second click confirms).
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
@@ -62,6 +65,7 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 | `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
+| `idle` | `60` | seconds without input before the screen goes dark and the backlight low; `0` for never |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
 
 The last login is kept in `/var/lib/yokoso/state.json`, so the greeter's
