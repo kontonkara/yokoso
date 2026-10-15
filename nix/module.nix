@@ -131,6 +131,12 @@ in
     };
 
     systemd = {
+      # greetd's "idle" keeps a text greeter out of the boot messages by
+      # holding it back until the rest of the boot is done (seconds, when a
+      # service waits for the network). cage takes the screen, so yokoso
+      # starts as soon as greetd does.
+      services.greetd.serviceConfig.Type = lib.mkForce "simple";
+
       tmpfiles = {
         settings = {
           yokoso = {
