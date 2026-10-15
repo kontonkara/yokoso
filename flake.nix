@@ -20,9 +20,9 @@
         default = pkgs.callPackage ./nix/package.nix { };
       });
 
-      # nix run .#preview: the greeter in a window, logging in against
-      # fakegreet (password "password", then "9").
       apps = forAllSystems (pkgs: {
+        # nix run .#preview: the greeter in a window, logging in against
+        # fakegreet (password "password", then "9").
         preview = {
           type = "app";
           program = toString (
@@ -31,7 +31,39 @@
             ''
           );
         };
+
+        # nix run .#shots -- <out>: the working tree's greeter, headless, in
+        # tests/shots.sh's scenarios.
+        shots = {
+          type = "app";
+          program = nixpkgs.lib.getExe (
+            pkgs.writeShellApplication {
+              name = "yokoso-shots";
+              runtimeInputs = with pkgs; [
+                quickshell
+                cage
+                jq
+                gawk
+                coreutils
+                gnugrep
+                gnused
+                systemd
+                greetd
+                wtype
+                wlrctl
+                imagemagick
+              ];
+              text = ''exec sh ${./tests/shots.sh} "$@"'';
+            }
+          );
+        };
       });
+
+      # nix flake check: the VM tests in tests/vm.
+      checks.x86_64-linux = import ./tests/vm {
+        pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        inherit self;
+      };
 
       nixosModules.default = import ./nix/module.nix self;
     };

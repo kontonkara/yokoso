@@ -177,3 +177,14 @@ does the login, the power buttons and the memory, and watches the pointer.
 | `power`, `powerLabels`, `press(action)` | the power actions logind allows, their names, and a press: a second one within `armedFor` ms acts |
 | `armed`, `armedFor`, `powerError` | the action waiting for its second press; how long it waits; why one failed |
 | `idle`, `wake()` | whether the screen is asleep (the core dims the backlight, the look darkens the rest); call `wake()` on every key and click, and when it returns `true` the input only woke the screen |
+
+## Developing
+
+`nix run .#shots -- <dir>` renders the working tree's greeter headless, with
+fake users and sessions, in the scenarios of
+[`tests/shots.sh`](tests/shots.sh) (the lists, a wrong password, two
+screens, idle, Russian, a layout, a look of one's own, ...) into `<dir>`;
+`--against <an earlier dir>` counts the pixels that changed. `nix flake
+check` runs the VM tests in [`tests/vm`](tests/vm): the greeter under the
+real greetd, PAM and cage, logging in through the lists, idle, the power
+buttons, PAM's messages, an expired password and a fingerprint.

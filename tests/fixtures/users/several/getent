@@ -1,0 +1,6 @@
+#!/bin/sh
+# Three accounts, one without a real name.
+[ "$1" = passwd ] || exit 2
+echo "alice:x:1000:100:Alice Liddell:/home/alice:/bin/sh"
+echo "bob:x:1001:100::/home/bob:/bin/sh"
+echo "carol:x:1002:100:Carol:/home/carol:/bin/sh"
