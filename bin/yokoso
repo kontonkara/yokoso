@@ -364,8 +364,10 @@ greeter)
 	log=
 	command -v systemd-cat >/dev/null && log="systemd-cat -t yokoso --"
 	# Not exec'd, so its failure reaches the fallback; a stop is passed on
-	# instead. Its input stays the VT.
-	$log cage -s -- quickshell -p "$shell_dir" <&0 &
+	# instead. Its input stays the VT. Without cage's DISPLAY, nothing in
+	# Quickshell (Mesa's EGL tries X11 first) brings Xwayland up for
+	# nothing.
+	$log cage -s -- env -u DISPLAY quickshell -p "$shell_dir" <&0 &
 	cage=$!
 	trap 'kill "$cage" 2>/dev/null; wait "$cage" || true; restore_backlight; exit 0' TERM INT HUP
 	wait "$cage"
