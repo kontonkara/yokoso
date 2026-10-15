@@ -43,6 +43,28 @@ in
           description = "Themes by name, as /etc/yokoso/themes/<name>.json; settings.theme picks one.";
         };
 
+        cursor = {
+          package = lib.mkOption {
+            type = lib.types.nullOr lib.types.package;
+            default = null;
+            example = lib.literalExpression "pkgs.bibata-cursors";
+            description = "The cursor theme's package, for its share/icons; null keeps the system's default theme.";
+          };
+
+          name = lib.mkOption {
+            type = lib.types.str;
+            default = "";
+            example = "Bibata-Modern-Classic";
+            description = "The cursor theme in the package.";
+          };
+
+          size = lib.mkOption {
+            type = lib.types.ints.positive;
+            default = 24;
+            description = "The cursor's size at scale 1; yokoso scales it with the UI.";
+          };
+        };
+
         avatars = lib.mkOption {
           type = lib.types.attrsOf lib.types.path;
           default = { };
@@ -59,15 +81,25 @@ in
         enable = true;
         settings = {
           default_session = {
-            # The console's keyboard layout: the password is typed in it.
-            command = lib.concatStringsSep " " [
-              "env"
-              "YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions"
-              "XKB_DEFAULT_LAYOUT=${lib.escapeShellArg xkb.layout}"
-              "XKB_DEFAULT_VARIANT=${lib.escapeShellArg xkb.variant}"
-              "XKB_DEFAULT_OPTIONS=${lib.escapeShellArg xkb.options}"
-              (lib.getExe cfg.package)
-            ];
+            # The console's keyboard layout (the password is typed in it)
+            # and the cursor theme.
+            command = lib.concatStringsSep " " (
+              [
+                "env"
+                "YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions"
+                "XKB_DEFAULT_LAYOUT=${lib.escapeShellArg xkb.layout}"
+                "XKB_DEFAULT_VARIANT=${lib.escapeShellArg xkb.variant}"
+                "XKB_DEFAULT_OPTIONS=${lib.escapeShellArg xkb.options}"
+              ]
+              ++ lib.optionals (cfg.cursor.package != null) [
+                "XCURSOR_PATH=${cfg.cursor.package}/share/icons"
+                "XCURSOR_THEME=${lib.escapeShellArg cfg.cursor.name}"
+              ]
+              ++ [
+                "XCURSOR_SIZE=${toString cfg.cursor.size}"
+                (lib.getExe cfg.package)
+              ]
+            );
           };
         };
       };

@@ -80,6 +80,11 @@ A user's picture is `avatars/<name>` next to the config
 (`/var/lib/AccountsService/icons/alice`); without one, it's their initial. On
 NixOS, `services.yokoso.avatars.alice = ./alice.png;` puts it there.
 
+The cursor is `XCURSOR_THEME`'s, else the system's default theme, at
+`XCURSOR_SIZE` (24 by default) times the UI scale. On NixOS,
+`services.yokoso.cursor = { package = pkgs.bibata-cursors; name =
+"Bibata-Modern-Classic"; };` sets them.
+
 With several screens the form goes on `output`, else on a laptop's own panel,
 or on an external screen while the lid is closed, else on the first screen.
 The other screens stay black. With `cursor`, the form starts there too and

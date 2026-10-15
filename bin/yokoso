@@ -287,6 +287,26 @@ jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" 
 		hostname: $hostname, theme: $theme, strings: $strings}' \
 	>"$run_dir/env.json"
 
+# The UI scale the QML side comes to, near enough for the cursor's size:
+# config.scale, else a laptop's panel's (or the first screen's) DPI / 96, in
+# steps of 0.05 from 1 to 3; 1 when the screen's size is unknown.
+ui_scale() {
+	scale=$(jq -r '.scale // 0 | numbers' "$YOKOSO_CONFIG" 2>/dev/null) || scale=0
+	screen=$(jq -r '([.screens[] | select(.name | test("^(eDP|LVDS|DSI)-"))] + .screens)[0]
+		| select(.) | "\(.name) \(.widthMm)"' "$run_dir/env.json" 2>/dev/null) || screen=
+	pixels=0
+	for card in $display_cards; do
+		modes=/sys/class/drm/$card-${screen% *}/modes
+		[ -n "$screen" ] && [ -e "$modes" ] && pixels=$(head -n 1 "$modes") && pixels=${pixels%%x*}
+	done
+	awk -v scale="${scale:-0}" -v pixels="${pixels:-0}" -v mm="${screen##* }" 'BEGIN {
+		if (scale + 0 > 0) { print scale; exit }
+		if (pixels + 0 <= 0 || mm + 0 <= 0) { print 1; exit }
+		s = int(pixels / (mm / 25.4) / 96 / 0.05 + 0.5) * 0.05
+		print (s < 1 ? 1 : s > 3 ? 3 : s)
+	}'
+}
+
 # Who logged in last and with which session, written at a login: in
 # /var/lib/yokoso, which the greeter user must own, and for a preview in the
 # runtime directory.
@@ -323,6 +343,22 @@ fake() {
 case $mode in
 greeter)
 	export WLR_DRM_DEVICES="$drm_devices"
+	# The cursor: cage's and Quickshell's are the same theme, at its size
+	# times the UI scale, found among the system's themes too. NVIDIA's
+	# planes take no cursor format wlroots offers: draw it in software
+	# from the start, not after an error at every change of cursor.
+	XCURSOR_SIZE=$(awk -v size="${XCURSOR_SIZE:-24}" -v scale="$(ui_scale)" \
+		'BEGIN { print int(size * scale + 0.5) }')
+	export XCURSOR_SIZE
+	export XCURSOR_PATH="${XCURSOR_PATH:+$XCURSOR_PATH:}/run/current-system/sw/share/icons:/usr/share/icons:/usr/share/pixmaps"
+	# cage loads the theme named "default" (at 24 px, before the window
+	# is up): one that inherits XCURSOR_THEME.
+	if [ -n "${XCURSOR_THEME:-}" ]; then
+		mkdir -p "$run_dir/icons/default"
+		printf '[Icon Theme]\nInherits=%s\n' "$XCURSOR_THEME" >"$run_dir/icons/default/index.theme"
+		XCURSOR_PATH="$run_dir/icons:$XCURSOR_PATH"
+	fi
+	[ "$uses_nvidia" = true ] && export WLR_NO_HARDWARE_CURSORS=1
 	# greetd leaves the greeter's output on its VT: keep it in the journal
 	# (journalctl -t yokoso) where systemd is there.
 	log=

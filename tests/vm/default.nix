@@ -161,11 +161,17 @@ in
       '';
 
   # One click arms "Power off" (a ring runs out around it), it disarms by
-  # itself, and a login still works. logind offers power only with polkit.
+  # itself, and a login still works. logind offers power only with polkit;
+  # the cursor is Bibata, over the buttons a hand.
   power =
     test "power"
       {
         security.polkit.enable = true;
+        # A theme of its own, to see it on the buttons.
+        services.yokoso.cursor = {
+          package = pkgs.bibata-cursors;
+          name = "Bibata-Modern-Classic";
+        };
       }
       ''
         import json
@@ -178,6 +184,8 @@ in
         x = 640 - width // 2 + 24 + power.index("poweroff") * 62
         wl("pointer move -5000 -5000")
         wl(f"pointer move {x} 736")
+        time.sleep(0.5)
+        machine.screenshot("hover")
         time.sleep(0.5)
         wl("pointer click left")
         time.sleep(1.2)
