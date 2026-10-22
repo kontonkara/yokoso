@@ -74,6 +74,39 @@ cards() {
 		echo "${card##*/}"
 	done
 }
+
+# Early in the boot the only card can be simpledrm's, on the firmware's
+# framebuffer, while a GPU's driver is still loading (not from the
+# initrd): it goes away when the driver takes over, and cage crashes with
+# it. So while there's no other card and a display controller has none of
+# its own yet, wait for it, up to 10 s.
+driver() {
+	basename "$(readlink -f "/sys/class/drm/$1/device/driver")"
+}
+simpledrm_only() {
+	found=false
+	for card in $(cards); do
+		[ "$(driver "$card")" = simple-framebuffer ] || return 1
+		found=true
+	done
+	[ "$found" = true ] || return 1
+	for dev in /sys/bus/pci/devices/*; do
+		case $(cat "$dev/class" 2>/dev/null) in
+		0x03*) [ -e "$dev/drm" ] || return 0 ;;
+		esac
+	done
+	return 1
+}
+if [ "$mode" = greeter ] && simpledrm_only; then
+	warn "yokoso: only simpledrm so far, waiting for the GPU's driver"
+	tries=100
+	while [ "$tries" -gt 0 ] && simpledrm_only; do
+		sleep 0.1
+		tries=$((tries - 1))
+	done
+	! simpledrm_only || warn "yokoso: no GPU driver after 10 s, staying on simpledrm"
+fi
+
 display_cards=
 for card in $(cards); do
 	for conn in "/sys/class/drm/$card"-*; do
@@ -94,7 +127,7 @@ render_node=
 uses_nvidia=false
 for card in $display_cards; do
 	drm_devices=${drm_devices:+$drm_devices:}/dev/dri/$card
-	[ "$(basename "$(readlink -f "/sys/class/drm/$card/device/driver")")" = nvidia ] && uses_nvidia=true
+	[ "$(driver "$card")" = nvidia ] && uses_nvidia=true
 	for r in "/sys/class/drm/$card/device/drm/"renderD*; do
 		[ -z "$render_node" ] && [ -e "$r" ] && render_node=/dev/dri/${r##*/}
 	done

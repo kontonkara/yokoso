@@ -20,6 +20,9 @@ logs into.
   click does nothing else.
 - A clock in the system's locale, a Caps Lock warning, and the power
   buttons logind allows (a second click confirms).
+- Early in the boot, while the GPU's driver is still loading (when it
+  isn't in the initrd), it waits for it instead of starting on the
+  firmware's framebuffer (simpledrm), which goes away under it.
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
   and logs in to the same session.
 
@@ -192,4 +195,5 @@ screens, idle, Russian, a layout, a look of one's own, ...) into `<dir>`;
 `--against <an earlier dir>` counts the pixels that changed. `nix flake
 check` runs the VM tests in [`tests/vm`](tests/vm): the greeter under the
 real greetd, PAM and cage, logging in through the lists, idle, the power
-buttons, PAM's messages, an expired password and a fingerprint.
+buttons, PAM's messages, an expired password, a fingerprint and a GPU
+driver that loads after the greeter starts.

@@ -227,6 +227,32 @@ in
     quiet()
   '';
 
+  # A GPU whose driver loads after the greeter starts (not from the
+  # initrd): until then there's only simpledrm, on EFI's framebuffer, which
+  # goes away when the driver comes. The greeter waits for the driver's card.
+  drm =
+    test "drm"
+      {
+        virtualisation.useEFIBoot = true;
+        boot.blacklistedKernelModules = [ "bochs" ];
+        systemd.services.late-gpu = {
+          wantedBy = [ "greetd.service" ];
+          after = [ "greetd.service" ];
+          serviceConfig.Type = "oneshot";
+          script = "sleep 3; ${pkgs.kmod}/bin/modprobe bochs";
+        };
+      }
+      ''
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        machine.succeed("journalctl -b -t yokoso | grep -q 'only simpledrm so far'")
+        machine.succeed("readlink -f /sys/class/drm/card0/device/driver | grep -q bochs")
+        machine.fail("journalctl -b -t yokoso | grep -q 'falling back'")
+        machine.send_chars("foobar\n")
+        logged_in("alice")
+        quiet()
+      '';
+
   # A fingerprint, with libfprint's virtual reader: PAM asks for a finger
   # first, a wrong one fails, the right one logs in; after three wrong ones
   # the password does.
