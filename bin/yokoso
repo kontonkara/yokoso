@@ -13,6 +13,16 @@ set -eu
 
 mode=${1:-greeter}
 
+# A warning: as greetd's greeter, whose output stays on its VT, in the
+# journal (journalctl -t yokoso) where systemd is there.
+warn() {
+	if [ "$mode" = greeter ] && command -v systemd-cat >/dev/null; then
+		echo "$*" | systemd-cat -t yokoso -p warning
+	else
+		echo "$*" >&2
+	fi
+}
+
 # The backlights' levels from before yokoso dimmed the screen, kept while it
 # is dim: if yokoso stops before waking it, they're set back here, so that
 # neither agreety nor the next boot (systemd-backlight saves the level at
@@ -33,7 +43,7 @@ restore_backlight() {
 fallback() {
 	trap - EXIT
 	set +eu
-	echo "yokoso failed (journalctl -b -t yokoso), falling back to agreety" >&2
+	warn "yokoso failed (journalctl -b -t yokoso), falling back to agreety"
 	restore_backlight
 	config=$(jq -c 'objects' "${YOKOSO_CONFIG:-/etc/yokoso/config.json}" 2>/dev/null)
 	[ -n "$config" ] || config={}
@@ -209,7 +219,7 @@ theme_json() {
 			theme=$(jq -nc --argjson low "$layer" --argjson high "$theme" '$low * $high')
 			ref=$(jq -nr --argjson layer "$layer" '$layer.extends // "dark"')
 		else
-			echo "yokoso: can't read the theme $ref ($file), using dark" >&2
+			warn "yokoso: can't read the theme $ref ($file), using dark"
 			ref=dark
 		fi
 		depth=$((depth + 1))
