@@ -23,6 +23,8 @@ logs into.
 - Early in the boot, while the GPU's driver is still loading (when it
   isn't in the initrd), it waits for it instead of starting on the
   firmware's framebuffer (simpledrm), which goes away under it.
+- A session that ends within seconds of starting (a broken profile, a
+  missing program) doesn't just bring the login screen back: it says so.
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
   and logs in to the same session.
 
@@ -195,5 +197,5 @@ screens, idle, Russian, a layout, a look of one's own, ...) into `<dir>`;
 `--against <an earlier dir>` counts the pixels that changed. `nix flake
 check` runs the VM tests in [`tests/vm`](tests/vm): the greeter under the
 real greetd, PAM and cage, logging in through the lists, idle, the power
-buttons, PAM's messages, an expired password, a fingerprint and a GPU
-driver that loads after the greeter starts.
+buttons, PAM's messages, an expired password, a fingerprint, a session that
+ends at once and a GPU driver that loads after the greeter starts.

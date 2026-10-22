@@ -227,6 +227,33 @@ in
     quiet()
   '';
 
+  # A session that ends as soon as it starts: greetd brings the greeter
+  # back, and the greeter says so.
+  ended =
+    test "ended"
+      {
+        services.displayManager.sessionPackages = [
+          (
+            (pkgs.writeTextDir "share/wayland-sessions/broken.desktop" ''
+              [Desktop Entry]
+              Name=Broken
+              Exec=false
+            '').overrideAttrs
+              { passthru.providedSessions = [ "broken" ]; }
+          )
+        ];
+        services.yokoso.settings.session = "broken";
+      }
+      ''
+        machine.wait_for_unit("greetd.service")
+        pid = greeter()
+        machine.send_chars("foobar\n")
+        greeter(pid)
+        machine.succeed("journalctl -b -t yokoso | grep -q 'the session Broken ended'")
+        machine.screenshot("ended")
+        quiet()
+      '';
+
   # A GPU whose driver loads after the greeter starts (not from the
   # initrd): until then there's only simpledrm, on EFI's framebuffer, which
   # goes away when the driver comes. The greeter waits for the driver's card.

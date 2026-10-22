@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -52,6 +52,7 @@ conf idle '{"idle": 2}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
 echo '{"user": "bob", "sessions": {"bob": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
+state=$work/state.json
 
 # shot <name> <delay ms> <command, run against the compositor after 1.5 s>
 # [VAR=value ...]: users, sessions, config, outputs, answers and LANG are
@@ -61,7 +62,7 @@ shot() {
 	shift 3
 	rt=$work/rt-$name
 	mkdir -m 700 "$rt"
-	cp "$work/state.json" "$rt/state.json"
+	cp "$state" "$rt/state.json"
 	env -i HOME="$HOME" PATH="$fixtures/users/several:$PATH" XDG_RUNTIME_DIR="$rt" \
 		YOKOSO_SHELL_DIR="$repo/shell" YOKOSO_CONFIG="$work/conf/plain.json" YOKOSO_STATE="$rt/state.json" \
 		YOKOSO_SESSION_DIRS="$fixtures/sessions/several/wayland-sessions:$fixtures/sessions/several/xsessions" \
@@ -102,6 +103,13 @@ for name; do
 	russian) shot russian 3500 '' YOKOSO_TEST_ANSWERS=nope,5 LANG=ru_RU.UTF-8 ;;
 	layout) shot layout 1500 '' YOKOSO_CONFIG="$work/conf/layout.json" ;;
 	look) shot look 1500 '' YOKOSO_CONFIG="$work/conf/look.json" ;;
+	# The last session, Niri, ended a second ago.
+	ended)
+		echo "{\"started\": {\"name\": \"Niri\", \"at\": $(($(date +%s) * 1000 - 1000))}}" >"$work/ended.json"
+		state=$work/ended.json
+		shot ended 1500 '' LANG=ru_RU.UTF-8
+		state=$work/state.json
+		;;
 	*)
 		echo "shots: no scenario $name (there are: $scenarios)" >&2
 		exit 2

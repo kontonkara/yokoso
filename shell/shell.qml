@@ -157,11 +157,13 @@ ShellRoot {
 		: Quickshell.screens.map(s => ({ name: s.name, rect: Qt.rect(s.x - origin.x, s.y - origin.y, s.width, s.height) }))
 
 	// Who logged in last, and each user's last session, as { user, sessions:
-	// { <user>: { id, type } } }: written at a login, in /var/lib/yokoso.
+	// { <user>: { id, type } } } (with remember), and the session started
+	// last as started: { name, at } (ms): written at a login, in
+	// /var/lib/yokoso.
 	FileView {
 		id: stateFile
 
-		path: root.config.remember ? Quickshell.env("YOKOSO_STATE") || "" : ""
+		path: Quickshell.env("YOKOSO_STATE") || ""
 		blockLoading: true
 		// In the background, so that the fade out doesn't wait for the
 		// disk; Qt finishes the write before it quits.
@@ -170,15 +172,34 @@ ShellRoot {
 		onSaveFailed: console.warn(`yokoso: can't write ${path}`)
 	}
 
-	readonly property var remembered: parse(stateFile.text())
+	readonly property var lastLogin: parse(stateFile.text())
+	readonly property var remembered: config.remember ? lastLogin : {}
 
 	function remember() {
 		if (!stateFile.path || !user || !session)
 			return;
+		const started = { name: sessionName(session), at: Date.now() };
+		if (!config.remember) {
+			stateFile.setText(JSON.stringify({ started }) + "\n");
+			return;
+		}
 		const last = Object.assign({}, remembered.sessions, {
 			[user.name]: { id: session.id, type: session.type },
 		});
-		stateFile.setText(JSON.stringify({ user: user.name, sessions: last }) + "\n");
+		stateFile.setText(JSON.stringify({ user: user.name, sessions: last, started }) + "\n");
+	}
+
+	// A session that ended within a few seconds of its start (a broken
+	// profile, a missing program, a compositor that can't start): greetd
+	// brings the greeter back without a word, so the field says it.
+	function checkLastSession() {
+		const started = lastLogin.started;
+		const after = started ? Date.now() - started.at : -1;
+		if (after < 0 || after > 10000)
+			return;
+		console.info(`yokoso: the session ${started.name} ended ${Math.round(after / 1000)} s after it started`);
+		auth.message = tr("%1 ended right after it started (journalctl -b)").arg(started.name);
+		auth.messageIsError = true;
 	}
 
 	// The users to pick from, config.user too when it isn't listed (LDAP
@@ -598,6 +619,7 @@ ShellRoot {
 
 	Component.onCompleted: {
 		Quickshell.watchFiles = mode !== "greeter";
+		checkLastSession();
 		if (!problem)
 			auth.start();
 	}
