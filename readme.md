@@ -76,6 +76,10 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 | `language` | the locale's | the language of yokoso's own few words: `"en"` or `"ru"` (from `shell/i18n`); PAM's follow greetd's locale |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
 
+A config that isn't a JSON object is left out, and keys yokoso doesn't know
+(a misspelt `thme`) are named, both in the journal (`journalctl -b -t
+yokoso`).
+
 The last login is kept in `/var/lib/yokoso/state.json`, so the greeter's
 account has to own `/var/lib/yokoso` (the NixOS module makes it). Without
 it nothing is remembered, and `user` and `session` decide.

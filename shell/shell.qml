@@ -26,14 +26,6 @@ ShellRoot {
 		blockLoading: true
 	}
 
-	FileView {
-		id: configFileView
-
-		path: Quickshell.env("YOKOSO_CONFIG") || ""
-		blockLoading: true
-		printErrors: false
-	}
-
 	readonly property var env: parse(envFile.text())
 
 	// yokoso's own words (English ones) in the config's language, else the
@@ -44,10 +36,10 @@ ShellRoot {
 
 	// Every config key, with its default, over the theme the launcher put
 	// together (themes/dark.json has its keys); colors and layout merge key
-	// by key.
-	readonly property var configFile: parse(configFileView.text())
+	// by key. The launcher reads the config file, leaving out one it can't.
+	readonly property var configFile: env.config || {}
 	readonly property var theme: env.theme || {}
-	readonly property var config: Object.assign({
+	readonly property var defaults: ({
 		user: "",
 		session: "",
 		// Start with the user and the session of the last login.
@@ -66,10 +58,24 @@ ShellRoot {
 		// What starts an X server for an X11 session, with the session's
 		// command after it.
 		x11Wrapper: "startx /usr/bin/env",
-	}, theme, configFile, {
+	})
+	readonly property var config: Object.assign({}, defaults, theme, configFile, {
 		colors: Object.assign({}, theme.colors, configFile.colors),
 		layout: Object.assign({}, theme.layout, configFile.layout),
 	})
+
+	// The config's keys that nothing reads, a misspelt one ("thme") most
+	// likely.
+	function checkConfig() {
+		const unknown = Object.keys(configFile).filter(k => !(k in defaults) && !(k in theme) && k !== "look");
+		for (const group of ["colors", "layout"]) {
+			if (configFile[group] && typeof configFile[group] === "object")
+				unknown.push(...Object.keys(configFile[group]).filter(k => !(k in (theme[group] || {}))).map(k => `${group}.${k}`));
+		}
+		if (unknown.length)
+			console.warn(`yokoso: unknown keys in ${Quickshell.env("YOKOSO_CONFIG")}: ${unknown.join(", ")}`);
+	}
+
 	readonly property var colors: config.colors
 
 	// config.background's image for a screen, by its name ("" for the window),
@@ -619,6 +625,7 @@ ShellRoot {
 
 	Component.onCompleted: {
 		Quickshell.watchFiles = mode !== "greeter";
+		checkConfig();
 		checkLastSession();
 		if (!problem)
 			auth.start();

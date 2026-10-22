@@ -62,9 +62,10 @@ let
         machine.succeed(f"loginctl terminate-user {user}")
         machine.wait_until_fails(f"pgrep -u {user}", timeout=30)
 
-    # The greeter's warnings (Quickshell colors them), none of them QML's.
+    # The greeter's warnings (Quickshell colors them), none of them QML's
+    # (yokoso's own aside).
     def quiet():
-        out = machine.succeed(r"journalctl -b -t yokoso -o cat | sed 's/\x1b\[[0-9;]*m//g' | grep -E 'WARN|CRIT' | grep -vE 'Connection refused|unexpected greetd response' || true")
+        out = machine.succeed(r"journalctl -b -t yokoso -o cat | sed 's/\x1b\[[0-9;]*m//g' | grep -E 'WARN|CRIT' | grep -vE 'Connection refused|unexpected greetd response|qml: yokoso:' || true")
         print(out)
         assert not any(word in out for word in ("WARN scene", "WARN qml", "CRIT")), "QML complained"
 
@@ -251,6 +252,24 @@ in
         greeter(pid)
         machine.succeed("journalctl -b -t yokoso | grep -q 'the session Broken ended'")
         machine.screenshot("ended")
+        quiet()
+      '';
+
+  # A config that isn't JSON: left out, with a warning, and the login works.
+  config =
+    test "config"
+      {
+        environment.etc."yokoso/config.json".source = pkgs.lib.mkForce (
+          pkgs.writeText "broken.json" ''{"theme": "light" "idle": 5}''
+        );
+      }
+      ''
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        machine.succeed("journalctl -b -t yokoso | grep -q \"can't read /etc/yokoso/config.json\"")
+        machine.fail("journalctl -b -t yokoso | grep -q 'falling back'")
+        machine.send_chars("foobar\n")
+        logged_in("alice")
         quiet()
       '';
 

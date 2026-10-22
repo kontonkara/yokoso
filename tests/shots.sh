@@ -121,8 +121,9 @@ for name; do
 		line="$line $(magick compare -metric AE "$against/$name.png" "$out/$name.png" null: 2>&1 | cut -d' ' -f1) pixels differ"
 	fi
 	echo "$line"
-	# Quickshell colors its log; without the colors, QML's warnings.
-	if sed 's/\x1b\[[0-9;]*m//g' "$out/$name.log" | grep -E 'WARN +(scene|qml)'; then
+	# Quickshell colors its log; without the colors, QML's warnings (not
+	# yokoso's own).
+	if sed 's/\x1b\[[0-9;]*m//g' "$out/$name.log" | grep -E 'WARN +(scene|qml)' | grep -v 'qml: yokoso:'; then
 		complained=1
 	fi
 done
