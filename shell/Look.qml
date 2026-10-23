@@ -226,6 +226,32 @@ Item {
 		}
 	}
 
+	// A word under the field that a lock key is on, fading and dropping
+	// in while `on`.
+	component LockNote: Text {
+		id: lockNote
+
+		property bool on
+		property real shown: on ? 1 : 0
+
+		visible: shown > 0
+		font.pixelSize: greeter.u(13)
+		font.weight: Font.Medium
+		font.family: greeter.fontFamily
+		opacity: shown
+		transform: Translate {
+			y: (1 - lockNote.shown) * -greeter.u(4)
+		}
+
+		Behavior on shown {
+			enabled: look.animate
+
+			NumberAnimation {
+				duration: 180
+			}
+		}
+	}
+
 	// One of `icons`, stroked in `color`, `size` pixels square.
 	component Icon: Shape {
 		id: icon
@@ -957,7 +983,7 @@ Item {
 
 		// A line under the field, kept so that the form doesn't move: a
 		// message too long for the field (onto more lines below, if it
-		// must), else the Caps Lock warning.
+		// must), else Caps Lock's warning and Num Lock.
 		Item {
 			width: parent.width
 			height: caps.implicitHeight
@@ -982,30 +1008,24 @@ Item {
 				wrapMode: Text.Wrap
 			}
 
-			Text {
-				id: caps
+			// Caps Lock (a warning) and Num Lock, side by side, each
+			// fading in and out on its own.
+			Row {
+				anchors.horizontalCenter: parent.horizontalCenter
+				spacing: greeter.u(16)
 
-				// Fading in and out on its own.
-				property real shown: greeter.capsLock && !note.shown ? 1 : 0
+				LockNote {
+					id: caps
 
-				width: parent.width
-				horizontalAlignment: Text.AlignHCenter
-				text: greeter.tr("Caps Lock is on")
-				color: greeter.colors.error
-				font.pixelSize: greeter.u(13)
-				font.weight: Font.Medium
-				font.family: greeter.fontFamily
-				opacity: shown
-				transform: Translate {
-					y: (1 - caps.shown) * -greeter.u(4)
+					on: greeter.capsLock && !note.shown
+					text: greeter.tr("Caps Lock is on")
+					color: greeter.colors.error
 				}
 
-				Behavior on shown {
-					enabled: look.animate
-
-					NumberAnimation {
-						duration: 180
-					}
+				LockNote {
+					on: greeter.numLock && !note.shown
+					text: greeter.tr("Num Lock is on")
+					color: greeter.colors.subtext
 				}
 			}
 		}

@@ -21,8 +21,8 @@ logs into.
 - After a minute without input the screen goes dark and a laptop's backlight
   low (through logind). A key, a click or a move brings it back; that key or
   click does nothing else.
-- A clock in the system's locale, a Caps Lock warning, and the power
-  buttons logind allows (a second click confirms).
+- A clock in the system's locale, a Caps Lock warning, a word when Num Lock
+  is on, and the power buttons logind allows (a second click confirms).
 - Early in the boot, while the GPU's driver is still loading (when it
   isn't in the initrd), it waits for it instead of starting on the
   firmware's framebuffer (simpledrm), which goes away under it.
@@ -137,7 +137,7 @@ merges the same way).
 |---|---|
 | `colors.background` | behind everything, where there's no image |
 | `colors.text` | the clock, the username, the lists' entries, what's typed and the icon of a power button under the pointer |
-| `colors.subtext` | the date, the session, hints, the power buttons' icons and the status in the corner |
+| `colors.subtext` | the date, the session, hints, the power buttons' icons, the status in the corner and Num Lock |
 | `colors.dim` | the field's placeholder, its arrow until something is typed and the arrows by the names |
 | `colors.field` | the password field and the user and session lists |
 | `colors.accent` | the avatar, what's under the pointer, an armed power button, the picked entry in a list, the field's outline and its button once something is typed, and the spinner while a password is checked |
@@ -192,7 +192,7 @@ does the login, the power buttons and the memory, and watches the pointer.
 | `auth.prompt`, `auth.secret`, `auth.submit(text)` | PAM's question and whether the answer is secret; answering it |
 | `auth.message`, `auth.messageIsError` | PAM's last message, or "Wrong password", and whether it's an error |
 | `problem` | why no login can start (no session), else `""` |
-| `capsLock`, `hostname`, `battery` | Caps Lock; the machine's name; `{ level, plugged }`, or `null` without one |
+| `capsLock`, `numLock`, `hostname`, `battery` | Caps Lock; Num Lock; the machine's name; `{ level, plugged }`, or `null` without one |
 | `power`, `powerLabels`, `press(action)` | the power actions logind allows, their names, and a press: a second one within `armedFor` ms acts |
 | `armed`, `armedFor`, `powerError` | the action waiting for its second press; how long it waits; why one failed |
 | `idle`, `wake()` | whether the screen is asleep (the core dims the backlight, the look darkens the rest); call `wake()` on every key and click, and when it returns `true` the input only woke the screen |

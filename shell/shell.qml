@@ -334,13 +334,24 @@ ShellRoot {
 
 	readonly property var now: clock.date
 
-	// Caps Lock, from the keyboards' LEDs, read every 250 ms.
-	property bool capsLock: false
+	// Caps Lock and Num Lock, from the keyboards' LEDs, read every 250 ms
+	// while the screen is awake.
+	readonly property bool capsLock: capsLeds.on
+	readonly property bool numLock: numLeds.on
 
-	Instantiator {
-		id: capsLeds
+	component Leds: Instantiator {
+		property bool on: false
 
-		model: root.env.capsLeds || []
+		function read() {
+			let lit = false;
+			for (let i = 0; i < count; i++) {
+				const led = objectAt(i);
+				led.reload();
+				lit = lit || Number(led.text()) > 0;
+			}
+			on = lit;
+		}
+
 		delegate: FileView {
 			required property string modelData
 
@@ -350,18 +361,26 @@ ShellRoot {
 		}
 	}
 
+	Leds {
+		id: capsLeds
+
+		model: root.env.capsLeds || []
+	}
+
+	Leds {
+		id: numLeds
+
+		model: root.env.numLeds || []
+	}
+
 	Timer {
 		interval: 250
-		running: capsLeds.count > 0
+		running: capsLeds.count + numLeds.count > 0 && !root.idle
 		repeat: true
+		triggeredOnStart: true
 		onTriggered: {
-			let on = false;
-			for (let i = 0; i < capsLeds.count; i++) {
-				const led = capsLeds.objectAt(i);
-				led.reload();
-				on = on || Number(led.text()) > 0;
-			}
-			root.capsLock = on;
+			capsLeds.read();
+			numLeds.read();
 		}
 	}
 

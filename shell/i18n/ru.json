@@ -15,5 +15,6 @@
   "This account can't log in now": "Этой учётной записи сейчас нельзя войти",
   "%1 ended right after it started (journalctl -b)": "Сессия %1 завершилась сразу после запуска (journalctl -b)",
   "Other…": "Другой…",
-  "Username": "Имя пользователя"
+  "Username": "Имя пользователя",
+  "Num Lock is on": "Включён Num Lock"
 }
