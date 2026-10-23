@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -49,6 +49,7 @@ conf plain '{}'
 conf light '{"theme": "light"}'
 conf screens "{\"background\": {\"HEADLESS-2\": \"$work/bg1.png\", \"*\": \"$work/bg2.png\"}}"
 conf cursor '{"output": "cursor"}'
+conf pinned '{"output": "HEADLESS-1"}'
 conf idle '{"idle": 2}'
 conf nolist '{"userList": false}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
@@ -121,6 +122,9 @@ for name; do
 	software) shot software 300 '' LIBGL_ALWAYS_SOFTWARE=1 ;;
 	# A look made of the parts (examples/sidebar), its session list open.
 	sidebar) shot sidebar 3000 "$(keys 'wtype -k F3; sleep 0.3')" YOKOSO_CONFIG="$work/conf/sidebar.json" ;;
+	# Pinned to HEADLESS-1 (the right one); F4 takes the form to the left one.
+	pinned) shot pinned 1500 '' WLR_HEADLESS_OUTPUTS=2 YOKOSO_CONFIG="$work/conf/pinned.json" ;;
+	f4) shot f4 3000 "$(keys 'wtype -k F4; sleep 0.3')" WLR_HEADLESS_OUTPUTS=2 YOKOSO_CONFIG="$work/conf/pinned.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

@@ -140,19 +140,26 @@ ShellRoot {
 		onTriggered: lidFile.reload()
 	}
 
-	// The screen with the form: the one the pointer last moved onto (with
-	// output "cursor", and never a closed lid's panel), or config.output;
-	// else a laptop's own panel, or with its lid closed an external screen;
-	// else the first one.
-	property var pointerScreen: null
+	// The screen with the form: the one chosen here (the pointer's last,
+	// with output "cursor"; one clicked, or the next with F4), or
+	// config.output; else a laptop's own panel, or with its lid closed an
+	// external screen; else the first one. Never a closed lid's panel,
+	// while there's another.
+	property var chosenScreen: null
+
+	function internal(s) {
+		return /^(eDP|LVDS|DSI)-/.test(s.name);
+	}
+
+	function usable(s) {
+		return !!s && Quickshell.screens.includes(s) && !(lidClosed && internal(s) && Quickshell.screens.length > 1);
+	}
 
 	readonly property var screen: {
 		const screens = Quickshell.screens;
-		const internal = s => /^(eDP|LVDS|DSI)-/.test(s.name);
-		const pointed = screens.includes(pointerScreen) && !(lidClosed && internal(pointerScreen));
-		return (pointed ? pointerScreen : null)
-			|| screens.find(s => s.name === config.output)
-			|| (lidClosed ? screens.find(s => !internal(s)) : screens.find(internal))
+		return (usable(chosenScreen) ? chosenScreen : null)
+			|| screens.find(s => s.name === config.output && usable(s))
+			|| (lidClosed ? screens.find(s => !internal(s)) : screens.find(s => internal(s)))
 			|| screens[0] || null;
 	}
 
@@ -160,6 +167,12 @@ ShellRoot {
 	// all of them.
 	readonly property point origin: Qt.point(Math.min(...Quickshell.screens.map(s => s.x)),
 		Math.min(...Quickshell.screens.map(s => s.y)))
+
+	// The screen at a point in the window.
+	function screenAt(p) {
+		return Quickshell.screens.find(s => p.x >= s.x - origin.x && p.x < s.x - origin.x + s.width
+			&& p.y >= s.y - origin.y && p.y < s.y - origin.y + s.height) || null;
+	}
 
 	// The pointer's last position in the window. Where cage put it doesn't
 	// count, only a move does.
@@ -171,12 +184,25 @@ ShellRoot {
 		if (!moved)
 			return;
 		wake();
-		if (config.output !== "cursor" || windowIsScreen)
+		if (config.output === "cursor" && !windowIsScreen)
+			choose(screenAt(p));
+	}
+
+	// The form goes to `s`, if it can, over config.output, until yokoso
+	// starts again: a click on another screen, or F4, brings it to one that
+	// can be seen when the one it's on can't (a screen that stays dark).
+	function choose(s) {
+		if (usable(s) && s !== screen)
+			chosenScreen = s;
+	}
+
+	// F4: the next screen.
+	function nextScreen() {
+		if (wake() || windowIsScreen)
 			return;
-		const s = Quickshell.screens.find(s => p.x >= s.x - origin.x && p.x < s.x - origin.x + s.width
-			&& p.y >= s.y - origin.y && p.y < s.y - origin.y + s.height);
-		if (s && s !== pointerScreen)
-			pointerScreen = s;
+		const screens = Quickshell.screens.filter(s => usable(s));
+		if (screens.length > 1)
+			choose(screens[(screens.indexOf(screen) + 1) % screens.length]);
 	}
 
 	// Where the form's screen is in the window. In preview (and a one-screen
@@ -657,6 +683,22 @@ ShellRoot {
 			// The pointer, for idle and for output "cursor".
 			HoverHandler {
 				onPointChanged: root.pointAt(point.position)
+			}
+
+			// A click on a screen without the form brings it there.
+			TapHandler {
+				onTapped: point => {
+					if (!root.windowIsScreen)
+						root.choose(root.screenAt(point.position));
+				}
+			}
+
+			// F4 takes the form to the next screen, whatever the look does
+			// with the keys.
+			Shortcut {
+				sequence: "F4"
+				context: Qt.ApplicationShortcut
+				onActivated: root.nextScreen()
 			}
 
 			// Safe mode, whatever the look does with the keys.

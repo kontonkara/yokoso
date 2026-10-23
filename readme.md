@@ -120,6 +120,7 @@ XCURSOR_THEME=Adwaita yokoso"`). A user's picture is
 |---|---|
 | F2, a click on the name or the picture | the user list; without one (`userList: false`), the name to type again |
 | F3, a click on the session | the session list |
+| F4, a click on another screen | the form to that screen (the next one, for F4), over `output` until yokoso starts again |
 | Up, Down, Enter, Escape | in a list |
 | Enter | sends what's typed |
 | Escape | clears the field, and goes back from typing a name |
@@ -164,9 +165,11 @@ The cursor is `XCURSOR_THEME`'s, else the system's default theme, at
 
 With several screens the form goes on `output`, else on a laptop's own panel,
 or on an external screen while the lid is closed, else on the first screen;
-the others show just their background. With `cursor`, the form starts there
-too and then moves to whichever screen the pointer moves onto, except a
-closed laptop panel.
+the others show just their background. A closed laptop panel never gets the
+form while there's another screen, even as `output`. With `cursor`, the form
+starts there too and then moves to whichever screen the pointer moves onto.
+A click on another screen, or F4, takes the form there until yokoso starts
+again: for a screen that stays dark although it's connected.
 
 ## Themes
 
