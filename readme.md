@@ -30,6 +30,8 @@ logs into.
   missing program) doesn't just bring the login screen back: it says so.
 - If yokoso fails, greetd's text greeter (agreety) comes up in its place
   and logs in to the same session.
+- Ctrl+Alt+Shift+D brings up the built-in look in the built-in theme, for a
+  theme that keeps anyone from logging in.
 
 ## Try it
 
@@ -167,8 +169,10 @@ start from. On NixOS, `services.yokoso.themes.<name>` writes them.
 A theme's `look` is a QML file (a path relative to the theme, like
 `background`) that draws the login screen in place of the built-in one,
 [`shell/Look.qml`](shell/Look.qml). If it can't be loaded, the built-in one
-comes up instead, with a warning in the journal. One that loads but doesn't
-work can still lock you out, so try it with `yokoso preview` first
+comes up instead, with a warning in the journal. For one that loads but
+doesn't work (or a theme whose colors hide the field), **Ctrl+Alt+Shift+D**
+brings up the built-in look in the built-in dark theme until the greeter
+starts again: safe mode. Still, try a look with `yokoso preview` first
 (`YOKOSO_CONFIG=<file>`). [`examples/minimal.qml`](examples/minimal.qml),
 with [`examples/minimal.json`](examples/minimal.json), is about the smallest
 one that works. On NixOS, `look = ./mine.qml;` in a theme copies the file to

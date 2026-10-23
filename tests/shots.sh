@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -110,6 +110,10 @@ for name; do
 	# No list: a name first, then (carol's typed) the password.
 	nolist) shot nolist 1500 '' YOKOSO_CONFIG="$work/conf/nolist.json" ;;
 	typed) shot typed 3000 "$(keys 'wtype carol; wtype -k Return; sleep 0.8')" YOKOSO_CONFIG="$work/conf/nolist.json" ;;
+	# A look of one's own, then safe mode: the built-in one, dark, taking
+	# the keys.
+	safe) shot safe 3500 "$(keys 'wtype -M ctrl -M alt -M shift -k d -m shift -m alt -m ctrl; sleep 0.5; wtype abc; sleep 0.3')" \
+		YOKOSO_CONFIG="$work/conf/look.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

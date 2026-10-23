@@ -34,11 +34,30 @@ ShellRoot {
 		return env.strings && env.strings[text] || text;
 	}
 
+	// Safe mode: safeKey brings up the built-in look in the built-in dark
+	// theme, for when a theme keeps anyone from logging in.
+	readonly property string safeKey: "Ctrl+Alt+Shift+D"
+	property bool safe: false
+
+	function safeMode() {
+		if (safe)
+			return;
+		console.warn("yokoso: safe mode: the built-in look and theme");
+		safe = true;
+		looks.builtIn = true;
+		looks.setSource("Look.qml", { greeter: root });
+	}
+
 	// Every config key, with its default, over the theme the launcher put
 	// together (themes/dark.json has its keys); colors and layout merge key
 	// by key. The launcher reads the config file, leaving out one it can't.
-	readonly property var configFile: env.config || {}
-	readonly property var theme: env.theme || {}
+	// In safe mode, the built-in dark theme and only the config's keys
+	// that aren't the theme's.
+	readonly property var configFile: safe
+		? Object.keys(env.config || {}).filter(key => key in defaults && key !== "theme")
+			.reduce((kept, key) => Object.assign(kept, { [key]: env.config[key] }), {})
+		: env.config || {}
+	readonly property var theme: (safe ? env.safeTheme : env.theme) || {}
 	readonly property var defaults: ({
 		user: "",
 		// List the accounts to pick from; false: a name is typed every time.
@@ -631,10 +650,19 @@ ShellRoot {
 				onPointChanged: root.pointAt(point.position)
 			}
 
+			// Safe mode, whatever the look does with the keys.
+			Shortcut {
+				sequence: root.safeKey
+				context: Qt.ApplicationShortcut
+				onActivated: root.safeMode()
+			}
+
 			// What's on screen, given the core as `greeter`: the theme's
 			// look, or the built-in one (Look.qml) when there's none or it
 			// can't be loaded.
 			Loader {
+				id: looks
+
 				property bool builtIn: !root.config.look
 
 				anchors.fill: parent
@@ -684,6 +712,8 @@ ShellRoot {
 	Component.onCompleted: {
 		Quickshell.watchFiles = mode !== "greeter";
 		checkConfig();
+		if (config.look)
+			console.info(`yokoso: the look is ${config.look}; ${safeKey} brings up the built-in one`);
 		checkLastSession();
 		if (!problem && user)
 			auth.start();

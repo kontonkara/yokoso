@@ -348,13 +348,14 @@ strings_json() {
 
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
 	--argjson users "$(users_json)" --argjson power "$(power_json)" \
-	--argjson config "$config_json" --argjson theme "$(theme_json)" --argjson strings "$(strings_json)" \
+	--argjson config "$config_json" --argjson theme "$(theme_json)" \
+	--argjson safeTheme "$(jq -c . "$shell_dir/themes/dark.json")" --argjson strings "$(strings_json)" \
 	--arg hostname "$(cat /proc/sys/kernel/hostname 2>/dev/null)" \
 	--arg lid "$lid" --argjson capsLeds "$caps_leds" --argjson numLeds "$num_leds" \
 	--argjson backlights "$backlights" --arg battery "$battery" \
 	'{screens: $screens, sessions: $sessions, users: $users, power: $power,
 		lid: $lid, capsLeds: $capsLeds, numLeds: $numLeds, backlights: $backlights, battery: $battery,
-		hostname: $hostname, config: $config, theme: $theme, strings: $strings}' \
+		hostname: $hostname, config: $config, theme: $theme, safeTheme: $safeTheme, strings: $strings}' \
 	>"$run_dir/env.json"
 
 # The UI scale the QML side comes to, near enough for the cursor's size:
