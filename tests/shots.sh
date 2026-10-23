@@ -39,7 +39,7 @@ trap 'rm -rf "$work"' EXIT
 magick -size 1280x720 gradient:'#1b2a18'-'#506850' "$work/bg1.png"
 magick -size 1280x720 gradient:'#1e3048'-'#6a3e1e' "$work/bg2.png"
 mkdir -p "$work/conf/avatars" "$work/leds"
-magick -size 400x400 plasma:'#3a7bd5'-'#f0a050' -seed 7 \
+magick -seed 7 -size 400x400 plasma:'#3a7bd5'-'#f0a050' \
 	\( -size 400x400 xc:none -fill '#ffffffcc' -draw 'circle 200,160 200,95' \
 	-draw 'ellipse 200,400 140,120 180,360' \) -composite "png:$work/conf/avatars/bob"
 conf() {
