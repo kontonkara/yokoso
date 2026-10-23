@@ -33,11 +33,12 @@ mkdir -p "$out"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# Two backgrounds, a picture for bob, the configs (avatars/ sits next to
+# No keyboard LEDs but a scenario's (not this machine's Num Lock), two
+# backgrounds, a picture for bob, the configs (avatars/ sits next to
 # them) and the last login: bob with Niri.
 magick -size 1280x720 gradient:'#1b2a18'-'#506850' "$work/bg1.png"
 magick -size 1280x720 gradient:'#1e3048'-'#6a3e1e' "$work/bg2.png"
-mkdir -p "$work/conf/avatars"
+mkdir -p "$work/conf/avatars" "$work/leds"
 magick -size 400x400 plasma:'#3a7bd5'-'#f0a050' -seed 7 \
 	\( -size 400x400 xc:none -fill '#ffffffcc' -draw 'circle 200,160 200,95' \
 	-draw 'ellipse 200,400 140,120 180,360' \) -composite "png:$work/conf/avatars/bob"
@@ -68,6 +69,7 @@ shot() {
 		YOKOSO_SHELL_DIR="$repo/shell" YOKOSO_CONFIG="$work/conf/plain.json" YOKOSO_STATE="$rt/state.json" \
 		YOKOSO_SESSION_DIRS="$fixtures/sessions/several/wayland-sessions:$fixtures/sessions/several/xsessions" \
 		YOKOSO_SHOT_DELAY="$delay" YOKOSO_SHOT_SIZE=1280x720 WLR_HEADLESS_OUTPUTS=1 LANG=en_US.UTF-8 \
+		YOKOSO_LEDS="$work/leds" \
 		"$@" "$repo/bin/yokoso" shot "$out/$name.png" >"$out/$name.log" 2>&1 &
 	pid=$!
 	if [ -n "$command" ]; then
