@@ -285,6 +285,28 @@ in
         quiet()
       '';
 
+  # Started without XKB_DEFAULT_* (as elsewhere than NixOS), the keyboard
+  # layout comes from localed: German here.
+  layout =
+    test "layout"
+      (
+        { config, ... }:
+        {
+          services.xserver.xkb.layout = "de";
+          services.greetd.settings.default_session.command = pkgs.lib.mkForce (
+            pkgs.lib.getExe config.services.yokoso.package
+          );
+        }
+      )
+      ''
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        machine.succeed("tr '\\0' '\\n' </proc/$(pgrep -u greeter -n quickshell)/environ | grep -qx XKB_DEFAULT_LAYOUT=de")
+        machine.send_chars("foobar\n")
+        logged_in("alice")
+        quiet()
+      '';
+
   # A config that isn't JSON: left out, with a warning, and the login works.
   config =
     test "config"

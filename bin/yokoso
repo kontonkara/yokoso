@@ -414,6 +414,18 @@ fake() {
 case $mode in
 greeter)
 	export WLR_DRM_DEVICES="$drm_devices"
+	# The keyboard layout the password is typed in: XKB_DEFAULT_*'s (the
+	# NixOS module sets them), else the system's (localectl
+	# set-x11-keymap), which greetd doesn't pass on.
+	if [ -z "${XKB_DEFAULT_LAYOUT:-}" ]; then
+		for key in Layout:LAYOUT Variant:VARIANT Options:OPTIONS Model:MODEL; do
+			value=$(busctl get-property org.freedesktop.locale1 /org/freedesktop/locale1 \
+				org.freedesktop.locale1 "X11${key%:*}" 2>/dev/null) || continue
+			value=${value#s \"}
+			value=${value%\"}
+			[ -z "$value" ] || export "XKB_DEFAULT_${key#*:}=$value"
+		done
+	fi
 	# The cursor: cage's and Quickshell's are the same theme, at its size
 	# times the UI scale, found among the system's themes too. NVIDIA's
 	# planes take no cursor format wlroots offers: draw it in software
