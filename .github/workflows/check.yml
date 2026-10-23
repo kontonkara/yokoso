@@ -1,0 +1,24 @@
+# nix flake check on every push and pull request: shellcheck and the VM
+# tests, which need KVM (GitHub's Linux runners have it).
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Let the runner's user use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            system-features = nixos-test benchmark big-parallel kvm
+      - run: nix flake check -L

@@ -59,11 +59,19 @@
         };
       });
 
-      # nix flake check: the VM tests in tests/vm.
-      checks.x86_64-linux = import ./tests/vm {
-        pkgs = nixpkgs.legacyPackages.x86_64-linux;
-        inherit self;
-      };
+      # nix flake check: the VM tests in tests/vm, and shellcheck on the
+      # scripts.
+      checks.x86_64-linux =
+        let
+          pkgs = nixpkgs.legacyPackages.x86_64-linux;
+        in
+        import ./tests/vm { inherit pkgs self; }
+        // {
+          shellcheck = pkgs.runCommand "yokoso-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
+            shellcheck -s sh ${./bin/yokoso} ${./tests/shots.sh}
+            touch $out
+          '';
+        };
 
       nixosModules.default = import ./nix/module.nix self;
     };

@@ -243,3 +243,5 @@ real greetd, PAM and cage, logging in through the lists, idle, the power
 buttons, PAM's messages, an expired password, a fingerprint, a session that
 ends at once, a GPU driver that loads after the greeter starts, a layout
 from localed and an install with `make` instead of the module.
+GitHub runs `nix flake check` (shellcheck too) on every push and pull
+request.
