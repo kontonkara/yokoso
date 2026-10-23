@@ -65,6 +65,36 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 `/var/cache/yokoso`, and the last login's user and session in
 `/var/lib/yokoso`.
 
+## Other systems
+
+yokoso needs greetd (with agreety), Quickshell 0.3.1 or newer, cage, jq,
+awk and systemd (`busctl`, `systemd-cat`); `yokoso preview` needs greetd's
+`fakegreet` too, which not every distribution ships (Arch doesn't). On Arch,
+[`dist/arch/PKGBUILD`](dist/arch/PKGBUILD) builds `yokoso-git`; elsewhere:
+
+```sh
+make install PREFIX=/usr
+systemd-tmpfiles --create
+```
+
+Then greetd runs it, in `/etc/greetd/config.toml`:
+
+```toml
+[default_session]
+command = "yokoso"
+user = "greeter"
+```
+
+and `systemctl enable greetd` (with the display manager before it
+disabled). `/var/lib/yokoso` and `/var/cache/yokoso` belong to the account
+`greeter`; for another one, copy `/usr/lib/tmpfiles.d/yokoso.conf` to
+`/etc/tmpfiles.d/` with its name. The keyboard layout is the system's
+(`localectl set-x11-keymap us,de "" "" grp:alt_shift_toggle`), unless the
+command sets `XKB_DEFAULT_LAYOUT` and the rest; a cursor theme is
+`XCURSOR_THEME` and `XCURSOR_SIZE` there (`command = "env
+XCURSOR_THEME=Adwaita yokoso"`). The config is
+`/etc/yokoso/config.json`, below.
+
 ## Config
 
 `/etc/yokoso/config.json`. Every key is optional:
@@ -211,4 +241,5 @@ screens, idle, Russian, a layout, a look of one's own, ...) into `<dir>`;
 check` runs the VM tests in [`tests/vm`](tests/vm): the greeter under the
 real greetd, PAM and cage, logging in through the lists, idle, the power
 buttons, PAM's messages, an expired password, a fingerprint, a session that
-ends at once and a GPU driver that loads after the greeter starts.
+ends at once, a GPU driver that loads after the greeter starts, a layout
+from localed and an install with `make` instead of the module.

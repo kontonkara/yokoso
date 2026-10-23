@@ -1,0 +1,26 @@
+# Maintainer: kontonkara
+# The AUR's yokoso-git, from main. Configure greetd afterwards (see the
+# README's "Other systems").
+pkgname=yokoso-git
+pkgver=0.1.0.r0.g0000000
+pkgrel=1
+pkgdesc="A customizable greetd greeter on Quickshell"
+arch=(any)
+url="https://github.com/kontonkara/yokoso"
+license=(MIT)
+depends=(greetd greetd-agreety quickshell cage jq gawk systemd)
+makedepends=(git make)
+provides=(yokoso)
+conflicts=(yokoso)
+source=("git+$url.git")
+sha256sums=(SKIP)
+
+pkgver() {
+	cd yokoso
+	printf '0.1.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+package() {
+	cd yokoso
+	make install PREFIX=/usr DESTDIR="$pkgdir"
+}

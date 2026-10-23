@@ -307,6 +307,56 @@ in
         quiet()
       '';
 
+  # Installed as elsewhere than NixOS: `make install`, greetd's own config,
+  # the programs it needs on the PATH, and no module.
+  plain = pkgs.testers.runNixOSTest {
+    name = "yokoso-plain";
+    nodes.machine =
+      let
+        yokoso = pkgs.stdenvNoCC.mkDerivation {
+          name = "yokoso-installed";
+          src = self;
+          nativeBuildInputs = [ pkgs.gnumake ];
+          dontBuild = true;
+          installPhase = "make install PREFIX=$out";
+        };
+      in
+      {
+        services.greetd = {
+          enable = true;
+          settings.default_session.command = "${yokoso}/bin/yokoso";
+        };
+        systemd.tmpfiles.packages = [ yokoso ];
+        environment.systemPackages = with pkgs; [
+          quickshell
+          cage
+          jq
+          gawk
+          greetd
+          wlrctl
+        ];
+        services.xserver = {
+          enable = true;
+          windowManager.i3.enable = true;
+        };
+        services.xserver.displayManager.startx.enable = true;
+        users.users.alice = {
+          isNormalUser = true;
+          password = "foobar";
+        };
+        virtualisation.memorySize = 2048;
+      };
+    testScript = helpers + ''
+      machine.wait_for_unit("greetd.service")
+      greeter()
+      machine.succeed("test -d /var/lib/yokoso -a -d /var/cache/yokoso")
+      machine.send_chars("foobar\n")
+      logged_in("alice")
+      machine.succeed("grep -q '\"user\":\"alice\"' /var/lib/yokoso/state.json")
+      quiet()
+    '';
+  };
+
   # A config that isn't JSON: left out, with a warning, and the login works.
   config =
     test "config"
