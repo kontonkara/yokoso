@@ -99,6 +99,10 @@ ShellRoot {
 
 	readonly property var colors: config.colors
 
+	// Whether things move: config.animations, true, false or "auto" for not
+	// when everything is drawn in software, where each frame costs the CPU.
+	readonly property bool animate: config.animations === "auto" ? !env.software : !!config.animations
+
 	// config.background's image for a screen, by its name ("" for the window),
 	// as a URL: one path for every screen, or one per output, "*" for the rest.
 	function backgroundFor(name) {
@@ -613,7 +617,7 @@ ShellRoot {
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
 		x11Wrapper: root.config.x11Wrapper
-		launchDelay: root.config.animations ? 450 : 0
+		launchDelay: root.animate ? 450 : 0
 		failedText: root.tr("Wrong password")
 		expiredText: root.tr("The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)")
 		deniedText: root.tr("This account can't log in now")

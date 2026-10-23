@@ -177,7 +177,7 @@ merges the same way).
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
-| `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner, password dots that pop up, the clock's figures rolling over, lists that drop in with a highlight that slides; `false` for none |
+| `animations` | the parts coming in one after another at the start and going as the session starts, the form sliding to another screen, buttons that answer the pointer, a ring running out around an armed power button, a shake at a wrong password, the spinner, password dots that pop up, the clock's figures rolling over, lists that drop in with a highlight that slides; `"auto"` (the default) for them unless everything is drawn in software (a VM without 3D), `true`, or `false` for none |
 | `status` | what a top corner shows: `"hostname"`, `"battery"` (a laptop's), both by default; `[]` for nothing |
 | `layout.form` | the form in the `"center"` of the screen, on the `"left"` or on the `"right"` |
 | `layout.clock` | the clock `"above"` the form, at the `"top"` of the screen, or `"none"` |
@@ -213,7 +213,7 @@ does the login, the power buttons and the memory, and watches the pointer.
 
 | | |
 |---|---|
-| `config`, `colors`, `fontFamily` | the config over the theme, its colors, its font |
+| `config`, `colors`, `fontFamily`, `animate` | the config over the theme, its colors, its font; whether things should move (`animations` worked out) |
 | `tr(text)` | yokoso's English words in the config's language, when `shell/i18n` has them |
 | `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL |
 | `u(n)`, `dpr` | `n` pixels at the UI scale; the screen's device pixel ratio |

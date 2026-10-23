@@ -143,6 +143,15 @@ for card in $display_cards; do
 	done
 done
 
+# Whether everything is drawn in software, without a GPU that renders (a
+# VM's plain display) or by LIBGL_ALWAYS_SOFTWARE: then animations ("auto")
+# are off, as each frame costs the CPU.
+software=true
+for r in /dev/dri/renderD*; do
+	[ -e "$r" ] && software=false
+done
+[ -z "${LIBGL_ALWAYS_SOFTWARE:-}" ] || software=true
+
 # With no screen on an NVIDIA GPU, only Mesa's EGL is offered: libglvnd would
 # otherwise load NVIDIA's first, which wakes the GPU from D3cold and costs
 # about two seconds before the first frame.
@@ -350,10 +359,11 @@ jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" 
 	--argjson safeTheme "$(jq -c . "$shell_dir/themes/dark.json")" --argjson strings "$(strings_json)" \
 	--arg hostname "$(cat /proc/sys/kernel/hostname 2>/dev/null)" \
 	--arg lid "$lid" --argjson capsLeds "$caps_leds" --argjson numLeds "$num_leds" \
-	--argjson backlights "$backlights" --arg battery "$battery" \
+	--argjson backlights "$backlights" --arg battery "$battery" --argjson software "$software" \
 	'{screens: $screens, sessions: $sessions, users: $users, power: $power,
 		lid: $lid, capsLeds: $capsLeds, numLeds: $numLeds, backlights: $backlights, battery: $battery,
-		hostname: $hostname, config: $config, theme: $theme, safeTheme: $safeTheme, strings: $strings}' \
+		hostname: $hostname, software: $software, config: $config, theme: $theme, safeTheme: $safeTheme,
+		strings: $strings}' \
 	>"$run_dir/env.json"
 
 # The UI scale the QML side comes to, near enough for the cursor's size:

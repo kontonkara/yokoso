@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -114,6 +114,8 @@ for name; do
 	# the keys.
 	safe) shot safe 3500 "$(keys 'wtype -M ctrl -M alt -M shift -k d -m shift -m alt -m ctrl; sleep 0.5; wtype abc; sleep 0.3')" \
 		YOKOSO_CONFIG="$work/conf/look.json" ;;
+	# Drawn in software: still at 0.3 s, as nothing fades in.
+	software) shot software 300 '' LIBGL_ALWAYS_SOFTWARE=1 ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

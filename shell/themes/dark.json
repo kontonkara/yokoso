@@ -11,7 +11,7 @@
   "font": "",
   "background": "",
   "backgroundDim": 0.4,
-  "animations": true,
+  "animations": "auto",
   "status": ["hostname", "battery"],
   "layout": {
     "form": "center",

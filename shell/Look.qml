@@ -11,8 +11,8 @@ Item {
 	required property var greeter
 
 	// Everything that moves (fades, slides, the shake at a wrong password,
-	// buttons answering the pointer): config.animations.
-	readonly property bool animate: !!greeter.config.animations
+	// buttons answering the pointer): the core's, from config.animations.
+	readonly property bool animate: greeter.animate
 	property real shaken: 1
 
 	// Where the parts go, and how round they are (the theme's layout and

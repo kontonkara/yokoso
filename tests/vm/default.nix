@@ -92,7 +92,10 @@ in
 
         machine.wait_for_unit("greetd.service")
         pid = greeter()
-        sessions = json.loads(machine.succeed("cat /run/user/$(id -u greeter)/yokoso/env.json"))["sessions"]
+        env = json.loads(machine.succeed("cat /run/user/$(id -u greeter)/yokoso/env.json"))
+        sessions = env["sessions"]
+        # No 3D in the VM: drawn in software, so nothing moves.
+        assert env["software"], "a VM without a render node is drawn on a GPU?"
         machine.screenshot("start")
 
         click(640, 415)
