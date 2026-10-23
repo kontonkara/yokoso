@@ -12,6 +12,8 @@ let
     name: machine: script:
     pkgs.testers.runNixOSTest {
       name = "yokoso-${name}";
+      # A test takes under a minute; a VM that hangs fails it in ten.
+      globalTimeout = 600;
       nodes.machine = {
         imports = [
           self.nixosModules.default
@@ -316,6 +318,7 @@ in
   # the programs it needs on the PATH, and no module.
   plain = pkgs.testers.runNixOSTest {
     name = "yokoso-plain";
+    globalTimeout = 600;
     nodes.machine =
       let
         yokoso = pkgs.stdenvNoCC.mkDerivation {

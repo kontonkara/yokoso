@@ -9,6 +9,8 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # A run takes a few minutes; a hung one stops in half an hour.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: Let the runner's user use KVM
