@@ -387,13 +387,20 @@ in
           wantedBy = [ "greetd.service" ];
           after = [ "greetd.service" ];
           serviceConfig.Type = "oneshot";
-          script = "sleep 3; ${pkgs.kmod}/bin/modprobe bochs";
+          # simpledrm goes a moment before the driver comes, as when the
+          # driver takes over: for a second there's no card at all.
+          script = ''
+            sleep 3
+            echo simple-framebuffer.0 >/sys/bus/platform/drivers/simple-framebuffer/unbind
+            sleep 1
+            ${pkgs.kmod}/bin/modprobe bochs
+          '';
         };
       }
       ''
         machine.wait_for_unit("greetd.service")
         greeter()
-        machine.succeed("journalctl -b -t yokoso | grep -q 'only simpledrm so far'")
+        machine.succeed("journalctl -b -t yokoso | grep -q 'no GPU.s card yet'")
         machine.succeed("readlink -f /sys/class/drm/card0/device/driver | grep -q bochs")
         machine.fail("journalctl -b -t yokoso | grep -q 'falling back'")
         machine.send_chars("foobar\n")
