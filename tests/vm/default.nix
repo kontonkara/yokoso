@@ -1,6 +1,8 @@
 # The VM tests, run by `nix flake check`: the greeter under the real greetd,
 # PAM and cage in a NixOS VM (1280x800), driven by the keyboard and by
-# wlrctl's pointer.
+# wlrctl's pointer. A check that pipes into grep lets it read everything
+# (no -q): the commands run with pipefail, and a writer cut off by SIGPIPE
+# would fail them.
 { pkgs, self }:
 
 let
@@ -210,8 +212,8 @@ in
     machine.succeed("chage -d $(date -d '-5 days' +%F) -M 7 -W 7 alice")
     machine.send_chars("foobar\n")
     logged_in("alice")
-    machine.succeed("journalctl -b -t yokoso -o cat | grep -q '\"auth_message_type\":\"info\"'")
-    machine.fail("journalctl -b -t yokoso -o cat | grep -q 'Cannot respond'")
+    machine.succeed("journalctl -b -t yokoso -o cat | grep '\"auth_message_type\":\"info\"' >/dev/null")
+    machine.fail("journalctl -b -t yokoso -o cat | grep 'Cannot respond' >/dev/null")
     quiet()
   '';
 
@@ -253,7 +255,7 @@ in
         pid = greeter()
         machine.send_chars("foobar\n")
         greeter(pid)
-        machine.succeed("journalctl -b -t yokoso | grep -q 'the session Broken ended'")
+        machine.succeed("journalctl -b -t yokoso | grep 'the session Broken ended' >/dev/null")
         machine.screenshot("ended")
         quiet()
       '';
@@ -304,7 +306,7 @@ in
       ''
         machine.wait_for_unit("greetd.service")
         greeter()
-        machine.succeed("tr '\\0' '\\n' </proc/$(pgrep -u greeter -n quickshell)/environ | grep -qx XKB_DEFAULT_LAYOUT=de")
+        machine.succeed("tr '\\0' '\\n' </proc/$(pgrep -u greeter -n quickshell)/environ | grep -x XKB_DEFAULT_LAYOUT=de >/dev/null")
         machine.send_chars("foobar\n")
         logged_in("alice")
         quiet()
@@ -371,8 +373,8 @@ in
       ''
         machine.wait_for_unit("greetd.service")
         greeter()
-        machine.succeed("journalctl -b -t yokoso | grep -q \"can't read /etc/yokoso/config.json\"")
-        machine.fail("journalctl -b -t yokoso | grep -q 'falling back'")
+        machine.succeed("journalctl -b -t yokoso | grep \"can't read /etc/yokoso/config.json\" >/dev/null")
+        machine.fail("journalctl -b -t yokoso | grep 'falling back' >/dev/null")
         machine.send_chars("foobar\n")
         logged_in("alice")
         quiet()
@@ -403,9 +405,9 @@ in
       ''
         machine.wait_for_unit("greetd.service")
         greeter()
-        machine.succeed("journalctl -b -t yokoso | grep -q 'no GPU.s card yet'")
+        machine.succeed("journalctl -b -t yokoso | grep 'no GPU.s card yet' >/dev/null")
         machine.succeed("readlink -f /sys/class/drm/card0/device/driver | grep -q bochs")
-        machine.fail("journalctl -b -t yokoso | grep -q 'falling back'")
+        machine.fail("journalctl -b -t yokoso | grep 'falling back' >/dev/null")
         machine.send_chars("foobar\n")
         logged_in("alice")
         quiet()
