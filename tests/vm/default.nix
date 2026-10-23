@@ -255,6 +255,36 @@ in
         quiet()
       '';
 
+  # An account that isn't listed (a system UID here, a directory's
+  # elsewhere): "Other…" in the list, its name typed, then its password.
+  other =
+    test "other"
+      {
+        users.users.bob = {
+          isSystemUser = true;
+          group = "users";
+          useDefaultShell = true;
+          home = "/home/bob";
+          createHome = true;
+          password = "barfoo";
+        };
+      }
+      ''
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        machine.send_key("f2")
+        time.sleep(1)
+        machine.send_key("down")
+        machine.send_key("ret")
+        time.sleep(1)
+        machine.send_chars("bob\n")
+        time.sleep(2)
+        machine.screenshot("bob")
+        machine.send_chars("barfoo\n")
+        logged_in("bob")
+        quiet()
+      '';
+
   # A config that isn't JSON: left out, with a warning, and the login works.
   config =
     test "config"

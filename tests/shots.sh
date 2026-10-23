@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -49,6 +49,7 @@ conf light '{"theme": "light"}'
 conf screens "{\"background\": {\"HEADLESS-2\": \"$work/bg1.png\", \"*\": \"$work/bg2.png\"}}"
 conf cursor '{"output": "cursor"}'
 conf idle '{"idle": 2}'
+conf nolist '{"userList": false}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
 echo '{"user": "bob", "sessions": {"bob": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
@@ -103,6 +104,12 @@ for name; do
 	russian) shot russian 3500 '' YOKOSO_TEST_ANSWERS=nope,5 LANG=ru_RU.UTF-8 ;;
 	layout) shot layout 1500 '' YOKOSO_CONFIG="$work/conf/layout.json" ;;
 	look) shot look 1500 '' YOKOSO_CONFIG="$work/conf/look.json" ;;
+	# "Other…" from the list (bob is the 2nd of 3), and a name typed.
+	other) shot other 3000 "$(keys 'wtype -k F2; sleep 0.2; wtype -k Down; wtype -k Down; sleep 0.2;
+		wtype -k Return; sleep 0.3; wtype dave; sleep 0.3')" ;;
+	# No list: a name first, then (carol's typed) the password.
+	nolist) shot nolist 1500 '' YOKOSO_CONFIG="$work/conf/nolist.json" ;;
+	typed) shot typed 3000 "$(keys 'wtype carol; wtype -k Return; sleep 0.8')" YOKOSO_CONFIG="$work/conf/nolist.json" ;;
 	# The last session, Niri, ended a second ago.
 	ended)
 		echo "{\"started\": {\"name\": \"Niri\", \"at\": $(($(date +%s) * 1000 - 1000))}}" >"$work/ended.json"

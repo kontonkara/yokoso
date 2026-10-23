@@ -13,8 +13,11 @@ logs into.
 - PAM's prompts and messages are shown as PAM sends them, a fingerprint
   reader's included; one too long for the field goes under it. greetd can't
   change an expired password, so for one yokoso says where to change it.
-- With more than one account or session, a click on the name (or F2, F3)
-  picks another, and the next login starts with the last one's.
+- A click on the name (or F2) picks another account, or "Other…" one that
+  isn't listed (a directory's, LDAP's), by its name; with more than one
+  session, a click on it (or F3) picks another. The next login starts with
+  the last one's. Without the list (`userList: false`), a name is typed
+  every time.
 - After a minute without input the screen goes dark and a laptop's backlight
   low (through logind). A key, a click or a move brings it back; that key or
   click does nothing else.
@@ -67,6 +70,7 @@ it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
 | Key | Default | |
 |---|---|---|
 | `user` | the first account | account to start with, listed or not (LDAP) |
+| `userList` | `true` | list the accounts to pick from; `false` asks for a name every time (not the last login's) and shows no pictures |
 | `session` | the first one | session to start with, by desktop file name (`niri`, `i3`); Wayland's come first |
 | `remember` | `true` | start with the last login's user and that user's last session instead |
 | `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
@@ -180,13 +184,14 @@ does the login, the power buttons and the memory, and watches the pointer.
 | `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL |
 | `u(n)`, `dpr` | `n` pixels at the UI scale; the screen's device pixel ratio |
 | `now`, `locale` | the time, by the minute; the system's locale for dates |
-| `users`, `user`, `pickUser(u)` | the accounts as `{ name, realName, icon }`; the one logging in; another one, whose login then starts over |
+| `users`, `user`, `pickUser(u)` | the accounts as `{ name, realName, icon }` (none with `userList: false`); the one logging in; another one, whose login then starts over |
+| `needsUser`, `enterUser(name)`, `canEnterUser()` | no user yet (ask for a name); a typed name, listed or not, whose login then starts over; whether one can be typed now |
 | `sessions`, `session`, `pickSession(s)`, `sessionName(s)` | the sessions as `{ id, name, exec, type }`; the one to start; another one; a name to show |
 | `canPick(which)` | whether another `"user"` or `"session"` can be picked now |
 | `auth.phase` | `"starting"`, `"prompt"`, `"verifying"`, `"failed"` or `"launching"` |
 | `auth.prompt`, `auth.secret`, `auth.submit(text)` | PAM's question and whether the answer is secret; answering it |
 | `auth.message`, `auth.messageIsError` | PAM's last message, or "Wrong password", and whether it's an error |
-| `problem` | why no login can start (no user or no session), else `""` |
+| `problem` | why no login can start (no session), else `""` |
 | `capsLock`, `hostname`, `battery` | Caps Lock; the machine's name; `{ level, plugged }`, or `null` without one |
 | `power`, `powerLabels`, `press(action)` | the power actions logind allows, their names, and a press: a second one within `armedFor` ms acts |
 | `armed`, `armedFor`, `powerError` | the action waiting for its second press; how long it waits; why one failed |

@@ -41,6 +41,8 @@ ShellRoot {
 	readonly property var theme: env.theme || {}
 	readonly property var defaults: ({
 		user: "",
+		// List the accounts to pick from; false: a name is typed every time.
+		userList: true,
 		session: "",
 		// Start with the user and the session of the last login.
 		remember: true,
@@ -208,21 +210,40 @@ ShellRoot {
 		auth.messageIsError = true;
 	}
 
+	// Whether the accounts are listed to pick from (config.userList); else
+	// a name is typed, every time.
+	readonly property bool userList: config.userList !== false
+
 	// The users to pick from, config.user too when it isn't listed (LDAP
-	// accounts often aren't).
+	// accounts often aren't); none without userList.
 	readonly property var users: {
 		const listed = env.users || [];
 		const name = config.user;
+		if (!userList)
+			return [];
 		return !name || listed.some(u => u.name === name) ? listed : [{ name, realName: name }].concat(listed);
 	}
 	readonly property var sessions: env.sessions || []
 
-	// The ones picked here, else the last login's, else config's, else the
-	// first. Picking a user brings back their last session.
+	// An account by its name: the listed one, else just the name (one in
+	// a directory, typed in).
+	function account(name) {
+		return name ? (env.users || []).find(u => u.name === name) || { name, realName: name, icon: "" } : null;
+	}
+
+	// The one picked or typed here, else the last login's, else config's,
+	// else the first; without userList, the one typed or config's. Picking
+	// a user brings back their last session.
 	property string pickedUser: ""
 	property var pickedSession: null
-	readonly property var user: [pickedUser, remembered.user, config.user]
-		.map(name => users.find(u => u.name === name)).find(u => u) || users[0] || null
+	readonly property var user: {
+		if (pickedUser)
+			return users.find(u => u.name === pickedUser) || account(pickedUser);
+		if (!userList)
+			return account(config.user);
+		return [remembered.user, config.user].map(name => users.find(u => u.name === name)).find(u => u)
+			|| users[0] || null;
+	}
 	readonly property var session: {
 		const last = user && remembered.sessions && remembered.sessions[user.name] || {};
 		return pickedSession
@@ -231,6 +252,9 @@ ShellRoot {
 			|| sessions[0] || null;
 	}
 
+	// No user yet: the look asks for a name (enterUser()).
+	readonly property bool needsUser: !user
+
 	// A session's name, with "(X11)" when a Wayland one has the same.
 	function sessionName(s) {
 		if (!s)
@@ -238,18 +262,33 @@ ShellRoot {
 		return s.type === "x11" && sessions.some(o => o !== s && o.name === s.name) ? `${s.name} (X11)` : s.name;
 	}
 
-	// "user" or "session": whether there's another to pick. Not while a
-	// password is checked (another user) or a session starts.
+	// "user" or "session": whether there's another to pick (any user,
+	// with userList, as another can be typed). Not while a password is
+	// checked (another user) or a session starts.
 	function canPick(which) {
-		return (which === "user" ? users : sessions).length > 1 && auth.phase !== "launching"
-			&& !(which === "user" && auth.phase === "verifying");
+		if (which === "user")
+			return userList && users.length > 0 && canEnterUser();
+		return sessions.length > 1 && auth.phase !== "launching";
+	}
+
+	// Whether another name can be typed now.
+	function canEnterUser() {
+		return auth.phase !== "launching" && auth.phase !== "verifying";
 	}
 
 	// One of users: the login starts over for them.
 	function pickUser(u) {
 		if (u === user || !canPick("user"))
 			return;
-		pickedUser = u.name;
+		enterUser(u.name);
+	}
+
+	// A typed name, listed or not: the login starts over for them.
+	function enterUser(name) {
+		name = (name || "").trim();
+		if (!name || user && name === user.name || !canEnterUser())
+			return;
+		pickedUser = name;
 		pickedSession = null;
 		auth.restart();
 	}
@@ -261,7 +300,7 @@ ShellRoot {
 	}
 
 	// Why a login can't start, if it can't.
-	readonly property string problem: !user ? tr("No user found") : !session ? tr("No session found") : ""
+	readonly property string problem: !session ? tr("No session found") : ""
 
 	// The UI scale: config.scale, else the screen's DPI / 96 rounded to 0.05
 	// (1 when its size is unknown), over what the compositor already scales.
@@ -627,7 +666,7 @@ ShellRoot {
 		Quickshell.watchFiles = mode !== "greeter";
 		checkConfig();
 		checkLastSession();
-		if (!problem)
+		if (!problem && user)
 			auth.start();
 	}
 }

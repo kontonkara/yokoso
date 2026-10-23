@@ -1,7 +1,6 @@
 {
   "Wrong password": "Неверный пароль",
   "Caps Lock is on": "Включён Caps Lock",
-  "No user found": "Нет ни одного пользователя",
   "No session found": "Нет ни одной сессии",
   "Suspend": "Сон",
   "Reboot": "Перезагрузка",
@@ -14,5 +13,7 @@
   "Power off failed": "Не удалось выключить",
   "The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)": "Пароль устарел: смените его командой passwd в текстовой консоли (Ctrl+Alt+F2)",
   "This account can't log in now": "Этой учётной записи сейчас нельзя войти",
-  "%1 ended right after it started (journalctl -b)": "Сессия %1 завершилась сразу после запуска (journalctl -b)"
+  "%1 ended right after it started (journalctl -b)": "Сессия %1 завершилась сразу после запуска (journalctl -b)",
+  "Other…": "Другой…",
+  "Username": "Имя пользователя"
 }

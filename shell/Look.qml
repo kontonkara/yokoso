@@ -81,6 +81,7 @@ Item {
 	property string picking: ""
 	readonly property var pickList: picking === "user"
 		? greeter.users.map(u => ({ label: u.name, detail: u.realName !== u.name ? u.realName : "", current: u === greeter.user }))
+			.concat([{ label: greeter.tr("Other…"), detail: "", current: false, other: true }])
 		: picking === "session"
 		? greeter.sessions.map(s => ({ label: greeter.sessionName(s), detail: "", current: s === greeter.session }))
 		: []
@@ -103,36 +104,82 @@ Item {
 	}
 
 	function pick(index) {
-		if (picking === "user")
+		const other = picking === "user" && index === greeter.users.length;
+		if (picking === "user" && !other)
 			greeter.pickUser(greeter.users[index]);
 		else if (picking === "session")
 			greeter.pickSession(greeter.sessions[index]);
 		closePicker();
+		if (other)
+			enterName("");
+	}
+
+	// A name typed into the field instead of the password: while there's
+	// no user (without userList, until one is typed), and after "Other…"
+	// or a click on a typed name.
+	property bool enteringName: false
+	readonly property bool askingName: enteringName || greeter.needsUser
+	// Whether the field takes typing now, and whether what's typed is a
+	// secret.
+	readonly property bool typing: askingName || greeter.auth.phase === "prompt"
+	readonly property bool secret: !askingName && greeter.auth.secret
+
+	// Types a name in the field, starting from `name`.
+	function enterName(name) {
+		if (!greeter.canEnterUser())
+			return;
+		enteringName = true;
+		input.text = name;
+		input.selectAll();
+		input.forceActiveFocus();
+	}
+
+	// A click on the user (or F2): the list, or without one the name to
+	// type again.
+	function userClicked() {
+		if (greeter.userList)
+			togglePicker("user");
+		else if (!askingName)
+			enterName(greeter.user ? greeter.user.name : "");
 	}
 
 	function submit() {
+		if (askingName) {
+			const name = input.text.trim();
+			if (!name)
+				return;
+			enteringName = false;
+			input.text = "";
+			greeter.enterUser(name);
+			return;
+		}
 		greeter.auth.submit(input.text);
 		input.text = "";
 	}
 
 	// Every key press, before the field or the list gets it: it keeps the
 	// screen awake, or wakes it and goes no further. F2 opens or closes
-	// the user list, F3 the session list; in a list Enter picks and Escape
-	// closes it, and Escape clears the field.
+	// the user list (without one, types the name again), F3 the session
+	// list; in a list Enter picks and Escape closes it, and Escape clears
+	// the field (and goes back from typing a name to the user's password).
 	function keyPressed(event) {
 		event.accepted = true;
 		if (greeter.wake())
 			return;
 		const enter = event.key === Qt.Key_Return || event.key === Qt.Key_Enter;
-		if (event.key === Qt.Key_F2 || event.key === Qt.Key_F3)
-			togglePicker(event.key === Qt.Key_F2 ? "user" : "session");
+		if (event.key === Qt.Key_F2)
+			userClicked();
+		else if (event.key === Qt.Key_F3)
+			togglePicker("session");
 		else if (picking && enter)
 			pick(list.currentIndex);
 		else if (picking && event.key === Qt.Key_Escape)
 			closePicker();
-		else if (event.key === Qt.Key_Escape)
+		else if (event.key === Qt.Key_Escape) {
 			input.text = "";
-		else
+			if (greeter.user)
+				enteringName = false;
+		} else
 			event.accepted = false;
 	}
 
@@ -433,13 +480,15 @@ Item {
 		spacing: greeter.u(14)
 
 		// The user's picture, or else their initial, in a ring of the
-		// accent; a click picks another user, like one on the name.
+		// accent (of the name typed, while one is); a click picks another
+		// user, like one on the name. None without a user list.
 		Rectangle {
 			id: avatar
 
 			readonly property bool hovered: avatarMouse.containsMouse && greeter.canPick("user")
 
 			anchors.horizontalCenter: parent.horizontalCenter
+			visible: greeter.userList
 			width: greeter.u(92)
 			height: width
 			radius: look.round(width)
@@ -465,7 +514,7 @@ Item {
 
 				anchors.fill: parent
 				visible: false
-				source: look.shownUser && look.shownUser.icon ? "file://" + look.shownUser.icon.split("/").map(encodeURIComponent).join("/") : ""
+				source: !look.askingName && look.shownUser && look.shownUser.icon ? "file://" + look.shownUser.icon.split("/").map(encodeURIComponent).join("/") : ""
 				sourceSize: Qt.size(width * greeter.dpr, height * greeter.dpr)
 				fillMode: Image.PreserveAspectCrop
 				asynchronous: true
@@ -498,7 +547,7 @@ Item {
 			Text {
 				anchors.centerIn: parent
 				visible: picture.status !== Image.Ready
-				text: look.shownUser ? look.shownUser.name.charAt(0).toUpperCase() : ""
+				text: (look.askingName ? input.text.trim() : look.shownUser ? look.shownUser.name : "").charAt(0).toUpperCase()
 				color: greeter.colors.accent
 				font.pixelSize: greeter.u(38)
 				font.weight: Font.DemiBold
@@ -528,12 +577,14 @@ Item {
 				anchors.fill: parent
 				hoverEnabled: true
 				cursorShape: greeter.canPick("user") ? Qt.PointingHandCursor : Qt.ArrowCursor
-				onClicked: look.togglePicker("user")
+				onClicked: look.userClicked()
 			}
 		}
 
 		// The user, and the session (in a pill) when there's more than
-		// one: a click (or F2, F3) opens the list to pick another from.
+		// one: a click (or F2, F3) opens the list to pick another from, or
+		// without a user list, types the name again. Hidden while a name is
+		// typed.
 		Repeater {
 			id: labels
 
@@ -544,12 +595,12 @@ Item {
 
 				required property string modelData
 				readonly property bool isUser: modelData === "user"
-				readonly property bool hovered: mouse.containsMouse && greeter.canPick(modelData)
+				readonly property bool hovered: mouse.containsMouse && (isUser && !greeter.userList ? greeter.canEnterUser() : greeter.canPick(modelData))
 
 				width: parent.width
 				height: isUser ? name.height : greeter.u(30)
 				visible: isUser || greeter.sessions.length > 1
-				opacity: look.fade(2) * (isUser ? look.userFade : 1)
+				opacity: look.fade(2) * (isUser ? look.userFade * (look.askingName ? 0 : 1) : 1)
 				transform: Translate {
 					x: label.isUser ? look.userShift : 0
 					y: look.lift(2)
@@ -598,7 +649,8 @@ Item {
 					anchors.margins: -greeter.u(8)
 					hoverEnabled: true
 					cursorShape: Qt.PointingHandCursor
-					onClicked: look.togglePicker(label.modelData)
+					enabled: !(label.isUser && look.askingName)
+					onClicked: label.isUser ? look.userClicked() : look.togglePicker("session")
 				}
 			}
 		}
@@ -616,7 +668,7 @@ Item {
 			id: field
 
 			// The placeholder below shows an error.
-			readonly property bool error: input.text === "" && (greeter.auth.messageIsError || greeter.problem !== "")
+			readonly property bool error: input.text === "" && !look.enteringName && (greeter.auth.messageIsError || greeter.problem !== "")
 			readonly property bool busy: greeter.auth.phase === "verifying" || greeter.auth.phase === "launching"
 
 			width: parent.width
@@ -625,7 +677,7 @@ Item {
 			color: greeter.colors.field
 			border.width: greeter.u(2)
 			border.color: error ? greeter.colors.error
-				: greeter.auth.phase === "prompt" && input.activeFocus ? Qt.alpha(greeter.colors.accent, input.text ? 0.9 : 0.4)
+				: look.typing && input.activeFocus ? Qt.alpha(greeter.colors.accent, input.text ? 0.9 : 0.4)
 				: Qt.alpha(greeter.colors.text, 0.08)
 			opacity: look.fade(3)
 			// A shake, dying down as look.shaken goes from 0 to 1.
@@ -650,23 +702,23 @@ Item {
 				anchors.leftMargin: greeter.u(22)
 				anchors.rightMargin: greeter.u(10)
 				anchors.verticalCenter: parent.verticalCenter
-				opacity: greeter.auth.phase === "prompt" ? 1 : 0.5
+				opacity: look.typing ? 1 : 0.5
 				focus: true
-				readOnly: greeter.auth.phase !== "prompt"
-				echoMode: greeter.auth.secret ? TextInput.Password : TextInput.Normal
+				readOnly: !look.typing
+				echoMode: look.secret ? TextInput.Password : TextInput.Normal
 				// A secret is drawn by `dots` below: its own echo, cursor
 				// (in this color too) and selection stay hidden, and the
 				// cursor stays at the end.
-				color: greeter.auth.secret ? "transparent" : greeter.colors.text
-				selectionColor: greeter.auth.secret ? "transparent" : Qt.alpha(greeter.colors.accent, 0.3)
+				color: look.secret ? "transparent" : greeter.colors.text
+				selectionColor: look.secret ? "transparent" : Qt.alpha(greeter.colors.accent, 0.3)
 				font.pixelSize: greeter.u(16)
 				font.family: greeter.fontFamily
 				clip: true
 				onAccepted: look.submit()
-				onCursorPositionChanged: if (greeter.auth.secret && cursorPosition !== text.length)
+				onCursorPositionChanged: if (look.secret && cursorPosition !== text.length)
 					cursorPosition = text.length
 				onTextChanged: {
-					const count = greeter.auth.secret ? text.length : 0;
+					const count = look.secret ? text.length : 0;
 					while (dotModel.count > count)
 						dotModel.remove(dotModel.count - 1);
 					while (dotModel.count < count)
@@ -687,7 +739,7 @@ Item {
 					property bool on: true
 
 					interval: 530
-					running: input.activeFocus && greeter.auth.secret && greeter.auth.phase === "prompt" && !greeter.idle
+					running: input.activeFocus && look.secret && look.typing && !greeter.idle
 					repeat: true
 					onRunningChanged: on = true
 					onTriggered: on = !on
@@ -698,7 +750,7 @@ Item {
 			// and the cursor after them.
 			Item {
 				anchors.fill: input
-				visible: greeter.auth.secret
+				visible: look.secret
 				clip: true
 
 				Row {
@@ -733,24 +785,28 @@ Item {
 					anchors.verticalCenter: parent.verticalCenter
 					width: Math.max(1, greeter.u(1.5))
 					height: greeter.u(20)
-					visible: input.activeFocus && greeter.auth.phase === "prompt" && blink.on
+					visible: input.activeFocus && look.typing && blink.on
 					color: greeter.colors.text
 				}
 			}
 
-			// PAM's question, or its last message (a failed attempt
-			// included) until something is typed; a message too long for
-			// the field goes under it (`note`).
+			// PAM's question ("Username" while a name is typed), or its last
+			// message (a failed attempt included) until something is typed;
+			// a message too long for the field goes under it (`note`).
 			Text {
 				id: placeholder
 
 				readonly property bool messageFits: messageWidth.advanceWidth <= input.width
+				// PAM's last message, unless the field takes a name after
+				// "Other…".
+				readonly property bool showsMessage: !greeter.problem && !look.enteringName && messageFits && greeter.auth.message !== ""
 
 				anchors.fill: input
 				verticalAlignment: Text.AlignVCenter
 				visible: input.text === ""
-				text: greeter.problem || (messageFits ? greeter.auth.message : "") || greeter.auth.prompt.replace(/:\s*$/, "")
-				color: greeter.problem || greeter.auth.messageIsError && messageFits && greeter.auth.message ? greeter.colors.error : greeter.colors.dim
+				text: greeter.problem || (showsMessage ? greeter.auth.message : look.askingName ? greeter.tr("Username")
+					: greeter.auth.prompt.replace(/:\s*$/, ""))
+				color: greeter.problem || showsMessage && greeter.auth.messageIsError ? greeter.colors.error : greeter.colors.dim
 				font.pixelSize: greeter.u(16)
 				font.family: greeter.fontFamily
 				elide: Text.ElideRight
@@ -766,7 +822,7 @@ Item {
 			Rectangle {
 				id: button
 
-				readonly property bool ready: input.text !== "" && greeter.auth.phase === "prompt"
+				readonly property bool ready: input.text !== "" && look.typing
 
 				anchors.right: parent.right
 				anchors.rightMargin: greeter.u(7)
@@ -1162,7 +1218,7 @@ Item {
 					anchors.rightMargin: greeter.u(10)
 					anchors.verticalCenter: parent.verticalCenter
 					text: parent.modelData.label
-					color: greeter.colors.text
+					color: parent.modelData.other ? greeter.colors.subtext : greeter.colors.text
 					font.pixelSize: greeter.u(15)
 					font.weight: parent.modelData.current ? Font.DemiBold : Font.Normal
 					font.family: greeter.fontFamily

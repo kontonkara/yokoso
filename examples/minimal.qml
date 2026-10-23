@@ -62,24 +62,28 @@ Item {
 				anchors.margins: greeter.u(10)
 				verticalAlignment: TextInput.AlignVCenter
 				focus: true
-				readOnly: greeter.auth.phase !== "prompt"
-				echoMode: greeter.auth.secret ? TextInput.Password : TextInput.Normal
+				readOnly: !greeter.needsUser && greeter.auth.phase !== "prompt"
+				echoMode: !greeter.needsUser && greeter.auth.secret ? TextInput.Password : TextInput.Normal
 				color: greeter.colors.text
 				font.pixelSize: greeter.u(16)
 				font.family: greeter.fontFamily
 				onAccepted: {
-					greeter.auth.submit(text);
+					if (greeter.needsUser)
+						greeter.enterUser(text);
+					else
+						greeter.auth.submit(text);
 					text = "";
 				}
 				Keys.onPressed: event => look.keyPressed(event)
 			}
 		}
 
-		// PAM's question or its last message, and why a login can't start.
+		// PAM's question or its last message (or that a name is wanted),
+		// and why a login can't start.
 		Text {
 			width: parent.width
 			horizontalAlignment: Text.AlignHCenter
-			text: greeter.problem || greeter.auth.message || greeter.auth.prompt
+			text: greeter.problem || greeter.auth.message || (greeter.needsUser ? greeter.tr("Username") : greeter.auth.prompt)
 			color: greeter.problem || greeter.auth.messageIsError ? greeter.colors.error : greeter.colors.dim
 			font.pixelSize: greeter.u(14)
 			font.family: greeter.fontFamily
