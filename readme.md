@@ -1,37 +1,49 @@
 # yokoso
 
+[![check](https://github.com/kontonkara/yokoso/actions/workflows/check.yml/badge.svg)](https://github.com/kontonkara/yokoso/actions/workflows/check.yml)
+
 *ようこそ, "welcome".* A [greetd](https://sr.ht/~kennylevinsen/greetd/)
 greeter on [Quickshell](https://quickshell.org). It runs in
 [cage](https://github.com/cage-kiosk/cage), so it works whatever desktop it
-logs into.
+logs into, and it's light enough for an integrated GPU.
 
-- The UI scale comes from the screen's physical size (EDID) before the first
-  frame, or from the config.
-- Only the GPU that drives the screens is used. With no screen on an NVIDIA
-  GPU, only Mesa's EGL is loaded, so a PRIME laptop's discrete GPU stays
-  asleep.
-- PAM's prompts and messages are shown as PAM sends them, a fingerprint
-  reader's included; one too long for the field goes under it. greetd can't
-  change an expired password, so for one yokoso says where to change it.
-- A click on the name (or F2) picks another account, or "Other…" one that
-  isn't listed (a directory's, LDAP's), by its name; with more than one
-  session, a click on it (or F3) picks another. The next login starts with
-  the last one's. Without the list (`userList: false`), a name is typed
-  every time.
-- After a minute without input the screen goes dark and a laptop's backlight
-  low (through logind). A key, a click or a move brings it back; that key or
-  click does nothing else.
-- A clock in the system's locale, a Caps Lock warning, a word when Num Lock
-  is on, and the power buttons logind allows (a second click confirms).
-- Early in the boot, while the GPU's driver is still loading (when it
-  isn't in the initrd), it waits for it instead of starting on the
-  firmware's framebuffer (simpledrm), which goes away under it.
-- A session that ends within seconds of starting (a broken profile, a
-  missing program) doesn't just bring the login screen back: it says so.
-- If yokoso fails, greetd's text greeter (agreety) comes up in its place
-  and logs in to the same session.
-- Ctrl+Alt+Shift+D brings up the built-in look in the built-in theme, for a
-  theme that keeps anyone from logging in.
+<p>
+  <img src="docs/dark.webp" width="49%" alt="The dark theme over a wallpaper">
+  <img src="docs/light.webp" width="49%" alt="The light theme, with the user list open">
+</p>
+
+## What it does
+
+**Looks.** Built-in `dark` and `light` themes; any other is a small JSON
+file of colors, a font, a background (per screen if you like), corners and
+where the parts go. A theme can also bring a QML look of its own, made of
+yokoso's parts or from scratch. A large clock in the system's locale,
+the user's picture, a Caps Lock warning, a word when Num Lock is on, the
+machine's name and battery, and the power buttons logind allows (a second
+click confirms). Things move, unless everything is drawn in software.
+
+**Logging in.** PAM's prompts and messages as PAM sends them, a
+fingerprint reader's included. A click on the name (or F2) picks another
+account, or "Other…" one that isn't listed (LDAP's, a directory's); a click
+on the session (or F3) another session, X11 ones too (through `startx`).
+The next login starts with the last one's user and session. The keyboard
+layout is the system's.
+
+**On any machine.** The UI scale comes from the screen's physical size
+(EDID) before the first frame. Only the GPU that drives the screens is
+used: a PRIME laptop's NVIDIA GPU stays asleep. The form goes on the
+laptop's panel, or an external screen while the lid is closed; every screen
+gets the background. After a minute without input the screen goes dark and
+the backlight low. It starts with greetd, not after the rest of the boot,
+and early in the boot it waits for the GPU's driver instead of starting on
+the firmware's framebuffer.
+
+**When something goes wrong.** If yokoso can't start, greetd's text
+greeter comes up in its place. A broken config or theme is left out with a
+warning, and Ctrl+Alt+Shift+D brings back the built-in look from one that
+keeps anyone from logging in. A session that ends right after it starts
+doesn't just bring the login screen back: it says so. greetd can't change
+an expired password, so for one yokoso says where to change it.
 
 ## Try it
 
@@ -53,17 +65,24 @@ config.
   imports = [ inputs.yokoso.nixosModules.default ];
   services.yokoso = {
     enable = true;
-    settings.scale = 1.0;
+    settings.theme = "light";
   };
 }
 ```
 
-The module turns on greetd, writes `/etc/yokoso/config.json` (and
-`services.yokoso.themes` into `/etc/yokoso/themes`), and passes on the
-keyboard layout from `services.xserver.xkb`. With `services.xserver.enable`
-it also turns on `startx` for X11 sessions. Mesa's shader cache is kept in
-`/var/cache/yokoso`, and the last login's user and session in
-`/var/lib/yokoso`.
+| Option | |
+|---|---|
+| `services.yokoso.enable` | greetd, with yokoso as its greeter |
+| `settings` | `/etc/yokoso/config.json` (see [Config](#config)) |
+| `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`; a `look = ./mine.qml;` in one is copied to the store |
+| `avatars.<user>` | the user's picture (`./alice.png`) |
+| `cursor.package`, `cursor.name`, `cursor.size` | the cursor theme (`pkgs.bibata-cursors`, `"Bibata-Modern-Classic"`), and its size at scale 1 (24) |
+| `package` | yokoso itself |
+
+The module also passes on the keyboard layout from
+`services.xserver.xkb`, turns on `startx` for X11 sessions when
+`services.xserver.enable` is set, and makes `/var/lib/yokoso` (the last
+login) and `/var/cache/yokoso` (Mesa's and Qt's shader caches).
 
 ## Other systems
 
@@ -92,8 +111,21 @@ disabled). `/var/lib/yokoso` and `/var/cache/yokoso` belong to the account
 (`localectl set-x11-keymap us,de "" "" grp:alt_shift_toggle`), unless the
 command sets `XKB_DEFAULT_LAYOUT` and the rest; a cursor theme is
 `XCURSOR_THEME` and `XCURSOR_SIZE` there (`command = "env
-XCURSOR_THEME=Adwaita yokoso"`). The config is
-`/etc/yokoso/config.json`, below.
+XCURSOR_THEME=Adwaita yokoso"`). A user's picture is
+`/etc/yokoso/avatars/<user>`, else AccountsService's.
+
+## Keys
+
+| | |
+|---|---|
+| F2, a click on the name or the picture | the user list; without one (`userList: false`), the name to type again |
+| F3, a click on the session | the session list |
+| Up, Down, Enter, Escape | in a list |
+| Enter | sends what's typed |
+| Escape | clears the field, and goes back from typing a name |
+| Ctrl+Alt+Shift+D | safe mode: the built-in look in the built-in theme |
+| Ctrl+Alt+F2 … F12 | a text console (cage switches VTs); back with greetd's (Ctrl+Alt+F1 by default) |
+| any key, a click or a move | wakes a dark screen, and does nothing else |
 
 ## Config
 
@@ -131,10 +163,10 @@ The cursor is `XCURSOR_THEME`'s, else the system's default theme, at
 "Bibata-Modern-Classic"; };` sets them.
 
 With several screens the form goes on `output`, else on a laptop's own panel,
-or on an external screen while the lid is closed, else on the first screen.
-The other screens stay black. With `cursor`, the form starts there too and
-then moves to whichever screen the pointer moves onto, except a closed
-laptop panel.
+or on an external screen while the lid is closed, else on the first screen;
+the others show just their background. With `cursor`, the form starts there
+too and then moves to whichever screen the pointer moves onto, except a
+closed laptop panel.
 
 ## Themes
 
@@ -194,6 +226,11 @@ broken one never stands between anyone and the login.
 [`examples/catppuccin-mocha.json`](examples/catppuccin-mocha.json) is one to
 start from. On NixOS, `services.yokoso.themes.<name>` writes them.
 
+<img src="docs/layout.webp" width="70%" alt="Catppuccin Mocha with the form on the left, the clock at the top and the power buttons in a corner">
+
+*`catppuccin-mocha.json`, with `"layout": {"form": "left", "clock": "top",
+"power": "corner", "status": "top-left"}` and `"radius": 12`.*
+
 ## Your own look
 
 A theme's `look` is a QML file (a path relative to the theme, like
@@ -242,6 +279,8 @@ down the side. They take the theme's colors, font, corners and the UI
 scale, and do what they do in the built-in look; where they go, how large
 they are, and their `opacity` and `transform` are the look's.
 
+<img src="docs/sidebar.webp" width="70%" alt="The sidebar example: a panel down the left side with the clock, the user, the session, the field and the power buttons">
+
 | Part | |
 |---|---|
 | `Form` | what the form's parts share: the list that's open, a name typed instead of the password, what keys do. Make one and give it to them as `form` |
@@ -259,17 +298,35 @@ they are, and their `opacity` and `transform` are the look's.
 | `Icon` | a line icon: `path` (`Greeter.icons.reboot`, or any SVG path on a 24x24 grid), `color`, `size` |
 | `Greeter` | the core as `Greeter.core` (the look's `greeter`), and `u(n)`, `colors`, `font`, `animate`, `round(size)`, `icons` |
 
+## When something goes wrong
+
+- `journalctl -b -t yokoso` has what the launcher, cage and Quickshell
+  said: a theme or a config left out, unknown keys, the wait for a GPU's
+  driver, why yokoso fell back to agreety.
+- If yokoso can't start, greetd's text greeter (agreety) logs in to the
+  same session instead.
+- A theme or a look that keeps anyone from logging in: Ctrl+Alt+Shift+D.
+  Try a theme or a look with `yokoso preview` (`YOKOSO_CONFIG=<file>`)
+  before it's the login screen.
+- A session that ends right after it starts says so under the field; its
+  own messages are in `journalctl -b`.
+- Up to 10 s of black at boot: the GPU's driver isn't in the initrd, and
+  yokoso waits for it. Putting it there (`hardware.amdgpu.initrd.enable`,
+  `boot.initrd.kernelModules`, or the distribution's way) saves the wait.
+
 ## Developing
 
 `nix run .#shots -- <dir>` renders the working tree's greeter headless, with
 fake users and sessions, in the scenarios of
 [`tests/shots.sh`](tests/shots.sh) (the lists, a wrong password, two
-screens, idle, Russian, a layout, a look of one's own, ...) into `<dir>`;
-`--against <an earlier dir>` counts the pixels that changed. `nix flake
-check` runs the VM tests in [`tests/vm`](tests/vm): the greeter under the
-real greetd, PAM and cage, logging in through the lists, idle, the power
-buttons, PAM's messages, an expired password, a fingerprint, a session that
-ends at once, a GPU driver that loads after the greeter starts, a layout
-from localed and an install with `make` instead of the module.
-GitHub runs `nix flake check` (shellcheck too) on every push and pull
+screens, idle, Russian, a layout, looks of one's own, ...) into `<dir>`;
+`--against <an earlier dir>` counts the pixels that changed. `nix run
+.#docs-shots` redraws the README's pictures in `docs/`.
+
+`nix flake check` runs shellcheck and the VM tests in
+[`tests/vm`](tests/vm): the greeter under the real greetd, PAM and cage,
+logging in through the lists, idle, the power buttons, PAM's messages, an
+expired password, a fingerprint, a session that ends at once, a GPU driver
+that loads after the greeter starts, a layout from localed and an install
+with `make` instead of the module. GitHub runs it on every push and pull
 request.
