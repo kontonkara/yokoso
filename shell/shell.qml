@@ -10,6 +10,10 @@ import yokoso
 ShellRoot {
 	id: root
 
+	// The version of what a look can use (the README's greeter API and the
+	// parts in shell/yokoso), for a look made for a later one to tell.
+	readonly property int api: 1
+
 	readonly property string mode: Quickshell.env("YOKOSO_MODE") || "greeter"
 
 	function parse(text) {

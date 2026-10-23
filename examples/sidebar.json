@@ -1,0 +1,5 @@
+{
+  "extends": "catppuccin-mocha",
+  "look": "sidebar.qml",
+  "radius": 10
+}

@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -53,6 +53,7 @@ conf idle '{"idle": 2}'
 conf nolist '{"userList": false}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
+conf sidebar "{\"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/bg2.png\"}"
 echo '{"user": "bob", "sessions": {"bob": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
 state=$work/state.json
 
@@ -118,6 +119,8 @@ for name; do
 		YOKOSO_CONFIG="$work/conf/look.json" ;;
 	# Drawn in software: still at 0.3 s, as nothing fades in.
 	software) shot software 300 '' LIBGL_ALWAYS_SOFTWARE=1 ;;
+	# A look made of the parts (examples/sidebar), its session list open.
+	sidebar) shot sidebar 3000 "$(keys 'wtype -k F3; sleep 0.3')" YOKOSO_CONFIG="$work/conf/sidebar.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

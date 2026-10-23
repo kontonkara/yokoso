@@ -231,6 +231,34 @@ does the login, the power buttons and the memory, and watches the pointer.
 | `armed`, `armedFor`, `powerError` | the action waiting for its second press; how long it waits; why one failed |
 | `idle`, `wake()` | whether the screen is asleep (the core dims the backlight, the look darkens the rest); call `wake()` on every key and click, and when it returns `true` the input only woke the screen |
 
+`greeter.api` is `1`: what this table and the parts below are.
+
+### Parts
+
+`import yokoso` brings in the parts the built-in look is made of, to make a
+look of one's own from: [`examples/sidebar.qml`](examples/sidebar.qml),
+with [`examples/sidebar.json`](examples/sidebar.json), puts them in a panel
+down the side. They take the theme's colors, font, corners and the UI
+scale, and do what they do in the built-in look; where they go, how large
+they are, and their `opacity` and `transform` are the look's.
+
+| Part | |
+|---|---|
+| `Form` | what the form's parts share: the list that's open, a name typed instead of the password, what keys do. Make one and give it to them as `form` |
+| `Background` | the theme's background on every screen; fill the look with it |
+| `Clock` | the time, and the date under it; `size` (120) |
+| `Status` | the theme's `status`, in a row |
+| `Avatar` | the user's picture or initial; a click picks another. `form`, `user`; its `width` is its size |
+| `UserName` | the user's name; a click picks another. `form`, `user`, `size` (24) |
+| `SessionPill` | the session, with more than one; a click picks another. `form` |
+| `PasswordField` | the field and its button; `form`, `size` (50) |
+| `FieldNote` | the line under the field: a message too long for it, Caps Lock, Num Lock; `form` |
+| `PowerBar` | the power buttons and what they say; `size` (48) |
+| `Picker` | the open list, under `under` (the `UserName` or the `SessionPill` it's for); fill the look with it |
+| `IdleCover` | dark while the screen is asleep; fill the look with it, over the rest |
+| `Icon` | a line icon: `path` (`Greeter.icons.reboot`, or any SVG path on a 24x24 grid), `color`, `size` |
+| `Greeter` | the core as `Greeter.core` (the look's `greeter`), and `u(n)`, `colors`, `font`, `animate`, `round(size)`, `icons` |
+
 ## Developing
 
 `nix run .#shots -- <dir>` renders the working tree's greeter headless, with
