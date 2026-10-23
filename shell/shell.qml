@@ -2,6 +2,7 @@ import QtQml.Models
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import yokoso
 
 // The core: what yokoso knows (the config, screens, users and sessions)
 // and does (the login, power, memory). Look.qml, or a theme's look,
@@ -671,7 +672,11 @@ ShellRoot {
 
 				anchors.fill: parent
 				focus: true
-				Component.onCompleted: setSource(builtIn ? "Look.qml" : root.fileUrl(root.config.look), { greeter: root })
+				Component.onCompleted: {
+					// The parts reach the core through Greeter.
+					Greeter.core = root;
+					setSource(builtIn ? "Look.qml" : root.fileUrl(root.config.look), { greeter: root });
+				}
 				onStatusChanged: {
 					if (status !== Loader.Error || builtIn)
 						return;

@@ -1,0 +1,16 @@
+module yokoso
+singleton Greeter Greeter.qml
+Form Form.qml
+Icon Icon.qml
+Background Background.qml
+Clock Clock.qml
+Status Status.qml
+Avatar Avatar.qml
+UserName UserName.qml
+SessionPill SessionPill.qml
+PasswordField PasswordField.qml
+FieldNote FieldNote.qml
+PowerBar PowerBar.qml
+Picker Picker.qml
+IdleCover IdleCover.qml
+internal LockNote LockNote.qml
