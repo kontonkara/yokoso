@@ -215,6 +215,14 @@ sessions_json() {
 	unset IFS
 }
 
+# Every account NSS lists, but a directory (LDAP, sssd) that's slow to
+# answer mustn't hold up the login screen: after 5 s, /etc/passwd's.
+accounts() {
+	timeout 5 getent passwd 2>/dev/null && return
+	[ $? != 124 ] || warn "yokoso: listing the accounts took over 5 s, going with /etc/passwd's"
+	cat /etc/passwd
+}
+
 # Login accounts, from NSS so that systemd-homed's (UIDs 60001..60513) are
 # there too: UID_MIN..UID_MAX from login.defs, with a real shell. Each with
 # a picture, if the greeter can read one: avatars/<name> next to the
@@ -223,7 +231,7 @@ sessions_json() {
 users_json() {
 	min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
 	max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
-	{ getent passwd 2>/dev/null || cat /etc/passwd; } | awk -F: -v min="${min:-1000}" -v max="${max:-60000}" '
+	accounts | awk -F: -v min="${min:-1000}" -v max="${max:-60000}" '
 		($3 >= min && $3 <= max || $3 >= 60001 && $3 <= 60513) && $7 !~ /(nologin|false)$/ && !seen[$1]++ {
 			real = $5; sub(/,.*/, "", real)
 			print $1; print (real == "" ? $1 : real)
