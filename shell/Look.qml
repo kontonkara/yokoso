@@ -278,7 +278,9 @@ Item {
 		}
 	}
 
-	// The background, decoded at each screen's size.
+	// The background, decoded at each screen's size, away from the GUI
+	// thread (a large picture takes it half a second), fading in when it's
+	// there.
 	Repeater {
 		model: greeter.screens
 
@@ -292,6 +294,16 @@ Item {
 			source: greeter.backgroundFor(modelData.name)
 			sourceSize: Qt.size(width * greeter.dpr, height * greeter.dpr)
 			fillMode: Image.PreserveAspectCrop
+			asynchronous: true
+			opacity: status === Image.Ready ? 1 : 0
+
+			Behavior on opacity {
+				enabled: look.animate
+
+				NumberAnimation {
+					duration: 300
+				}
+			}
 
 			// So that text stays readable on a bright image.
 			Rectangle {
