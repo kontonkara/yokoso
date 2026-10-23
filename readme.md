@@ -161,9 +161,9 @@ JSON file: `"theme": "mine"` reads `themes/mine.json` next to the config
 ```
 
 Every key is optional. A theme goes on top of the one it `extends` (`dark`
-when it doesn't say), and the config's own keys go on top of the theme, so
-`"colors": {"accent": "#fab387"}` in the config changes just that (`layout`
-merges the same way).
+when it doesn't say; by name, a theme in the same folder first), and the
+config's own keys go on top of the theme, so `"colors": {"accent":
+"#fab387"}` in the config changes just that (`layout` merges the same way).
 
 | Key | |
 |---|---|

@@ -252,20 +252,23 @@ users_json() {
 }
 
 # The theme: config.theme ("dark", "light", the name of a file in themes/
-# next to the config, or a file's path), on top of what it extends, and
-# that on top of the built-in dark one. Paths in a theme are relative to
-# its file. A theme that can't be read is skipped, with a warning.
+# next to the config, or a file's path), on top of what it extends (by
+# name, a theme next to it first), and that on top of the built-in dark
+# one. Paths in a theme are relative to its file. A theme that can't be
+# read is skipped, with a warning.
 theme_json() {
 	base=$shell_dir/themes/dark.json
 	ref=$(config '.theme // "dark" | strings')
 	[ -n "$ref" ] || ref=dark
 	theme='{}'
+	near=
 	depth=0
 	while [ "$depth" -lt 8 ]; do
 		case $ref in
 		/*) file=$ref ;;
 		*)
-			file=${YOKOSO_CONFIG%/*}/themes/$ref.json
+			file=${near:+$near/$ref.json}
+			[ -n "$file" ] && [ -e "$file" ] || file=${YOKOSO_CONFIG%/*}/themes/$ref.json
 			[ -e "$file" ] || file=$shell_dir/themes/$ref.json
 			;;
 		esac
@@ -279,8 +282,10 @@ theme_json() {
 			| if .look == null then . else .look |= resolve end' "$file" 2>/dev/null); then
 			theme=$(jq -nc --argjson low "$layer" --argjson high "$theme" '$low * $high')
 			ref=$(jq -nr --argjson layer "$layer" '$layer.extends // "dark"')
+			near=${file%/*}
 		else
 			warn "yokoso: can't read the theme $ref ($file), using dark"
+			near=
 			ref=dark
 		fi
 		depth=$((depth + 1))
