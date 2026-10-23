@@ -92,13 +92,17 @@ cards() {
 # initrd): it goes away when the driver takes over, and cage crashes with
 # it. So while there's no card but simpledrm's (or for a moment, as the
 # driver takes over, none at all) and a display controller has none of its
-# own yet, wait for it, up to 10 s.
+# own yet, wait for it, up to 10 s. simpledrm's card can outlive its driver
+# for a moment as it goes: a card with no driver counts as going.
 driver() {
-	basename "$(readlink -f "/sys/class/drm/$1/device/driver")"
+	[ -e "/sys/class/drm/$1/device/driver" ] && basename "$(readlink -f "/sys/class/drm/$1/device/driver")"
 }
 no_gpu_yet() {
 	for card in $(cards); do
-		[ "$(driver "$card")" = simple-framebuffer ] || return 1
+		case $(driver "$card") in
+		simple-framebuffer | "") ;;
+		*) return 1 ;;
+		esac
 	done
 	for dev in /sys/bus/pci/devices/*; do
 		case $(cat "$dev/class" 2>/dev/null) in
