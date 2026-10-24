@@ -242,7 +242,7 @@ broken one never stands between anyone and the login.
 [`examples/catppuccin-mocha.json`](examples/catppuccin-mocha.json) is one to
 start from. On NixOS, `services.yokoso.themes.<name>` writes them.
 
-<img src="docs/layout.webp" width="70%" alt="Catppuccin Mocha with the form on the left, the clock at the top and the power buttons in a corner">
+<img src="docs/layout.webp" width="100%" alt="Catppuccin Mocha with the form on the left, the clock at the top and the power buttons in a corner">
 
 *`catppuccin-mocha.json`, with `"layout": {"form": "left", "clock": "top",
 "power": "corner", "status": "top-left"}` and `"radius": 12`.*
@@ -295,7 +295,7 @@ down the side. They take the theme's colors, font, corners and the UI
 scale, and do what they do in the built-in look; where they go, how large
 they are, and their `opacity` and `transform` are the look's.
 
-<img src="docs/sidebar.webp" width="70%" alt="The sidebar example: a panel down the left side with the clock, the user, the session, the field and the power buttons">
+<img src="docs/sidebar.webp" width="100%" alt="The sidebar example: a panel down the left side with the clock, the user, the session, the field and the power buttons">
 
 | Part | |
 |---|---|
