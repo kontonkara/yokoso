@@ -27,7 +27,7 @@ fingerprint reader's included. A click on the name (or F2) picks another
 account, or "Other…" one that isn't listed (LDAP's, a directory's); a click
 on the session (or F3) another session, X11 ones too (through `startx`),
 named in the system's language, without those whose program isn't
-installed (`TryExec`).
+installed (`TryExec`), and with any of the config's own.
 The next login starts with the last one's user and session. The keyboard
 layout is the system's.
 
@@ -138,14 +138,25 @@ XCURSOR_THEME=Adwaita yokoso"`). A user's picture is
 |---|---|---|
 | `user` | the first account | account to start with, listed or not (LDAP) |
 | `userList` | `true` | list the accounts to pick from; `false` asks for a name every time (not the last login's) and shows no pictures |
-| `session` | the first one | session to start with, by desktop file name (`niri`, `i3`); Wayland's come first |
+| `session` | the first one | session to start with, by desktop file name (`niri`, `i3`) or the name of one of `sessions`; those come first, then Wayland's |
 | `remember` | `true` | start with the last login's user and that user's last session instead |
+| `sessions` | `[]` | sessions of your own, first in the list: `name` and `exec`, `type` (`"wayland"` or `"x11"`), `desktopNames` (`["niri"]`, for `XDG_CURRENT_DESKTOP`) and `env`, see below |
+| `env` | `{}` | variables for every session, `{"QT_QPA_PLATFORMTHEME": "qt6ct"}`; a session's own `env` wins |
 | `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
 | `idle` | `60` | seconds without input before the screen goes dark and the backlight low; `0` for never |
 | `language` | the locale's | the language of yokoso's own few words: `"en"` or `"ru"` (from `shell/i18n`); PAM's follow greetd's locale |
 | `x11Wrapper` | `startx /usr/bin/env` | what starts an X server for an X11 session, with its command after it |
+
+A session of your own is a desktop file's with a twist, or one without a
+file at all:
+
+```json
+"sessions": [
+  {"name": "Niri (debug)", "exec": "niri-session", "desktopNames": ["niri"], "env": {"RUST_LOG": "debug"}}
+]
+```
 
 A config that isn't a JSON object is left out, and keys yokoso doesn't know
 (a misspelt `thme`) are named, both in the journal (`journalctl -b -t

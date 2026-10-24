@@ -262,6 +262,52 @@ in
         quiet()
       '';
 
+  # A session of the config's own, first in the list, with its variables
+  # and config.env's; a desktop file whose TryExec isn't installed left out,
+  # and one whose TryExec is only on the system's PATH (not greetd's) kept.
+  sessions =
+    test "sessions"
+      {
+        services.displayManager.sessionPackages = [
+          (pkgs.runCommand "sessions" { passthru.providedSessions = [ "ghost" "found" ]; } ''
+            mkdir -p $out/share/wayland-sessions
+            printf '[Desktop Entry]\nName=Ghost\nExec=ghost\nTryExec=ghost\n' >$out/share/wayland-sessions/ghost.desktop
+            printf '[Desktop Entry]\nName=Found\nExec=i3\nTryExec=i3\n' >$out/share/wayland-sessions/found.desktop
+          '')
+        ];
+        services.yokoso.settings = {
+          sessions = [
+            {
+              name = "i3 (mine)";
+              exec = "i3";
+              type = "x11";
+              desktopNames = [ "i3" ];
+              env.YOKOSO_MINE = "session";
+            }
+          ];
+          env = {
+            YOKOSO_ALL = "every";
+            YOKOSO_MINE = "overridden";
+          };
+        };
+      }
+      ''
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        machine.succeed("journalctl -b -t yokoso | grep 'leaving out ghost.desktop' >/dev/null")
+        import json
+
+        snapshot = json.loads(machine.succeed("cat /run/user/$(id -u greeter)/yokoso/env.json"))
+        ids = [s["id"] for s in snapshot["sessions"]]
+        assert ids[0] == "i3 (mine)" and "found.desktop" in ids and "ghost.desktop" not in ids, ids
+        machine.send_chars("foobar\n")
+        logged_in("alice")
+        env = machine.succeed("tr '\\0' '\\n' </proc/$(pgrep -u alice -x i3)/environ")
+        for var in ("YOKOSO_MINE=session", "YOKOSO_ALL=every", "XDG_SESSION_TYPE=x11", "XDG_CURRENT_DESKTOP=i3"):
+            assert var in env.split("\n"), var
+        quiet()
+      '';
+
   # An account that isn't listed (a system UID here, a directory's
   # elsewhere): "Other…" in the list, its name typed, then its password.
   other =

@@ -68,6 +68,12 @@ ShellRoot {
 		// List the accounts to pick from; false: a name is typed every time.
 		userList: true,
 		session: "",
+		// Sessions of one's own, before the desktop files' (the launcher
+		// reads them): { name, exec, type ("wayland", "x11"), desktopNames
+		// (["niri"]), env ({ VAR: "value" }) }.
+		sessions: [],
+		// Variables for every session, under a session's own env.
+		env: {},
 		// Start with the user and the session of the last login.
 		remember: true,
 		// "dark", "light", a theme's name or a theme file's path.
@@ -648,6 +654,7 @@ ShellRoot {
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
 		x11Wrapper: root.config.x11Wrapper
+		env: root.config.env
 		launchDelay: root.animate ? 450 : 0
 		failedText: root.tr("Wrong password")
 		expiredText: root.tr("The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)")

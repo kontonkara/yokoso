@@ -50,7 +50,9 @@ fallback() {
 	cmd=$(jq -r --argjson config "$config" '
 		($config.session // "") as $want
 		| [(.sessions[] | select(.id == $want or .id == "\($want).desktop")), .sessions[]][0] // empty
-		| if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end
+		| (($config.env // {} | objects) + (.env // {}) | to_entries | map("\(.key)=\(.value)" | @sh)) as $vars
+		| (if $vars == [] then "" else "env \($vars | join(" ")) " end)
+			+ (if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end)
 		' "$run_dir/env.json" 2>/dev/null)
 	exec agreety --cmd "${cmd:-\$SHELL}"
 }
@@ -248,9 +250,9 @@ desktop_sessions() {
 	unset IFS
 }
 
-# The desktop files' sessions whose TryExec is installed; all of them if
-# none is, as a TryExec looked for in the wrong place mustn't leave nothing
-# to log in to.
+# config.sessions (with a name and an exec), then the desktop files' whose
+# TryExec is installed; all of theirs if none is, as a TryExec looked for in
+# the wrong place mustn't leave nothing to log in to.
 sessions_json() {
 	found=$(desktop_sessions)
 	if printf '%s\n' "$found" | jq -e 'length > 0 and all(.missing != "")' >/dev/null; then
@@ -260,7 +262,16 @@ sessions_json() {
 	printf '%s\n' "$found" | jq -r '.[] | select(.missing != "")
 		| "yokoso: leaving out \(.id): its TryExec, \(.missing), isn'\''t installed"' |
 		while read -r line; do warn "$line"; done
-	printf '%s\n' "$found" | jq '[.[] | select(.missing == "") | del(.missing)]'
+	own=$(config '[.sessions // [] | arrays | .[]]')
+	kept=$(printf '%s\n' "$own" | jq -c 'map(objects
+		| select((.name | type) == "string" and .name != "" and (.exec | type) == "string" and .exec != "")
+		| {id: .name, name, exec, type: (if .type == "x11" then "x11" else "wayland" end),
+			desktopNames: (.desktopNames // "" | if type == "array" then join(";") else tostring end),
+			env: (.env // {} | if type == "object" then map_values(tostring) else {} end)})')
+	[ "$(printf '%s\n' "$own" | jq length)" = "$(printf '%s\n' "$kept" | jq length)" ] ||
+		warn "yokoso: leaving out the sessions in $YOKOSO_CONFIG without a name and an exec"
+	jq -n --argjson own "$kept" --argjson found "$found" '$own + [$found[] | select(.missing == "") | del(.missing)]
+		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)'
 }
 
 # Every account NSS lists, but a directory (LDAP, sssd) that's slow to

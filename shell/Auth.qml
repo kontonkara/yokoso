@@ -6,11 +6,14 @@ QtObject {
 	id: auth
 
 	required property string username
-	// { id, exec, desktopNames, type } from the launcher's snapshot, or null.
+	// { id, exec, desktopNames, type, env } from the launcher's snapshot, or
+	// null.
 	required property var session
 	// config.x11Wrapper: an X11 session's command goes after it, as greetd
 	// starts only the command, not an X server.
 	required property string x11Wrapper
+	// config.env: variables for every session, under the session's env.
+	property var env: ({})
 	// What a failed attempt says, unless PAM said why: a wrong password; a
 	// password to change, which greetd (0.10) can't do; an account PAM
 	// turns away.
@@ -84,13 +87,20 @@ QtObject {
 		onTriggered: {
 			const s = auth.session;
 			const x11 = s.type === "x11";
+			// The desktop's name: DesktopNames, else the desktop file's (one
+			// of config.sessions has none, and its program says).
 			const desktops = (s.desktopNames || "").split(";").filter(x => x);
-			const name = s.id.replace(/\.desktop$/, "");
-			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], [
-				`XDG_SESSION_TYPE=${x11 ? "x11" : "wayland"}`,
-				`XDG_CURRENT_DESKTOP=${desktops.join(":") || name}`,
-				`XDG_SESSION_DESKTOP=${desktops[0] || name}`,
-			], true);
+			const name = s.id.endsWith(".desktop") ? s.id.replace(/\.desktop$/, "") : "";
+			const vars = { XDG_SESSION_TYPE: x11 ? "x11" : "wayland" };
+			if (desktops.length || name) {
+				vars.XDG_CURRENT_DESKTOP = desktops.join(":") || name;
+				vars.XDG_SESSION_DESKTOP = desktops[0] || name;
+			}
+			for (const more of [auth.env, s.env]) {
+				if (more && typeof more === "object" && !Array.isArray(more))
+					Object.assign(vars, more);
+			}
+			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], Object.keys(vars).map(k => `${k}=${vars[k]}`), true);
 		}
 	}
 
