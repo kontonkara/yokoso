@@ -1,4 +1,5 @@
 [Desktop Entry]
 Name=GNOME
+Name[ru]=Рабочий стол GNOME
 Exec=gnome-session
 Type=Application

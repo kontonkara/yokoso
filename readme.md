@@ -25,7 +25,9 @@ click confirms). Things move, unless everything is drawn in software.
 **Logging in.** PAM's prompts and messages as PAM sends them, a
 fingerprint reader's included. A click on the name (or F2) picks another
 account, or "Other…" one that isn't listed (LDAP's, a directory's); a click
-on the session (or F3) another session, X11 ones too (through `startx`).
+on the session (or F3) another session, X11 ones too (through `startx`),
+named in the system's language, without those whose program isn't
+installed (`TryExec`).
 The next login starts with the last one's user and session. The keyboard
 layout is the system's.
 
@@ -305,7 +307,8 @@ they are, and their `opacity` and `transform` are the look's.
 
 - `journalctl -b -t yokoso` has what the launcher, cage and Quickshell
   said: a theme or a config left out, unknown keys, the wait for a GPU's
-  driver, why yokoso fell back to agreety.
+  driver, a session left out for its TryExec, why yokoso fell back to
+  agreety.
 - If yokoso can't start, greetd's text greeter (agreety) logs in to the
   same session instead.
 - A theme or a look that keeps anyone from logging in: Ctrl+Alt+Shift+D.

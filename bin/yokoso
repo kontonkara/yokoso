@@ -192,10 +192,12 @@ screens_json() {
 	done | jq -s .
 }
 
-# Session entries (the first of each file name and type), Wayland's before
-# X11's, as id, name, exec, desktop names and type. YOKOSO_SESSION_DIRS
+# Session entries (the first of each file name and type: one that's Hidden
+# hides the ones after it), Wayland's before X11's, as id, name (Name[xx]
+# in the language of yokoso's words), exec, desktop names and type, and
+# missing: the TryExec that isn't installed, if any. YOKOSO_SESSION_DIRS
 # overrides the directories; those named xsessions hold X11 ones.
-sessions_json() {
+desktop_sessions() {
 	dirs=${YOKOSO_SESSION_DIRS:-}
 	if [ -z "$dirs" ]; then
 		IFS=:
@@ -206,24 +208,59 @@ sessions_json() {
 		done
 		unset IFS
 	fi
+	# The greeter's PATH can be short (NixOS's units'), and the session's
+	# comes from a login shell: a TryExec is looked for in the system's
+	# directories too.
+	search=$PATH:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+	language=$(config '.language // empty | strings')
 	IFS=:
 	for d in $dirs; do
 		case $d in */xsessions) type=x11 ;; *) type=wayland ;; esac
 		for f in "$d"/*.desktop; do
 			[ -e "$f" ] || continue
-			awk -v id="${f##*/}" -v type="$type" -F= '
+			awk -v id="${f##*/}" -v type="$type" -v search="$search" \
+				-v locale="${language:-${LC_ALL:-${LC_MESSAGES:-$LANG}}}" -F= '
+				function q(s) { gsub(/\047/, "\047\\\047\047", s); return "\047" s "\047" }
 				/^\[/ { entry = ($0 == "[Desktop Entry]"); next }
 				entry && !($1 in v) { k = $1; sub(/^[^=]*=/, ""); v[k] = $0 }
 				END {
-					if (v["Hidden"] == "true" || v["NoDisplay"] == "true" || v["Exec"] == "") exit
-					print id; print v["Name"]; print v["Exec"]; print v["DesktopNames"]; print type
+					# Name[ll_CC@m], Name[ll_CC], Name[ll@m], Name[ll], Name.
+					l = locale; m = ""
+					if (match(l, /@.*/)) { m = substr(l, RSTART); l = substr(l, 1, RSTART - 1) }
+					sub(/\..*/, "", l); ll = l; sub(/_.*/, "", ll)
+					split("Name[" l m "] Name[" l "] Name[" ll m "] Name[" ll "] Name", keys, " ")
+					for (i = 1; i <= 5; i++) if (v[keys[i]] != "") { name = v[keys[i]]; break }
+					hidden = v["Hidden"] == "true" || v["NoDisplay"] == "true" || v["Exec"] == ""
+					t = v["TryExec"]; missing = ""
+					if (!hidden && t != "") {
+						found = t ~ /^\// ? "test -x " q(t) : "PATH=" q(search) " command -v " q(t) " >/dev/null"
+						if (system(found) != 0) missing = t
+					}
+					print id; print name; print v["Exec"]; print v["DesktopNames"]; print type
+					print hidden ? "true" : "false"; print missing
 				}' "$f"
 		done
 	done | jq -R . | jq -s '
-		[range(0; length; 5) as $i | .[$i:$i + 5]
-			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3], type: .[4]}]
-		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)'
+		[range(0; length; 7) as $i | .[$i:$i + 7]
+			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3], type: .[4], hidden: (.[5] == "true"), missing: .[6]}]
+		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)
+		| map(select(.hidden | not) | del(.hidden))'
 	unset IFS
+}
+
+# The desktop files' sessions whose TryExec is installed; all of them if
+# none is, as a TryExec looked for in the wrong place mustn't leave nothing
+# to log in to.
+sessions_json() {
+	found=$(desktop_sessions)
+	if printf '%s\n' "$found" | jq -e 'length > 0 and all(.missing != "")' >/dev/null; then
+		warn "yokoso: no session's TryExec is installed, listing them all"
+		found=$(printf '%s\n' "$found" | jq 'map(.missing = "")')
+	fi
+	printf '%s\n' "$found" | jq -r '.[] | select(.missing != "")
+		| "yokoso: leaving out \(.id): its TryExec, \(.missing), isn'\''t installed"' |
+		while read -r line; do warn "$line"; done
+	printf '%s\n' "$found" | jq '[.[] | select(.missing == "") | del(.missing)]'
 }
 
 # Every account NSS lists, but a directory (LDAP, sssd) that's slow to

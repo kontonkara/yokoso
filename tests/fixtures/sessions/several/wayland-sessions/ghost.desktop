@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Ghost
+Comment=Its program isn't installed: yokoso leaves it out
+Exec=yokoso-ghost-session
+TryExec=yokoso-ghost-session
+Type=Application
