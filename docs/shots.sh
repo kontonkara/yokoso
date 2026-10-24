@@ -22,11 +22,11 @@ magick -size 1600x900 xc:'#141020' \
 	\( -size 1600x900 radial-gradient:'#6a4c93'-none -geometry -400-250 \) -composite \
 	\( -size 1400x1400 radial-gradient:'#e07a5f'-none -geometry +700+250 \) -composite \
 	\( -size 1200x1200 radial-gradient:'#3d5a80'-none -geometry -200+300 \) -composite \
-	-blur 0x40 "$work/dark.png"
+	-blur 0x40 "$work/wall-dark.png"
 magick -size 1600x900 xc:'#eef0f6' \
 	\( -size 1500x1500 radial-gradient:'#f9c6a0'-none -geometry +600-500 \) -composite \
 	\( -size 1400x1400 radial-gradient:'#a9c5f0'-none -geometry -500+200 \) -composite \
-	-blur 0x40 "$work/light.png"
+	-blur 0x40 "$work/wall-light.png"
 mkdir -p "$work/conf/avatars" "$work/leds"
 magick -seed 7 -size 400x400 plasma:'#3a7bd5'-'#f0a050' \
 	\( -size 400x400 xc:none -fill '#ffffffcc' -draw 'circle 200,160 200,95' \
@@ -34,10 +34,10 @@ magick -seed 7 -size 400x400 plasma:'#3a7bd5'-'#f0a050' \
 conf() {
 	echo "$2" >"$work/conf/$1.json"
 }
-conf dark "{\"scale\": 1.25, \"background\": \"$work/dark.png\"}"
-conf light "{\"scale\": 1.25, \"theme\": \"light\", \"background\": \"$work/light.png\"}"
-conf sidebar "{\"scale\": 1.25, \"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/dark.png\"}"
-conf layout "{\"scale\": 1.25, \"theme\": \"$repo/examples/catppuccin-mocha.json\", \"background\": \"$work/dark.png\",
+conf dark "{\"scale\": 1.25, \"background\": \"$work/wall-dark.png\"}"
+conf light "{\"scale\": 1.25, \"theme\": \"light\", \"background\": \"$work/wall-light.png\"}"
+conf sidebar "{\"scale\": 1.25, \"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/wall-dark.png\"}"
+conf layout "{\"scale\": 1.25, \"theme\": \"$repo/examples/catppuccin-mocha.json\", \"background\": \"$work/wall-dark.png\",
 	\"layout\": {\"form\": \"left\", \"clock\": \"top\", \"power\": \"corner\", \"status\": \"top-left\"}, \"radius\": 12}"
 echo '{"user": "alice", "sessions": {"alice": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
 
