@@ -14,7 +14,8 @@ screens, idle, Russian, Tab, the high-contrast theme, looks of one's own,
 changed. `nix run .#docs-shots` redraws the pictures in
 [`docs/images`](images).
 
-`nix flake check` runs shellcheck and the VM tests in
+`nix flake check` runs shellcheck, holds the schemas up to the core and the
+themes, and runs the VM tests in
 [`tests/vm`](../tests/vm): the greeter under the real greetd, PAM and cage,
 logging in through the lists, idle, the power buttons, PAM's messages, an
 expired password, a fingerprint, sessions of one's own, a session that ends

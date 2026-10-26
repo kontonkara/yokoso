@@ -27,6 +27,15 @@ A config that isn't a JSON object is left out, and keys yokoso doesn't know
 (a misspelt `thme`) are named, both in the journal (`journalctl -b -t
 yokoso`).
 
+With a schema at the top, an editor checks the keys and completes them:
+
+```json
+"$schema": "https://raw.githubusercontent.com/kontonkara/yokoso/main/shell/schema/config.json"
+```
+
+A theme takes `schema/theme.json`; both are under
+`/usr/share/yokoso/shell/schema/` too.
+
 ## Power buttons
 
 `suspend`, `reboot` and `poweroff`, and two more reboots: `firmware` to
@@ -61,8 +70,8 @@ session.
 | Option | |
 |---|---|
 | `services.yokoso.enable` | greetd, with yokoso as its greeter |
-| `settings` | `/etc/yokoso/config.json` |
-| `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`; a `look = ./mine.qml;` in one is copied to the store |
+| `settings` | `/etc/yokoso/config.json`, typed from the schema: a misspelt value or a session without `exec` stops the build; unset keys stay out, and a path (`background = ./wall.jpg;`) is copied to the store |
+| `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`, typed the same way; a `look = ./mine.qml;` in one is copied to the store |
 | `avatars.<user>` | the user's picture (`./alice.png`) |
 | `backgrounds.<user>` | the user's own background (`./alice.jpg`) |
 | `cursor.package`, `cursor.name`, `cursor.size` | the cursor theme (`pkgs.bibata-cursors`, `"Bibata-Modern-Classic"`) and its size at scale 1 (24) |

@@ -4,6 +4,8 @@ The built-in ones are `dark` (the default), `light` and `high-contrast`.
 Any other is a JSON file: `"theme": "mine"` reads `themes/mine.json` next to
 the config (`/etc/yokoso/themes/mine.json`), and a path reads that file. On
 NixOS, `services.yokoso.themes.<name>` writes them.
+`"$schema": "https://raw.githubusercontent.com/kontonkara/yokoso/main/shell/schema/theme.json"`
+lets an editor check one.
 
 ```json
 {
