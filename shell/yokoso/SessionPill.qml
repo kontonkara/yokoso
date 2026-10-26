@@ -12,12 +12,28 @@ Item {
 	implicitWidth: name.implicitWidth + row.spacing + Greeter.u(14) + Greeter.u(24)
 	implicitHeight: Greeter.u(30)
 
+	// Tab comes here.
+	Binding {
+		when: pill.form !== null
+		target: pill.form
+		property: "sessionShown"
+		value: pill.visible
+	}
+
 	Rectangle {
+		id: background
+
 		anchors.centerIn: row
 		width: row.width + Greeter.u(24)
 		height: Greeter.u(30)
 		radius: Greeter.round(height)
 		color: Qt.alpha(Greeter.colors.text, pill.hovered ? 0.12 : 0.06)
+	}
+
+	FocusRing {
+		anchors.fill: background
+		shown: pill.form !== null && pill.form.ringed("session")
+		cornerRadius: background.radius
 	}
 
 	Row {

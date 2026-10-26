@@ -45,6 +45,8 @@ Item {
 		readonly property bool error: input.text === "" && !root.form.enteringName
 			&& (Greeter.core.auth.messageIsError || Greeter.core.problem !== "")
 		readonly property bool busy: Greeter.core.auth.phase === "verifying" || Greeter.core.auth.phase === "launching"
+		// It has the keys, and Tab hasn't taken them elsewhere.
+		readonly property bool focused: input.activeFocus && root.form.current === "field"
 
 		width: parent.width
 		height: parent.height
@@ -52,7 +54,7 @@ Item {
 		color: Greeter.colors.field
 		border.width: Greeter.u(2)
 		border.color: error ? Greeter.colors.error
-			: root.form.typing && input.activeFocus ? Qt.alpha(Greeter.colors.accent, input.text ? 0.9 : 0.4)
+			: root.form.typing && field.focused ? Qt.alpha(Greeter.colors.accent, input.text ? 0.9 : 0.4)
 			: Qt.alpha(Greeter.colors.text, 0.08)
 		transform: Translate {
 			x: Math.sin(root.shaken * Math.PI * 6) * (1 - root.shaken) * Greeter.u(10)
@@ -78,9 +80,9 @@ Item {
 			focus: true
 			readOnly: !root.form.typing
 			echoMode: root.form.secret ? TextInput.Password : TextInput.Normal
-			// A secret is drawn by `dots` below: its own echo, cursor (in
-			// this color too) and selection stay hidden, and the cursor
-			// stays at the end.
+			// A secret is drawn by `dots` below: its own echo, cursor and
+			// selection stay hidden, and the cursor stays at the end. The
+			// cursor is its own, to blink only while the field has the keys.
 			color: root.form.secret ? "transparent" : Greeter.colors.text
 			selectionColor: root.form.secret ? "transparent" : Qt.alpha(Greeter.colors.accent, 0.3)
 			font.pixelSize: Greeter.u(16)
@@ -99,20 +101,27 @@ Item {
 			}
 			Keys.onPressed: event => root.form.keyPressed(event)
 
+			cursorDelegate: Rectangle {
+				width: Math.max(1, Greeter.u(1.5))
+				height: input.cursorRectangle.height
+				visible: field.focused && root.form.typing && !root.form.secret && blink.on
+				color: Greeter.colors.text
+			}
+
 			// One per character, kept as the text grows, so that only a
 			// new one pops up.
 			ListModel {
 				id: dotModel
 			}
 
-			// The blink of the cursor after the dots.
+			// The blink of the cursor, after the dots for a secret.
 			Timer {
 				id: blink
 
 				property bool on: true
 
 				interval: 530
-				running: input.activeFocus && root.form.secret && root.form.typing && !Greeter.core.idle
+				running: field.focused && root.form.typing && !Greeter.core.idle
 				repeat: true
 				onRunningChanged: on = true
 				onTriggered: on = !on
@@ -158,7 +167,7 @@ Item {
 				anchors.verticalCenter: parent.verticalCenter
 				width: Math.max(1, Greeter.u(1.5))
 				height: Greeter.u(20)
-				visible: input.activeFocus && root.form.typing && blink.on
+				visible: field.focused && root.form.typing && blink.on
 				color: Greeter.colors.text
 			}
 		}

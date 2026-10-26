@@ -14,3 +14,4 @@ PowerBar PowerBar.qml
 Picker Picker.qml
 IdleCover IdleCover.qml
 internal LockNote LockNote.qml
+internal FocusRing FocusRing.qml

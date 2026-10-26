@@ -17,6 +17,22 @@ Item {
 	implicitWidth: name.implicitWidth + (chevron.visible ? row.spacing + chevron.width : 0)
 	implicitHeight: name.height
 
+	// Tab comes here.
+	Binding {
+		when: label.form !== null
+		target: label.form
+		property: "userShown"
+		value: label.visible
+	}
+
+	FocusRing {
+		anchors.fill: row
+		anchors.leftMargin: -Greeter.u(12)
+		anchors.rightMargin: -Greeter.u(12)
+		shown: label.form !== null && label.form.ringed("user")
+		cornerRadius: Greeter.round(row.height)
+	}
+
 	Row {
 		id: row
 

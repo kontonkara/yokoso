@@ -12,7 +12,7 @@ Rectangle {
 	property Form form: null
 	property var user: Greeter.core.user
 	readonly property bool askingName: form !== null && form.askingName
-	readonly property bool hovered: mouse.containsMouse && Greeter.core.canPick("user")
+	readonly property bool hovered: mouse.containsMouse && Greeter.core.canPick("user") || form !== null && form.ringed("user")
 
 	width: Greeter.u(92)
 	height: width

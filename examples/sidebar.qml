@@ -78,6 +78,7 @@ Item {
 			anchors.bottom: parent.bottom
 			anchors.bottomMargin: greeter.u(40)
 			size: 40
+			form: loginForm
 		}
 
 		Status {

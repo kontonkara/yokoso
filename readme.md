@@ -123,6 +123,7 @@ XCURSOR_THEME=Adwaita yokoso"`). A user's picture is
 | F2, a click on the name or the picture | the user list; without one (`userList: false`), the name to type again |
 | F3, a click on the session | the session list |
 | F4, a click on another screen | the form to that screen (the next one, for F4), over `output` until yokoso starts again |
+| Tab, Shift+Tab | the name, the session, the field and the power buttons, one after another; Enter or Space presses the one ringed, any other key goes back to the field |
 | Up, Down, Enter, Escape | in a list |
 | Enter | sends what's typed |
 | Escape | clears the field, and goes back from typing a name |
@@ -299,7 +300,7 @@ they are, and their `opacity` and `transform` are the look's.
 
 | Part | |
 |---|---|
-| `Form` | what the form's parts share: the list that's open, a name typed instead of the password, what keys do. Make one and give it to them as `form` |
+| `Form` | what the form's parts share: the list that's open, a name typed instead of the password, where Tab took the keys, what keys do. Make one and give it to them (`PowerBar` too) as `form` |
 | `Background` | the theme's background on every screen; fill the look with it |
 | `Clock` | the time, and the date under it; `size` (120) |
 | `Status` | the theme's `status`, in a row |

@@ -198,6 +198,7 @@ Item {
 		x: corner ? look.area.x + look.area.width - width - greeter.u(32) : look.area.x + (look.area.width - width) / 2
 		y: look.area.y + look.area.height - height - greeter.u(corner ? 32 : 40)
 		visible: look.layout.power !== "none"
+		form: loginForm
 		opacity: look.fade(4)
 		transform: Translate {
 			y: look.lift(4)
