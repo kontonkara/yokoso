@@ -96,8 +96,9 @@ cards() {
 # driver takes over, none at all) and a display controller has none of its
 # own yet, wait for it, up to 10 s. simpledrm's card can outlive its driver
 # for a moment as it goes: a card with no driver counts as going.
+# (Not readlink -f: a link gone between two looks would still name it.)
 driver() {
-	[ -e "/sys/class/drm/$1/device/driver" ] && basename "$(readlink -f "/sys/class/drm/$1/device/driver")"
+	link=$(readlink "/sys/class/drm/$1/device/driver" 2>/dev/null) && echo "${link##*/}"
 }
 no_gpu_yet() {
 	for card in $(cards); do
@@ -120,7 +121,7 @@ if [ "$mode" = greeter ] && no_gpu_yet; then
 		sleep 0.1
 		tries=$((tries - 1))
 	done
-	! no_gpu_yet || warn "yokoso: no GPU driver after 10 s, going on without it"
+	[ "$tries" -gt 0 ] || warn "yokoso: no GPU driver after 10 s, going on without it"
 fi
 
 display_cards=
