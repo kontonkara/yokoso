@@ -87,5 +87,6 @@ for another account, copy `/usr/lib/tmpfiles.d/yokoso.conf` to
   NixOS module's options
 - [Themes](docs/themes.md): colors, a background, where the parts go
 - [Your own look](docs/looks.md): a look in QML, what it can use, the parts
+- [Gallery](docs/gallery.md): the built-in themes and the examples
 - [When something goes wrong](docs/troubleshooting.md)
 - [Development](docs/development.md): the preview, the shots, the tests

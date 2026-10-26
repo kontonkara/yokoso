@@ -50,6 +50,9 @@ the look's. [`examples/sidebar.qml`](../examples/sidebar.qml), with its
 
 <img src="images/sidebar.webp" width="100%" alt="The sidebar example: a panel down the left side with the clock, the user, the session, the field and the power buttons">
 
+[`examples/card.qml`](../examples/card.qml) puts them on a card; the
+[gallery](gallery.md) has it, and the rest.
+
 | Part | |
 |---|---|
 | `Form` | what the form's parts share: the list that's open, a name typed instead of the password, where Tab took the keys. Make one and give it to them (`PowerBar` too) as `form` |

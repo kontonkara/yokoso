@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -57,6 +57,7 @@ conf nolist '{"userList": false}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
 conf sidebar "{\"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/bg2.png\"}"
+conf card "{\"theme\": \"$repo/examples/card.json\", \"background\": \"$work/bg2.png\"}"
 conf own '{"sessions": [{"name": "Niri (debug)", "exec": "niri-session", "desktopNames": ["niri"], "env": {"RUST_LOG": "debug"}}]}'
 conf power '{"power": ["suspend", "reboot", "firmware", {"entry": "auto-windows", "label": "Windows 11"}, "poweroff"]}'
 power='["suspend", "reboot", "firmware", "entry:auto-windows", "poweroff"]'
@@ -130,6 +131,8 @@ for name; do
 		YOKOSO_CONFIG="$work/conf/look.json" ;;
 	# Drawn in software: still at 0.3 s, as nothing fades in.
 	software) shot software 300 '' LIBGL_ALWAYS_SOFTWARE=1 ;;
+	# Another (examples/card), Tab on the session.
+	card) shot card 3000 "$(keys 'wtype -M shift -k Tab -m shift; sleep 0.3')" YOKOSO_CONFIG="$work/conf/card.json" ;;
 	# A look made of the parts (examples/sidebar), its session list open.
 	sidebar) shot sidebar 3000 "$(keys 'wtype -k F3; sleep 0.3')" YOKOSO_CONFIG="$work/conf/sidebar.json" ;;
 	# Pinned to HEADLESS-1 (the right one); F4 takes the form to the left one.

@@ -2,9 +2,10 @@
 # The documentation's pictures, docs/images/*.webp: the working tree's
 # greeter rendered headless (`yokoso shot`, against fakegreet) at 1600x900,
 # with the fake users and sessions of tests/fixtures, generated wallpapers,
-# and the hostname "laptop". Run in the repo:
+# and the hostname "laptop". Run in the repo, for all of them or the ones
+# named:
 #
-#   nix run .#docs-shots
+#   nix run .#docs-shots [-- name ...]
 set -eu
 
 [ -f bin/yokoso ] && [ -d shell ] || {
@@ -40,11 +41,14 @@ conf contrast "{\"scale\": 1.25, \"theme\": \"high-contrast\", \"background\": \
 conf sidebar "{\"scale\": 1.25, \"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/wall-dark.png\"}"
 conf layout "{\"scale\": 1.25, \"theme\": \"$repo/examples/catppuccin-mocha.json\", \"background\": \"$work/wall-dark.png\",
 	\"layout\": {\"form\": \"left\", \"clock\": \"top\", \"power\": \"corner\", \"status\": \"top-left\"}, \"radius\": 12}"
+conf minimal "{\"scale\": 1.25, \"theme\": \"$repo/examples/minimal.json\", \"background\": \"$work/wall-dark.png\"}"
+conf card "{\"scale\": 1.25, \"theme\": \"$repo/examples/card.json\", \"background\": \"$work/wall-dark.png\"}"
 echo '{"user": "alice", "sessions": {"alice": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
 
 # shot <name> <config> <keys, typed after 1.5 s>
 shot() {
 	name=$1 config=$2 keys=$3
+	case " ${only:-$name} " in *" $name "*) ;; *) return ;; esac
 	rt=$work/rt-$name
 	mkdir -m 700 "$rt"
 	cp "$work/state.json" "$rt/state.json"
@@ -73,8 +77,12 @@ shot() {
 	fi
 }
 
+only=$*
+
 shot dark dark ''
 shot light light 'wtype -k F2; sleep 0.3'
 shot contrast contrast 'wtype -M shift -k Tab -m shift; sleep 0.3'
 shot sidebar sidebar ''
 shot layout layout 'wtype secret; sleep 0.2'
+shot minimal minimal 'wtype secret; sleep 0.2'
+shot card card ''

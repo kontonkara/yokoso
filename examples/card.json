@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kontonkara/yokoso/main/shell/schema/theme.json",
+  "colors": {
+    "background": "#2e3440",
+    "text": "#eceff4",
+    "subtext": "#d8dee9",
+    "dim": "#a3abbb",
+    "field": "#3b4252",
+    "accent": "#88c0d0",
+    "error": "#e88a92"
+  },
+  "look": "card.qml",
+  "radius": 14,
+  "backgroundDim": 0.3,
+  "status": ["battery"]
+}
