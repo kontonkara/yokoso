@@ -49,8 +49,7 @@ Column {
 	// It fades in and out, and keeps its last words while it fades out.
 	Text {
 		readonly property string says: Greeter.core.powerError || (Greeter.core.armed
-			? Greeter.core.tr({ suspend: "Press again to suspend", reboot: "Press again to reboot", poweroff: "Press again to power off" }[Greeter.core.armed]
-				|| Greeter.core.powerLabels[Greeter.core.armed])
+			? Greeter.core.powerAgain[Greeter.core.armed] || Greeter.core.powerLabels[Greeter.core.armed]
 			: Greeter.core.powerLabels[buttons.hovered || buttons.focused] || "")
 		property string said: ""
 
@@ -121,7 +120,7 @@ Column {
 
 				Icon {
 					anchors.centerIn: parent
-					path: Greeter.icons[power.modelData] || Greeter.icons.poweroff
+					path: Greeter.icons[power.modelData.startsWith("entry:") ? "entry" : power.modelData] || Greeter.icons.poweroff
 					size: Greeter.u(root.size * 20 / 48)
 					color: power.armed ? Greeter.colors.background : power.hovered ? Greeter.colors.text : Greeter.colors.subtext
 				}

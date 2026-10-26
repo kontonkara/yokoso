@@ -16,5 +16,9 @@
   "%1 ended right after it started (journalctl -b)": "Сессия %1 завершилась сразу после запуска (journalctl -b)",
   "Other…": "Другой…",
   "Username": "Имя пользователя",
-  "Num Lock is on": "Включён Num Lock"
+  "Num Lock is on": "Включён Num Lock",
+  "Reboot to firmware setup": "Перезагрузка в настройки UEFI",
+  "Reboot into %1": "Перезагрузка в %1",
+  "Press again to reboot to firmware setup": "Нажмите ещё раз, чтобы перезагрузить в настройки UEFI",
+  "Press again to reboot into %1": "Нажмите ещё раз, чтобы перезагрузить в %1"
 }

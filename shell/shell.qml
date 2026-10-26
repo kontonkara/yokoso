@@ -76,6 +76,11 @@ ShellRoot {
 		env: {},
 		// An eye in the field that shows the password as it's typed.
 		reveal: true,
+		// The power buttons, in order, those logind allows: "suspend",
+		// "reboot", "poweroff", "firmware" (a reboot to the firmware's
+		// setup) and { entry, label } for a reboot into a boot loader entry
+		// ({ entry: "auto-windows" }; bootctl list shows the ids).
+		power: ["suspend", "reboot", "poweroff"],
 		// Start with the user and the session of the last login.
 		remember: true,
 		// "dark", "light", "high-contrast", a theme's name or a theme
@@ -597,11 +602,43 @@ ShellRoot {
 		}
 	}
 
-	// Power: the actions logind allows ("suspend", "reboot", "poweroff"). A
-	// press() arms one, a second within armedFor ms acts. Outside the greeter
-	// it only says what it would run.
+	// Power: the actions of config.power that logind allows ("suspend",
+	// "reboot", "poweroff", "firmware" for the firmware's setup, and
+	// "entry:<id>" for a boot loader entry). A press() arms one, a second
+	// within armedFor ms acts. Outside the greeter it only says what it
+	// would run. powerLabels says what each does, powerAgain that an armed
+	// one wants a second press.
 	readonly property var power: env.power || []
-	readonly property var powerLabels: ({ suspend: tr("Suspend"), reboot: tr("Reboot"), poweroff: tr("Power off") })
+	readonly property var powerLabels: powerWords(tr("Suspend"), tr("Reboot"), tr("Power off"),
+		tr("Reboot to firmware setup"), tr("Reboot into %1"))
+	readonly property var powerAgain: powerWords(tr("Press again to suspend"), tr("Press again to reboot"),
+		tr("Press again to power off"), tr("Press again to reboot to firmware setup"), tr("Press again to reboot into %1"))
+
+	function powerWords(suspend, reboot, poweroff, firmware, entry) {
+		const words = { suspend, reboot, poweroff, firmware };
+		for (const action of power) {
+			if (action.startsWith("entry:"))
+				words[action] = entry.arg(entryName(action.slice(6)));
+		}
+		return words;
+	}
+
+	// A boot loader entry's name: its label in config.power, a few of
+	// systemd-boot's own, else its id.
+	function entryName(id) {
+		const own = (Array.isArray(config.power) ? config.power : []).find(a => a && a.entry === id && typeof a.label === "string");
+		const known = { "auto-windows": "Windows", "auto-osx": "macOS", "auto-efi-shell": "EFI Shell" };
+		return own ? own.label : known[id] || id.replace(/\.conf$/, "");
+	}
+
+	function powerCommand(action) {
+		if (action === "firmware")
+			return ["systemctl", "reboot", "--firmware-setup"];
+		if (action.startsWith("entry:"))
+			return ["systemctl", "reboot", `--boot-loader-entry=${action.slice(6)}`];
+		return ["systemctl", action];
+	}
+
 	property string armed: ""
 	readonly property int armedFor: 3000
 	property string powerError: ""
@@ -615,11 +652,11 @@ ShellRoot {
 		}
 		armed = "";
 		if (mode !== "greeter") {
-			console.info(`yokoso: would run systemctl ${action}`);
+			console.info(`yokoso: would run ${powerCommand(action).join(" ")}`);
 			return;
 		}
 		systemctl.action = action;
-		systemctl.command = ["systemctl", action];
+		systemctl.command = powerCommand(action);
 		systemctl.running = true;
 	}
 
@@ -645,7 +682,7 @@ ShellRoot {
 		onExited: code => {
 			if (code === 0)
 				return;
-			root.powerError = root.tr({ suspend: "Suspend failed", reboot: "Reboot failed", poweroff: "Power off failed" }[action] || `${action} failed`);
+			root.powerError = root.tr({ suspend: "Suspend failed", poweroff: "Power off failed" }[action] || "Reboot failed");
 			disarm.restart();
 		}
 	}

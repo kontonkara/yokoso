@@ -346,13 +346,45 @@ theme_json() {
 	jq -c --argjson high "$theme" '. * $high | del(.extends)' "$base"
 }
 
-# The power actions logind allows us, in the buttons' order.
+# The power actions of config.power that logind allows us, in its order
+# (in YOKOSO_POWER instead, for the tests): "suspend", "reboot",
+# "poweroff", "firmware" (a reboot to the firmware's setup) and a boot
+# loader entry's { entry }, as "entry:<id>".
+can() {
+	[ "$(busctl call org.freedesktop.login1 /org/freedesktop/login1 \
+		org.freedesktop.login1.Manager "Can$1" 2>/dev/null)" = 's "yes"' ]
+}
 power_json() {
-	for action in Suspend:suspend Reboot:reboot PowerOff:poweroff; do
-		[ "$(busctl call org.freedesktop.login1 /org/freedesktop/login1 \
-			org.freedesktop.login1.Manager "Can${action%:*}" 2>/dev/null)" = 's "yes"' ] &&
-			echo "${action#*:}"
-	done | jq -R . | jq -s .
+	if [ -n "${YOKOSO_POWER:-}" ]; then
+		echo "$YOKOSO_POWER"
+		return
+	fi
+	entries='[]'
+	if can RebootToBootLoaderEntry; then
+		entries=$(busctl --json=short get-property org.freedesktop.login1 /org/freedesktop/login1 \
+			org.freedesktop.login1.Manager BootLoaderEntries 2>/dev/null | jq -c '.data | arrays') || entries='[]'
+	fi
+	config '(.power | arrays) // ["suspend", "reboot", "poweroff"]
+		| .[] | if type == "object" then "entry:\(.entry | strings)" else strings end' |
+		while read -r action; do
+			case $action in
+			suspend) can Suspend ;;
+			reboot) can Reboot ;;
+			poweroff) can PowerOff ;;
+			firmware) can RebootToFirmwareSetup ;;
+			entry:*)
+				printf '%s' "$entries" | jq -e --arg id "${action#entry:}" 'index($id)' >/dev/null ||
+					{
+						warn "yokoso: can't reboot into the boot loader entry ${action#entry:}"
+						false
+					}
+				;;
+			*)
+				warn "yokoso: no power action $action in config.power"
+				false
+				;;
+			esac && echo "$action"
+		done | jq -R . | jq -s .
 }
 
 # The lid's state file, on laptops, and the keyboards' Caps Lock and Num
