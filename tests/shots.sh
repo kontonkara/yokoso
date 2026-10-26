@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -136,6 +136,7 @@ for name; do
 	reveal) shot reveal 3000 "$(keys 'wtype hunter2; wtype -k Tab; sleep 0.1; wtype -k space; sleep 0.3')" ;;
 	contrast) shot contrast 3000 "$(keys 'wtype abc; wtype -k Tab; sleep 0.3')" YOKOSO_CONFIG="$work/conf/contrast.json" ;;
 	contrastlist) shot contrastlist 3000 "$(keys 'wtype -k F3; sleep 0.3')" YOKOSO_CONFIG="$work/conf/contrast.json" ;;
+	ctrlu) shot ctrlu 3000 "$(keys 'wtype carol; wtype -M ctrl -k u -m ctrl; wtype dave; sleep 0.3')" YOKOSO_CONFIG="$work/conf/nolist.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.
