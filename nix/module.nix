@@ -71,6 +71,13 @@ in
           example = lib.literalExpression "{ alice = ./alice.png; }";
           description = "Pictures by user name, as /etc/yokoso/avatars/<name>; AccountsService's are used for the rest.";
         };
+
+        backgrounds = lib.mkOption {
+          type = lib.types.attrsOf lib.types.path;
+          default = { };
+          example = lib.literalExpression "{ alice = ./alice-wallpaper.jpg; }";
+          description = "Backgrounds by user name, as /etc/yokoso/backgrounds/<name>, over the theme's while that user is picked.";
+        };
       };
     };
   };
@@ -127,7 +134,10 @@ in
       ) cfg.themes
       // lib.mapAttrs' (
         name: picture: lib.nameValuePair "yokoso/avatars/${name}" { source = picture; }
-      ) cfg.avatars;
+      ) cfg.avatars
+      // lib.mapAttrs' (
+        name: picture: lib.nameValuePair "yokoso/backgrounds/${name}" { source = picture; }
+      ) cfg.backgrounds;
     };
 
     systemd = {

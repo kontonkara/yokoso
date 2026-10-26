@@ -286,8 +286,9 @@ accounts() {
 # Login accounts, from NSS so that systemd-homed's (UIDs 60001..60513) are
 # there too: UID_MIN..UID_MAX from login.defs, with a real shell. Each with
 # a picture, if the greeter can read one: avatars/<name> next to the
-# config, else AccountsService's. Not ~/.face: homes are rarely readable,
-# and a network one would hold up the login screen.
+# config, else AccountsService's (not ~/.face: homes are rarely readable,
+# and a network one would hold up the login screen); and a background of
+# their own, backgrounds/<name> next to the config.
 users_json() {
 	min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
 	max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
@@ -300,8 +301,10 @@ users_json() {
 		for f in "${YOKOSO_CONFIG%/*}/avatars/$name" "/var/lib/AccountsService/icons/$name"; do
 			[ -f "$f" ] && [ -r "$f" ] && icon=$f && break
 		done
-		printf '%s\n%s\n%s\n' "$name" "$real" "$icon"
-	done | jq -R . | jq -s '[range(0; length; 3) as $i | {name: .[$i], realName: .[$i + 1], icon: .[$i + 2]}]'
+		background=${YOKOSO_CONFIG%/*}/backgrounds/$name
+		[ -f "$background" ] && [ -r "$background" ] || background=
+		printf '%s\n%s\n%s\n%s\n' "$name" "$real" "$icon" "$background"
+	done | jq -R . | jq -s '[range(0; length; 4) as $i | {name: .[$i], realName: .[$i + 1], icon: .[$i + 2], background: .[$i + 3]}]'
 }
 
 # The theme: config.theme ("dark", "light", the name of a file in themes/

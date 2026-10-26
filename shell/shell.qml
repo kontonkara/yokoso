@@ -122,9 +122,13 @@ ShellRoot {
 	// when everything is drawn in software, where each frame costs the CPU.
 	readonly property bool animate: config.animations === "auto" ? !env.software : !!config.animations
 
-	// config.background's image for a screen, by its name ("" for the window),
-	// as a URL: one path for every screen, or one per output, "*" for the rest.
+	// The background for a screen, by its name ("" for the window), as a
+	// URL: the user's own (backgrounds/<name> next to the config) on every
+	// screen, else config.background's, one path for every screen or one
+	// per output, "*" for the rest.
 	function backgroundFor(name) {
+		if (user && user.background)
+			return fileUrl(user.background);
 		const bg = config.background;
 		return fileUrl(typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || "");
 	}
