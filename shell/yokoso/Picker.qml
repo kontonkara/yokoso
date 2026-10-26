@@ -30,8 +30,8 @@ Item {
 		visible: root.form.picking !== ""
 		radius: Greeter.radius < 0 ? Greeter.u(16) : Greeter.radius
 		color: Greeter.colors.field
-		border.color: Qt.alpha(Greeter.colors.text, 0.1)
-		border.width: 1
+		border.color: Greeter.outline(0.1)
+		border.width: Greeter.outlined ? Math.max(1, Greeter.u(2)) : 1
 		transform: Translate {
 			id: shift
 		}
@@ -51,6 +51,8 @@ Item {
 			highlight: Rectangle {
 				radius: Math.max(0, popup.radius - Greeter.u(6))
 				color: Qt.alpha(Greeter.colors.accent, 0.15)
+				border.width: Greeter.outlined ? Math.max(1, Greeter.u(2)) : 0
+				border.color: Greeter.colors.accent
 			}
 			highlightMoveDuration: Greeter.animate ? 120 : 0
 			highlightMoveVelocity: -1

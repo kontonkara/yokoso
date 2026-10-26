@@ -1,0 +1,13 @@
+{
+  "colors": {
+    "background": "#000000",
+    "text": "#ffffff",
+    "subtext": "#ffffff",
+    "dim": "#c8c8c8",
+    "field": "#000000",
+    "accent": "#ffd400",
+    "error": "#ff7a7a",
+    "outline": "#ffffff"
+  },
+  "backgroundDim": 0.85
+}

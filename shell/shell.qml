@@ -78,7 +78,8 @@ ShellRoot {
 		reveal: true,
 		// Start with the user and the session of the last login.
 		remember: true,
-		// "dark", "light", a theme's name or a theme file's path.
+		// "dark", "light", "high-contrast", a theme's name or a theme
+		// file's path.
 		theme: "dark",
 		// The output with the form ("DP-1"), or "cursor" for the one the
 		// pointer is on; "" picks one, see screen below.

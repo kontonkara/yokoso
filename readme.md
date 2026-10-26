@@ -144,7 +144,7 @@ XCURSOR_THEME=Adwaita yokoso"`). A user's picture is
 | `reveal` | `true` | an eye in the field that shows the password as it's typed; `false` keeps it hidden |
 | `sessions` | `[]` | sessions of your own, first in the list: `name` and `exec`, `type` (`"wayland"` or `"x11"`), `desktopNames` (`["niri"]`, for `XDG_CURRENT_DESKTOP`) and `env`, see below |
 | `env` | `{}` | variables for every session, `{"QT_QPA_PLATFORMTHEME": "qt6ct"}`; a session's own `env` wins |
-| `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |
+| `theme` | `dark` | `dark`, `light`, `high-contrast`, a theme's name or a theme file's path; see below |
 | `output` | see below | screen with the form (`DP-1`), or `cursor` for the one the pointer is on |
 | `scale` | `0` | UI scale; `0` takes it from the screen's size |
 | `idle` | `60` | seconds without input before the screen goes dark and the backlight low; `0` for never |
@@ -188,7 +188,8 @@ again: for a screen that stays dark although it's connected.
 
 ## Themes
 
-The built-in ones are `dark` (the default) and `light`. Any other theme is a
+The built-in ones are `dark` (the default), `light` and `high-contrast`
+(white on black, yellow, solid outlines). Any other theme is a
 JSON file: `"theme": "mine"` reads `themes/mine.json` next to the config
 (`/etc/yokoso/themes/mine.json`), and a path reads that file.
 
@@ -224,6 +225,7 @@ config's own keys go on top of the theme, so `"colors": {"accent":
 | `colors.field` | the password field and the user and session lists |
 | `colors.accent` | the avatar, what's under the pointer, an armed power button, the picked entry in a list, the field's outline and its button once something is typed, and the spinner while a password is checked |
 | `colors.error` | errors (and the field's outline with one), the Caps Lock warning and a low battery |
+| `colors.outline` | a solid outline around the field, the session, the power buttons and the lists; `""` (the default) for a faint one around the field and the lists only |
 | `font` | a font family; `""` for the default one |
 | `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`), cropped to fill each screen; paths are relative to the theme file |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |

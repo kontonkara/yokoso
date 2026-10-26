@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -47,6 +47,7 @@ conf() {
 }
 conf plain '{}'
 conf light '{"theme": "light"}'
+conf contrast '{"theme": "high-contrast"}'
 conf screens "{\"background\": {\"HEADLESS-2\": \"$work/bg1.png\", \"*\": \"$work/bg2.png\"}}"
 conf cursor '{"output": "cursor"}'
 conf pinned '{"output": "HEADLESS-1"}'
@@ -133,6 +134,8 @@ for name; do
 	backtab) shot backtab 3000 "$(keys 'wtype -M shift -k Tab -k Tab -m shift; sleep 0.3')" ;;
 	tabpick) shot tabpick 3000 "$(keys 'wtype -M shift -k Tab -m shift; sleep 0.1; wtype -k space; sleep 0.3')" ;;
 	reveal) shot reveal 3000 "$(keys 'wtype hunter2; wtype -k Tab; sleep 0.1; wtype -k space; sleep 0.3')" ;;
+	contrast) shot contrast 3000 "$(keys 'wtype abc; wtype -k Tab; sleep 0.3')" YOKOSO_CONFIG="$work/conf/contrast.json" ;;
+	contrastlist) shot contrastlist 3000 "$(keys 'wtype -k F3; sleep 0.3')" YOKOSO_CONFIG="$work/conf/contrast.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

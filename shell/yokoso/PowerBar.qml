@@ -98,6 +98,8 @@ Column {
 				height: width
 				radius: Greeter.round(width)
 				color: armed ? Greeter.colors.accent : Qt.alpha(Greeter.colors.text, hovered ? 0.1 : 0.04)
+				border.width: Greeter.outlined && !armed ? Math.max(1, Greeter.u(2)) : 0
+				border.color: Greeter.outline()
 				scale: mouse.pressed ? 0.92 : mouse.containsMouse ? 1.08 : 1
 
 				Behavior on color {

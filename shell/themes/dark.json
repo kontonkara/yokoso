@@ -6,7 +6,8 @@
     "dim": "#777777",
     "field": "#222222",
     "accent": "#ffffff",
-    "error": "#ee6666"
+    "error": "#ee6666",
+    "outline": ""
   },
   "font": "",
   "background": "",

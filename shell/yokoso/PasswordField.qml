@@ -56,7 +56,7 @@ Item {
 		border.width: Greeter.u(2)
 		border.color: error ? Greeter.colors.error
 			: root.form.typing && field.focused ? Qt.alpha(Greeter.colors.accent, input.text ? 0.9 : 0.4)
-			: Qt.alpha(Greeter.colors.text, 0.08)
+			: Greeter.outline(0.08)
 		transform: Translate {
 			x: Math.sin(root.shaken * Math.PI * 6) * (1 - root.shaken) * Greeter.u(10)
 		}

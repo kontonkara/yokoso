@@ -28,6 +28,8 @@ Item {
 		height: Greeter.u(30)
 		radius: Greeter.round(height)
 		color: Qt.alpha(Greeter.colors.text, pill.hovered ? 0.12 : 0.06)
+		border.width: Greeter.outlined ? Math.max(1, Greeter.u(2)) : 0
+		border.color: Greeter.outline()
 	}
 
 	FocusRing {

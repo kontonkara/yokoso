@@ -13,6 +13,15 @@ QtObject {
 	readonly property string font: core ? core.fontFamily : ""
 	readonly property bool animate: core ? core.animate : false
 
+	// colors.outline, around the field, the session, the power buttons
+	// and the lists, or "": `faint` of colors.text for the field and the
+	// lists, nothing for the rest.
+	readonly property bool outlined: !!colors.outline
+
+	function outline(faint) {
+		return outlined ? colors.outline : Qt.alpha(colors.text, faint || 0);
+	}
+
 	// `n` pixels at the UI scale.
 	function u(n) {
 		return core ? core.u(n) : n;
