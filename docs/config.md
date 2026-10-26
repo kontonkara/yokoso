@@ -10,6 +10,7 @@ is optional:
 | `session` | the first one | session to start with: a desktop file's name (`niri`, `i3`) or one of `sessions` |
 | `remember` | `true` | start with the last login's user and that user's last session instead |
 | `reveal` | `true` | an eye in the field that shows the password as it's typed |
+| `power` | `["suspend", "reboot", "poweroff"]` | the power buttons, in order; see below |
 | `sessions` | `[]` | sessions of your own, first in the list; see below |
 | `env` | `{}` | variables for every session (`{"QT_QPA_PLATFORMTHEME": "qt6ct"}`); a session's own `env` wins |
 | `theme` | `dark` | `dark`, `light`, `high-contrast`, a theme's name or a theme file's path; see [themes](themes.md) |
@@ -25,6 +26,21 @@ A theme's keys can go here too, on top of the theme's (`"colors":
 A config that isn't a JSON object is left out, and keys yokoso doesn't know
 (a misspelt `thme`) are named, both in the journal (`journalctl -b -t
 yokoso`).
+
+## Power buttons
+
+`suspend`, `reboot` and `poweroff`, and two more reboots: `firmware` to
+the firmware's setup (UEFI), and `{"entry": "<id>", "label": "<name>"}`
+into a boot loader entry, systemd-boot's (`bootctl list` shows the ids):
+
+```json
+"power": ["suspend", "reboot", {"entry": "auto-windows", "label": "Windows"}, "firmware", "poweroff"]
+```
+
+A button shows only if logind allows it to the greeter (on NixOS that takes
+`security.polkit.enable`); an entry that isn't there is named in the
+journal. Without a `label`, Windows, macOS and the EFI shell are named,
+other entries go by their id.
 
 ## Sessions of your own
 

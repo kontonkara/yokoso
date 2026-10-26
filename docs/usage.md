@@ -35,7 +35,9 @@ initial.
 | Ctrl+Alt+F2 … F12 | a text console; back with greetd's (Ctrl+Alt+F1 by default) |
 | any key, a click or a move | wakes a dark screen, and does nothing else |
 
-A power button acts on a second press within three seconds.
+A power button acts on a second press within three seconds. Which ones
+there are, a reboot to the firmware's setup or into Windows among them,
+is up to the [config](config.md#power-buttons).
 
 ## Seeing it
 

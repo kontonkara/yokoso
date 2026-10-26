@@ -35,7 +35,8 @@ does the login, the power buttons and the memory, and watches the pointer.
 | `auth.message`, `auth.messageIsError` | PAM's last message, or "Wrong password", and whether it's an error |
 | `problem` | why no login can start (no session), else `""` |
 | `capsLock`, `numLock`, `hostname`, `battery` | the locks; the machine's name; `{ level, plugged }`, or `null` without one |
-| `power`, `powerLabels`, `press(action)` | the power actions logind allows, their names, and a press: a second one within `armedFor` ms acts |
+| `power`, `powerLabels`, `press(action)` | the power actions of `config.power` that logind allows (`"firmware"`, `"entry:<id>"` among them), what each does, and a press: a second one within `armedFor` ms acts |
+| `powerAgain` | for each action, that it wants a second press |
 | `armed`, `armedFor`, `powerError` | the action waiting for its second press; how long it waits; why one failed |
 | `idle`, `wake()` | whether the screen is asleep; call `wake()` on every key and click, and when it returns `true` the input only woke the screen |
 
