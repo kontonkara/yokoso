@@ -74,6 +74,8 @@ ShellRoot {
 		sessions: [],
 		// Variables for every session, under a session's own env.
 		env: {},
+		// An eye in the field that shows the password as it's typed.
+		reveal: true,
 		// Start with the user and the session of the last login.
 		remember: true,
 		// "dark", "light", a theme's name or a theme file's path.

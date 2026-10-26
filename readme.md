@@ -141,6 +141,7 @@ XCURSOR_THEME=Adwaita yokoso"`). A user's picture is
 | `userList` | `true` | list the accounts to pick from; `false` asks for a name every time (not the last login's) and shows no pictures |
 | `session` | the first one | session to start with, by desktop file name (`niri`, `i3`) or the name of one of `sessions`; those come first, then Wayland's |
 | `remember` | `true` | start with the last login's user and that user's last session instead |
+| `reveal` | `true` | an eye in the field that shows the password as it's typed; `false` keeps it hidden |
 | `sessions` | `[]` | sessions of your own, first in the list: `name` and `exec`, `type` (`"wayland"` or `"x11"`), `desktopNames` (`["niri"]`, for `XDG_CURRENT_DESKTOP`) and `env`, see below |
 | `env` | `{}` | variables for every session, `{"QT_QPA_PLATFORMTHEME": "qt6ct"}`; a session's own `env` wins |
 | `theme` | `dark` | `dark`, `light`, a theme's name or a theme file's path; see below |

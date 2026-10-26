@@ -6,7 +6,8 @@ import QtQuick.Shapes
 // accent while it waits for typing and in the error color under an error;
 // a wrong password shakes it. PAM's question or last message is its
 // placeholder. The button at its end is an arrow that turns into a
-// spinner while the password is checked.
+// spinner while the password is checked; an eye before it shows the
+// password as it's typed (unless config.reveal is false).
 Item {
 	id: root
 
@@ -72,7 +73,7 @@ Item {
 			id: input
 
 			anchors.left: parent.left
-			anchors.right: button.left
+			anchors.right: eye.visible ? eye.left : button.left
 			anchors.leftMargin: Greeter.u(22)
 			anchors.rightMargin: Greeter.u(10)
 			anchors.verticalCenter: parent.verticalCenter
@@ -92,14 +93,25 @@ Item {
 			onAccepted: root.form.submit()
 			onCursorPositionChanged: if (root.form.secret && cursorPosition !== text.length)
 				cursorPosition = text.length
-			onTextChanged: {
+			onTextChanged: syncDots()
+			Keys.onPressed: event => root.form.keyPressed(event)
+
+			function syncDots() {
 				const count = root.form.secret ? text.length : 0;
 				while (dotModel.count > count)
 					dotModel.remove(dotModel.count - 1);
 				while (dotModel.count < count)
 					dotModel.append({});
 			}
-			Keys.onPressed: event => root.form.keyPressed(event)
+
+			// A secret revealed or hidden again.
+			Connections {
+				target: root.form
+
+				function onSecretChanged() {
+					input.syncDots();
+				}
+			}
 
 			cursorDelegate: Rectangle {
 				width: Math.max(1, Greeter.u(1.5))
@@ -205,6 +217,53 @@ Item {
 
 				font: placeholder.font
 				text: Greeter.core.auth.message
+			}
+		}
+
+		// The eye, before the arrow: it reveals the secret, or hides it
+		// again; Tab comes to it.
+		Rectangle {
+			id: eye
+
+			readonly property bool hovered: eyeMouse.containsMouse || root.form.ringed("reveal")
+
+			anchors.right: button.left
+			anchors.rightMargin: Greeter.u(2)
+			anchors.verticalCenter: parent.verticalCenter
+			width: button.width
+			height: width
+			radius: Greeter.round(width, Greeter.u(7))
+			visible: root.form.canReveal && root.form.typing
+			color: Qt.alpha(Greeter.colors.text, hovered ? 0.08 : 0)
+
+			Binding {
+				target: root.form
+				property: "revealShown"
+				value: eye.visible
+			}
+
+			Icon {
+				anchors.centerIn: parent
+				path: root.form.revealed ? Greeter.icons.eyeOff : Greeter.icons.eye
+				size: Greeter.u(18)
+				color: eye.hovered || root.form.revealed ? Greeter.colors.text : Greeter.colors.dim
+			}
+
+			FocusRing {
+				anchors.fill: parent
+				shown: root.form.ringed("reveal")
+				cornerRadius: eye.radius
+				// On its edge, clear of the arrow.
+				gap: -border.width
+			}
+
+			MouseArea {
+				id: eyeMouse
+
+				anchors.fill: parent
+				hoverEnabled: true
+				cursorShape: Qt.PointingHandCursor
+				onClicked: root.form.reveal(!root.form.revealed)
 			}
 		}
 

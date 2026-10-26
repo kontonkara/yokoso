@@ -31,9 +31,25 @@ QtObject {
 	property bool enteringName: false
 	readonly property bool askingName: enteringName || core.needsUser
 	// Whether the field takes typing now, and whether what's typed is a
-	// secret.
+	// secret, hidden: PAM asks for one, and it isn't revealed.
 	readonly property bool typing: askingName || core.auth.phase === "prompt"
-	readonly property bool secret: !askingName && core.auth.secret
+	readonly property bool secret: !askingName && core.auth.secret && !revealed
+	// A secret shown as it's typed, until it's sent or the user changes
+	// (config.reveal: false keeps it hidden).
+	property bool revealed: false
+	readonly property bool canReveal: !askingName && core.auth.secret && core.config.reveal !== false
+
+	function reveal(on) {
+		revealed = on && canReveal;
+	}
+
+	property Connections forgetReveal: Connections {
+		target: form.core
+
+		function onUserChanged() {
+			form.reveal(false);
+		}
+	}
 	// What's typed.
 	readonly property string text: input ? input.text : ""
 
@@ -45,15 +61,18 @@ QtObject {
 	property string focused: "field"
 	property bool focusShown: false
 	// Filled in by the parts on show: the user (UserName), the session
-	// (SessionPill) and the power actions (PowerBar).
+	// (SessionPill), the button that reveals a secret (PasswordField) and
+	// the power actions (PowerBar).
 	property bool userShown: false
 	property bool sessionShown: false
+	property bool revealShown: false
 	property var powerShown: []
 	// What Tab goes to, in order.
 	readonly property var stops: [
 		userShown && (core.userList ? core.canPick("user") : core.canEnterUser() && !askingName) ? "user" : "",
 		sessionShown && core.canPick("session") ? "session" : "",
 		"field",
+		revealShown && canReveal && typing ? "reveal" : "",
 	].concat(powerShown.map(action => `power:${action}`)).filter(stop => stop)
 	// Where the keys go now: the field, once what had them is gone.
 	readonly property string current: stops.includes(focused) ? focused : "field"
@@ -75,6 +94,8 @@ QtObject {
 			userClicked();
 		else if (stop === "session")
 			togglePicker("session");
+		else if (stop === "reveal")
+			reveal(!revealed);
 		else if (stop.startsWith("power:"))
 			core.press(stop.slice(6));
 	}
@@ -143,6 +164,7 @@ QtObject {
 		}
 		core.auth.submit(input.text);
 		input.text = "";
+		reveal(false);
 	}
 
 	// Every key press, before the field or the list gets it: it keeps the

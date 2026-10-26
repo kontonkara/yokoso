@@ -6,7 +6,8 @@ import QtQuick
 Rectangle {
 	property bool shown: false
 	property real cornerRadius: 0
-	readonly property real gap: Greeter.u(4)
+	// How far out from its edges.
+	property real gap: Greeter.u(4)
 
 	anchors.margins: -gap - border.width
 	radius: cornerRadius + gap + border.width
