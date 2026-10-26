@@ -107,7 +107,7 @@ ShellRoot {
 	// The config's keys that nothing reads, a misspelt one ("thme") most
 	// likely.
 	function checkConfig() {
-		const unknown = Object.keys(configFile).filter(k => !(k in defaults) && !(k in theme) && k !== "look");
+		const unknown = Object.keys(configFile).filter(k => !(k in defaults) && !(k in theme) && !["look", "$schema"].includes(k));
 		for (const group of ["colors", "layout"]) {
 			if (configFile[group] && typeof configFile[group] === "object")
 				unknown.push(...Object.keys(configFile[group]).filter(k => !(k in (theme[group] || {}))).map(k => `${group}.${k}`));

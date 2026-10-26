@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yokoso theme",
+  "description": "A theme's keys, in a theme file or in the config on top of the theme's. A look of one's own may read keys of its own too.",
+  "type": "object",
+  "properties": {
+    "$schema": { "type": "string" },
+    "extends": {
+      "description": "The theme this one goes on top of: \"dark\", \"light\", \"high-contrast\", a theme's name or a theme file's path.",
+      "type": "string",
+      "default": "dark"
+    },
+    "colors": {
+      "type": "object",
+      "properties": {
+        "background": { "$ref": "#/$defs/color", "description": "Behind everything, where there's no image." },
+        "text": { "$ref": "#/$defs/color", "description": "The clock, the name, the lists, what's typed." },
+        "subtext": { "$ref": "#/$defs/color", "description": "The date, the session, hints, the power buttons, the status in the corner." },
+        "dim": { "$ref": "#/$defs/color", "description": "The field's placeholder and the arrows by the names." },
+        "field": { "$ref": "#/$defs/color", "description": "The field and the lists." },
+        "accent": { "$ref": "#/$defs/color", "description": "The avatar, what's under the pointer or Tab's ring, an armed power button, the field's outline and its button once something is typed." },
+        "error": { "$ref": "#/$defs/color", "description": "Errors, the Caps Lock warning and a low battery." },
+        "outline": { "$ref": "#/$defs/color", "description": "A solid outline around the field, the session, the power buttons and the lists; \"\" for a faint one around the field and the lists." }
+      },
+      "additionalProperties": { "$ref": "#/$defs/color" }
+    },
+    "font": { "description": "A font family; \"\" for the default one.", "type": "string" },
+    "background": {
+      "description": "An image for every screen, or one per output with \"*\" for the rest; paths are relative to the theme.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "object", "additionalProperties": { "type": "string" } }
+      ]
+    },
+    "backgroundDim": {
+      "description": "How much colors.background covers the image.",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "animations": {
+      "description": "\"auto\" for things that move unless everything is drawn in software, true, or false for none.",
+      "enum": ["auto", true, false]
+    },
+    "status": {
+      "description": "What a top corner shows.",
+      "type": "array",
+      "items": { "enum": ["hostname", "battery"] }
+    },
+    "layout": {
+      "type": "object",
+      "properties": {
+        "form": { "description": "Where the form is.", "enum": ["center", "left", "right"] },
+        "clock": { "description": "The clock above the form, at the top, or none.", "enum": ["above", "top", "none"] },
+        "power": { "description": "The power buttons at the bottom, in its right corner, or none.", "enum": ["bottom", "corner", "none"] },
+        "status": { "description": "The corner with the status.", "enum": ["top-right", "top-left"] }
+      }
+    },
+    "clockFormat": { "description": "The time as a Qt format (\"HH:mm\"); \"\" for the locale's.", "type": "string" },
+    "dateFormat": { "description": "The date as a Qt format (\"dddd d MMMM\"); \"\" for the locale's.", "type": "string" },
+    "radius": {
+      "description": "The corners of the field, the buttons, the lists and the avatar, in pixels; null for round.",
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "fieldWidth": { "description": "The form's width, in pixels.", "type": "number", "exclusiveMinimum": 0 },
+    "look": { "description": "A QML file that draws the login screen instead, relative to the theme.", "type": "string" }
+  },
+  "$defs": {
+    "color": {
+      "description": "A color as Qt reads it: \"#rrggbb\", \"#aarrggbb\" or a name.",
+      "type": "string"
+    }
+  }
+}

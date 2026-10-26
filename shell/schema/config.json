@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "yokoso config",
+  "description": "/etc/yokoso/config.json: every key is optional, and a theme's keys go on top of the theme's.",
+  "type": "object",
+  "allOf": [{ "$ref": "theme.json" }],
+  "properties": {
+    "user": { "description": "The account to start with, listed or not.", "type": "string" },
+    "userList": {
+      "description": "List the accounts to pick from; false asks for a name every time.",
+      "type": "boolean",
+      "default": true
+    },
+    "session": { "description": "The session to start with: a desktop file's name or one of sessions.", "type": "string" },
+    "remember": {
+      "description": "Start with the last login's user and that user's last session.",
+      "type": "boolean",
+      "default": true
+    },
+    "reveal": {
+      "description": "An eye in the field that shows the password as it's typed.",
+      "type": "boolean",
+      "default": true
+    },
+    "power": {
+      "description": "The power buttons, in order, those logind allows.",
+      "type": "array",
+      "default": ["suspend", "reboot", "poweroff"],
+      "items": {
+        "oneOf": [
+          { "enum": ["suspend", "reboot", "poweroff", "firmware"] },
+          {
+            "description": "A reboot into a boot loader entry (bootctl list shows the ids).",
+            "type": "object",
+            "properties": {
+              "entry": { "type": "string" },
+              "label": { "type": "string" }
+            },
+            "required": ["entry"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "sessions": {
+      "description": "Sessions of your own, first in the list.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "exec": { "type": "string" },
+          "type": { "enum": ["wayland", "x11"], "default": "wayland" },
+          "desktopNames": { "description": "For XDG_CURRENT_DESKTOP.", "type": "array", "items": { "type": "string" } },
+          "env": { "$ref": "#/$defs/env" }
+        },
+        "required": ["name", "exec"],
+        "additionalProperties": false
+      }
+    },
+    "env": { "description": "Variables for every session; a session's own env wins.", "$ref": "#/$defs/env" },
+    "theme": {
+      "description": "\"dark\", \"light\", \"high-contrast\", a theme's name or a theme file's path.",
+      "type": "string",
+      "default": "dark"
+    },
+    "output": { "description": "The screen with the form (\"DP-1\"), or \"cursor\" for the one the pointer is on.", "type": "string" },
+    "scale": { "description": "The UI scale; 0 takes it from the screen's size.", "type": "number", "minimum": 0, "default": 0 },
+    "idle": {
+      "description": "Seconds without input before the screen goes dark; 0 for never.",
+      "type": "number",
+      "minimum": 0,
+      "default": 60
+    },
+    "language": { "description": "The language of yokoso's own words (\"en\", \"ru\"); \"\" for the locale's.", "type": "string" },
+    "x11Wrapper": {
+      "description": "What starts an X server for an X11 session, with its command after it.",
+      "type": "string",
+      "default": "startx /usr/bin/env"
+    }
+  },
+  "unevaluatedProperties": false,
+  "$defs": {
+    "env": { "type": "object", "additionalProperties": { "type": "string" } }
+  }
+}
