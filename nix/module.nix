@@ -9,6 +9,7 @@ self:
 let
   cfg = config.services.yokoso;
   json = pkgs.formats.json { };
+  typed = import ./settings.nix { inherit lib json; };
   xkb = config.services.xserver.xkb;
   sessions = config.services.displayManager.sessionData.desktops;
   greeter = config.services.greetd.settings.default_session.user;
@@ -26,13 +27,13 @@ in
         };
 
         settings = lib.mkOption {
-          inherit (json) type;
+          type = typed.settings;
           default = { };
-          description = "yokoso's config.json; unset keys keep their defaults (see docs/config.md).";
+          description = "yokoso's config.json, typed from its schema; unset keys keep their defaults (see docs/config.md), and paths (background, look) go to the store.";
         };
 
         themes = lib.mkOption {
-          type = lib.types.attrsOf json.type;
+          type = lib.types.attrsOf typed.theme;
           default = { };
           example = {
             mine = {
@@ -124,12 +125,12 @@ in
 
     environment = {
       etc = {
-        "yokoso/config.json".source = json.generate "yokoso-config.json" cfg.settings;
+        "yokoso/config.json".source = json.generate "yokoso-config.json" (typed.out cfg.settings);
       }
       // lib.mapAttrs' (
         name: theme:
         lib.nameValuePair "yokoso/themes/${name}.json" {
-          source = json.generate "yokoso-theme-${name}.json" theme;
+          source = json.generate "yokoso-theme-${name}.json" (typed.out theme);
         }
       ) cfg.themes
       // lib.mapAttrs' (
