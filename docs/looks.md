@@ -23,10 +23,10 @@ does the login, the power buttons and the memory, and watches the pointer.
 |---|---|
 | `config`, `colors`, `fontFamily`, `animate` | the config over the theme, its colors and font; whether things should move |
 | `tr(text)` | yokoso's English words in the config's language |
-| `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL |
+| `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL, the user's own first |
 | `u(n)`, `dpr` | `n` pixels at the UI scale; the screen's device pixel ratio |
 | `now`, `locale` | the time, by the minute; the system's locale for dates |
-| `users`, `user`, `pickUser(u)` | the accounts as `{ name, realName, icon }`; the one logging in; another one, whose login then starts over |
+| `users`, `user`, `pickUser(u)` | the accounts as `{ name, realName, icon, background }`; the one logging in; another one, whose login then starts over |
 | `needsUser`, `enterUser(name)`, `canEnterUser()` | no user yet (ask for a name); a typed name; whether one can be typed now |
 | `sessions`, `session`, `pickSession(s)`, `sessionName(s)` | the sessions as `{ id, name, exec, type }`; the one to start; another one; a name to show |
 | `canPick(which)` | whether another `"user"` or `"session"` can be picked now |
@@ -53,7 +53,7 @@ the look's. [`examples/sidebar.qml`](../examples/sidebar.qml), with its
 | Part | |
 |---|---|
 | `Form` | what the form's parts share: the list that's open, a name typed instead of the password, where Tab took the keys. Make one and give it to them (`PowerBar` too) as `form` |
-| `Background` | the theme's background on every screen; fill the look with it |
+| `Background` | the user's or the theme's background on every screen, one fading in over the other; fill the look with it |
 | `Clock` | the time, and the date under it; `size` (120) |
 | `Status` | the theme's `status`, in a row |
 | `Avatar` | the user's picture or initial; `form`, `user`; its `width` is its size |

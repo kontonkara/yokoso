@@ -64,6 +64,7 @@ session.
 | `settings` | `/etc/yokoso/config.json` |
 | `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`; a `look = ./mine.qml;` in one is copied to the store |
 | `avatars.<user>` | the user's picture (`./alice.png`) |
+| `backgrounds.<user>` | the user's own background (`./alice.jpg`) |
 | `cursor.package`, `cursor.name`, `cursor.size` | the cursor theme (`pkgs.bibata-cursors`, `"Bibata-Modern-Classic"`) and its size at scale 1 (24) |
 | `package` | yokoso itself |
 
