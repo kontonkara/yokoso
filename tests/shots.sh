@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -57,6 +57,8 @@ conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "sta
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
 conf sidebar "{\"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/bg2.png\"}"
 conf own '{"sessions": [{"name": "Niri (debug)", "exec": "niri-session", "desktopNames": ["niri"], "env": {"RUST_LOG": "debug"}}]}'
+conf power '{"power": ["suspend", "reboot", "firmware", {"entry": "auto-windows", "label": "Windows 11"}, "poweroff"]}'
+power='["suspend", "reboot", "firmware", "entry:auto-windows", "poweroff"]'
 echo '{"user": "bob", "sessions": {"bob": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
 state=$work/state.json
 
@@ -137,6 +139,12 @@ for name; do
 	contrast) shot contrast 3000 "$(keys 'wtype abc; wtype -k Tab; sleep 0.3')" YOKOSO_CONFIG="$work/conf/contrast.json" ;;
 	contrastlist) shot contrastlist 3000 "$(keys 'wtype -k F3; sleep 0.3')" YOKOSO_CONFIG="$work/conf/contrast.json" ;;
 	ctrlu) shot ctrlu 3000 "$(keys 'wtype carol; wtype -M ctrl -k u -m ctrl; wtype dave; sleep 0.3')" YOKOSO_CONFIG="$work/conf/nolist.json" ;;
+	# The firmware's setup and Windows among the power buttons: Tab on
+	# the first, Windows armed (in Russian).
+	firmware) shot firmware 3000 "$(keys 'wtype -k Tab -k Tab -k Tab -k Tab; sleep 0.3')" \
+		YOKOSO_CONFIG="$work/conf/power.json" YOKOSO_POWER="$power" ;;
+	entry) shot entry 3000 "$(keys 'wtype -M shift -k Tab -k Tab -k Tab -k Tab -m shift; sleep 0.1; wtype -k space; sleep 0.3')" \
+		YOKOSO_CONFIG="$work/conf/power.json" YOKOSO_POWER="$power" LANG=ru_RU.UTF-8 ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

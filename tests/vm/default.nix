@@ -462,6 +462,63 @@ in
         quiet()
       '';
 
+  # systemd-boot on EFI: config.power asks for the firmware's setup, a boot
+  # loader entry (systemd-boot's own, the only one with a known id) and one
+  # that isn't there. Pressed, each is set for the next boot, and the
+  # reboot itself fails (root holds it off).
+  boot =
+    test "boot"
+      {
+        virtualisation.useBootLoader = true;
+        virtualisation.useEFIBoot = true;
+        boot.loader.systemd-boot.enable = true;
+        security.polkit.enable = true;
+        services.yokoso.settings.power = [
+          "reboot"
+          "firmware"
+          {
+            entry = "auto-reboot-to-firmware-setup";
+            label = "the firmware";
+          }
+          { entry = "nope"; }
+          "poweroff"
+        ];
+      }
+      ''
+        import json
+
+        login1 = "busctl get-property org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager "
+
+        def press(action):
+            width = len(power) * 48 + (len(power) - 1) * 14
+            x = 640 - width // 2 + 24 + power.index(action) * 62
+            wl("pointer move -5000 -5000")
+            wl(f"pointer move {x} 736")
+            time.sleep(0.3)
+            wl("pointer click left")
+            time.sleep(0.6)
+            wl("pointer click left")
+
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        power = json.loads(machine.succeed("cat /run/user/$(id -u greeter)/yokoso/env.json"))["power"]
+        assert power == ["reboot", "firmware", "entry:auto-reboot-to-firmware-setup", "poweroff"], f"power is {power}"
+        machine.succeed("journalctl -b -t yokoso | grep \"can't reboot into the boot loader entry nope\" >/dev/null")
+        machine.succeed("systemd-run systemd-inhibit --what=shutdown --mode=block ${pkgs.coreutils}/bin/sleep infinity")
+        machine.wait_until_succeeds("systemd-inhibit --list --no-legend | grep block >/dev/null", timeout=10)
+        press("entry:auto-reboot-to-firmware-setup")
+        machine.wait_until_succeeds(login1 + "RebootToBootLoaderEntry | grep -x 's \"auto-reboot-to-firmware-setup\"' >/dev/null", timeout=10)
+        press("firmware")
+        machine.wait_until_succeeds(login1 + "RebootToFirmwareSetup | grep -x 'b true' >/dev/null", timeout=10)
+        # Both reboots refused, the last one's word on the screen.
+        machine.wait_until_succeeds("test $(journalctl -b -t yokoso -o cat | grep -c 'Call to Reboot failed') = 2", timeout=10)
+        time.sleep(0.3)
+        machine.screenshot("failed")
+        machine.send_chars("foobar\n")
+        logged_in("alice")
+        quiet()
+      '';
+
   # A fingerprint, with libfprint's virtual reader: PAM asks for a finger
   # first, a wrong one fails, the right one logs in; after three wrong ones
   # the password does.
