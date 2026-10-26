@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -59,6 +59,11 @@ conf sidebar "{\"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$wo
 conf own '{"sessions": [{"name": "Niri (debug)", "exec": "niri-session", "desktopNames": ["niri"], "env": {"RUST_LOG": "debug"}}]}'
 conf power '{"power": ["suspend", "reboot", "firmware", {"entry": "auto-windows", "label": "Windows 11"}, "poweroff"]}'
 power='["suspend", "reboot", "firmware", "entry:auto-windows", "poweroff"]'
+# A background of bob's own, in a config dir of its own (the others share
+# conf/, and bob is the last login's user).
+mkdir -p "$work/userbg/backgrounds"
+cp "$work/bg1.png" "$work/userbg/backgrounds/bob"
+echo "{\"background\": \"$work/bg2.png\"}" >"$work/userbg/config.json"
 echo '{"user": "bob", "sessions": {"bob": {"id": "niri.desktop", "type": "wayland"}}}' >"$work/state.json"
 state=$work/state.json
 
@@ -145,6 +150,11 @@ for name; do
 		YOKOSO_CONFIG="$work/conf/power.json" YOKOSO_POWER="$power" ;;
 	entry) shot entry 3000 "$(keys 'wtype -M shift -k Tab -k Tab -k Tab -k Tab -m shift; sleep 0.1; wtype -k space; sleep 0.3')" \
 		YOKOSO_CONFIG="$work/conf/power.json" YOKOSO_POWER="$power" LANG=ru_RU.UTF-8 ;;
+	# bob's own background, then the config's for the next user, faded in
+	# over it.
+	userbg) shot userbg 1500 '' YOKOSO_CONFIG="$work/userbg/config.json" ;;
+	userswitch) shot userswitch 3500 "$(keys 'wtype -k F2; sleep 0.2; wtype -k Down; wtype -k Return; sleep 0.8')" \
+		YOKOSO_CONFIG="$work/userbg/config.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.
