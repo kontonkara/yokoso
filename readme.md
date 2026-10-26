@@ -8,8 +8,8 @@ greeter on [Quickshell](https://quickshell.org). It runs in
 logs into, and it's light enough for an integrated GPU.
 
 <p>
-  <img src="docs/dark.webp" width="49%" alt="The dark theme over a wallpaper">
-  <img src="docs/light.webp" width="49%" alt="The light theme, with the user list open">
+  <img src="docs/images/dark.webp" width="49%" alt="The dark theme over a wallpaper">
+  <img src="docs/images/light.webp" width="49%" alt="The light theme, with the user list open">
 </p>
 
 ## What it does
@@ -193,6 +193,8 @@ The built-in ones are `dark` (the default), `light` and `high-contrast`
 JSON file: `"theme": "mine"` reads `themes/mine.json` next to the config
 (`/etc/yokoso/themes/mine.json`), and a path reads that file.
 
+<img src="docs/images/contrast.webp" width="100%" alt="The high-contrast theme: white on black, solid outlines, and a yellow ring around the session Tab went to">
+
 ```json
 {
   "extends": "dark",
@@ -246,7 +248,7 @@ broken one never stands between anyone and the login.
 [`examples/catppuccin-mocha.json`](examples/catppuccin-mocha.json) is one to
 start from. On NixOS, `services.yokoso.themes.<name>` writes them.
 
-<img src="docs/layout.webp" width="100%" alt="Catppuccin Mocha with the form on the left, the clock at the top and the power buttons in a corner">
+<img src="docs/images/layout.webp" width="100%" alt="Catppuccin Mocha with the form on the left, the clock at the top and the power buttons in a corner">
 
 *`catppuccin-mocha.json`, with `"layout": {"form": "left", "clock": "top",
 "power": "corner", "status": "top-left"}` and `"radius": 12`.*
@@ -299,7 +301,7 @@ down the side. They take the theme's colors, font, corners and the UI
 scale, and do what they do in the built-in look; where they go, how large
 they are, and their `opacity` and `transform` are the look's.
 
-<img src="docs/sidebar.webp" width="100%" alt="The sidebar example: a panel down the left side with the clock, the user, the session, the field and the power buttons">
+<img src="docs/images/sidebar.webp" width="100%" alt="The sidebar example: a panel down the left side with the clock, the user, the session, the field and the power buttons">
 
 | Part | |
 |---|---|

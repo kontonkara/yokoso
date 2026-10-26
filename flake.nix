@@ -65,8 +65,8 @@
             );
           };
 
-          # nix run .#docs-shots: the README's pictures in docs/, from the
-          # working tree.
+          # nix run .#docs-shots: the documentation's pictures in docs/images,
+          # from the working tree.
           docs-shots = {
             type = "app";
             program = nixpkgs.lib.getExe (

@@ -1,8 +1,8 @@
 #!/bin/sh
-# The README's pictures, docs/*.webp: the working tree's greeter rendered
-# headless (`yokoso shot`, against fakegreet) at 1600x900, with the fake
-# users and sessions of tests/fixtures, generated wallpapers, and the
-# hostname "laptop". Run in the repo:
+# The documentation's pictures, docs/images/*.webp: the working tree's
+# greeter rendered headless (`yokoso shot`, against fakegreet) at 1600x900,
+# with the fake users and sessions of tests/fixtures, generated wallpapers,
+# and the hostname "laptop". Run in the repo:
 #
 #   nix run .#docs-shots
 set -eu
@@ -36,6 +36,7 @@ conf() {
 }
 conf dark "{\"scale\": 1.25, \"background\": \"$work/wall-dark.png\"}"
 conf light "{\"scale\": 1.25, \"theme\": \"light\", \"background\": \"$work/wall-light.png\"}"
+conf contrast "{\"scale\": 1.25, \"theme\": \"high-contrast\", \"background\": \"$work/wall-dark.png\"}"
 conf sidebar "{\"scale\": 1.25, \"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/wall-dark.png\"}"
 conf layout "{\"scale\": 1.25, \"theme\": \"$repo/examples/catppuccin-mocha.json\", \"background\": \"$work/wall-dark.png\",
 	\"layout\": {\"form\": \"left\", \"clock\": \"top\", \"power\": \"corner\", \"status\": \"top-left\"}, \"radius\": 12}"
@@ -64,8 +65,8 @@ shot() {
 	fi
 	wait "$pid" || true
 	if [ -s "$work/$name.png" ]; then
-		magick "$work/$name.png" -quality 90 "$repo/docs/$name.webp"
-		echo "docs/$name.webp"
+		magick "$work/$name.png" -quality 90 "$repo/docs/images/$name.webp"
+		echo "docs/images/$name.webp"
 	else
 		cat "$work/$name.log" >&2
 		echo "docs-shots: no picture for $name" >&2
@@ -74,5 +75,6 @@ shot() {
 
 shot dark dark ''
 shot light light 'wtype -k F2; sleep 0.3'
+shot contrast contrast 'wtype -M shift -k Tab -m shift; sleep 0.3'
 shot sidebar sidebar ''
 shot layout layout 'wtype secret; sleep 0.2'
