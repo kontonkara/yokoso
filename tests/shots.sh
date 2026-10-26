@@ -46,7 +46,8 @@ conf() {
 	echo "$2" >"$work/conf/$1.json"
 }
 conf plain '{}'
-conf light '{"theme": "light"}'
+# shellcheck disable=SC2016 # a literal $schema
+conf light '{"$schema": "https://raw.githubusercontent.com/kontonkara/yokoso/main/shell/schema/config.json", "theme": "light"}'
 conf contrast '{"theme": "high-contrast"}'
 conf screens "{\"background\": {\"HEADLESS-2\": \"$work/bg1.png\", \"*\": \"$work/bg2.png\"}}"
 conf cursor '{"output": "cursor"}'

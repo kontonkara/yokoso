@@ -80,8 +80,10 @@
         }
       );
 
-      # nix flake check: the VM tests in tests/vm, and shellcheck on the
-      # scripts.
+      # nix flake check: the VM tests in tests/vm, shellcheck on the
+      # scripts, and the schemas: valid, with every key of the core's
+      # defaults and of the dark theme, and the themes and examples
+      # passing.
       checks.x86_64-linux =
         let
           pkgs = nixpkgs.legacyPackages.x86_64-linux;
@@ -92,6 +94,35 @@
             shellcheck -s sh ${./bin/yokoso} ${./tests/shots.sh} ${./docs/shots.sh}
             touch $out
           '';
+          schema =
+            pkgs.runCommand "yokoso-schema"
+              {
+                nativeBuildInputs = [
+                  pkgs.check-jsonschema
+                  pkgs.jq
+                ];
+              }
+              ''
+                s=${./shell}
+                check-jsonschema --check-metaschema $s/schema/*.json
+                check-jsonschema --schemafile $s/schema/theme.json $s/themes/*.json ${./examples}/*.json
+                # The defaults' keys, one per line between "defaults: ({" and "})".
+                awk '/readonly property var defaults: \(\{/ { on = 1; next } on && /^\t\}\)/ { exit }
+                  on && /^\t\t[A-Za-z0-9]+:/ { sub(/^\t\t/, ""); sub(/:.*/, ""); print }' $s/shell.qml >defaults
+                [ "$(wc -l <defaults)" -gt 10 ] || { echo "no defaults found in shell.qml"; exit 1; }
+                jq -r '(keys[] | select(IN("colors", "layout") | not)),
+                  (("colors", "layout") as $g | .[$g] | keys[] | "\($g).\(.)")' $s/themes/dark.json >theme
+                missing=$(cat defaults theme | while read -r key; do
+                  case $key in
+                  colors.* | layout.*) path=".properties.''${key%%.*}.properties.''${key#*.}" ;;
+                  *) path=".properties.$key" ;;
+                  esac
+                  jq -n -e "(input | $path) // (input | $path)" $s/schema/config.json $s/schema/theme.json >/dev/null ||
+                    echo "$key"
+                done)
+                [ -z "$missing" ] || { echo "not in the schemas:" $missing; exit 1; }
+                touch $out
+              '';
         };
 
       nixosModules.default = import ./nix/module.nix self;
