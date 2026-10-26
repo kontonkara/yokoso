@@ -28,7 +28,7 @@ in
         settings = lib.mkOption {
           inherit (json) type;
           default = { };
-          description = "yokoso's config.json; unset keys keep their defaults (see the README).";
+          description = "yokoso's config.json; unset keys keep their defaults (see docs/config.md).";
         };
 
         themes = lib.mkOption {

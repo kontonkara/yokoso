@@ -3,7 +3,7 @@ import QtQuick
 // A look of one's own, as small as a working one gets: the time, the user,
 // the session, a password field, and dark while idle. The theme next to it
 // (minimal.json) points at it with "look"; `greeter` is yokoso's core (see
-// the README for what it has).
+// docs/looks.md for what it has).
 Item {
 	id: look
 

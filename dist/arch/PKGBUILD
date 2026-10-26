@@ -1,6 +1,6 @@
 # Maintainer: kontonkara
 # The AUR's yokoso-git, from main. Configure greetd afterwards (see the
-# README's "Other systems").
+# README's "On other systems").
 pkgname=yokoso-git
 pkgver=0.1.0.r0.g0000000
 pkgrel=1
