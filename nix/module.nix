@@ -44,6 +44,27 @@ in
           description = "Themes by name, as /etc/yokoso/themes/<name>.json; settings.theme picks one.";
         };
 
+        autologin = {
+          user = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            example = "alice";
+            description = "Log this user in without the greeter, once after the boot (greetd's initial_session); the greeter comes after they log out.";
+          };
+
+          session = lib.mkOption {
+            type = lib.types.str;
+            default =
+              if config.services.displayManager.defaultSession != null then
+                config.services.displayManager.defaultSession
+              else
+                "";
+            defaultText = lib.literalExpression "config.services.displayManager.defaultSession, or \"\"";
+            example = "niri";
+            description = "The session to log in to: a desktop file's name or one of settings.sessions; \"\" for settings.session, else the first.";
+          };
+        };
+
         cursor = {
           package = lib.mkOption {
             type = lib.types.nullOr lib.types.package;
@@ -108,6 +129,13 @@ in
                 (lib.getExe cfg.package)
               ]
             );
+          };
+
+          # A login without the greeter: yokoso starts the session as the
+          # greeter would.
+          initial_session = lib.mkIf (cfg.autologin.user != null) {
+            inherit (cfg.autologin) user;
+            command = "env YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions ${lib.getExe cfg.package} session ${lib.escapeShellArg cfg.autologin.session}";
           };
         };
       };

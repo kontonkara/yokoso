@@ -65,6 +65,23 @@ A desktop file's session with a twist, or one without a file at all:
 `"x11"`, `desktopNames` goes to `XDG_CURRENT_DESKTOP`, and `env` to the
 session.
 
+## Logging in without the greeter
+
+Once after the boot, greetd can log a user in by itself; the greeter comes
+after they log out. `yokoso session niri` starts a session as the greeter
+would, with its variables and `env` (by a desktop file's name or one of
+`sessions`; without one, `session`'s, else the first). In
+`/etc/greetd/config.toml`:
+
+```toml
+[initial_session]
+command = "yokoso session niri"
+user = "alice"
+```
+
+On NixOS, `services.yokoso.autologin.user = "alice";` (and `.session`,
+`services.displayManager.defaultSession` by default).
+
 ## On NixOS
 
 | Option | |
@@ -72,6 +89,7 @@ session.
 | `services.yokoso.enable` | greetd, with yokoso as its greeter |
 | `settings` | `/etc/yokoso/config.json`, typed from the schema: a misspelt value or a session without `exec` stops the build; unset keys stay out, and a path (`background = ./wall.jpg;`) is copied to the store |
 | `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`, typed the same way; a `look = ./mine.qml;` in one is copied to the store |
+| `autologin.user`, `autologin.session` | a login without the greeter, [above](#logging-in-without-the-greeter) |
 | `avatars.<user>` | the user's picture (`./alice.png`) |
 | `backgrounds.<user>` | the user's own background (`./alice.jpg`) |
 | `cursor.package`, `cursor.name`, `cursor.size` | the cursor theme (`pkgs.bibata-cursors`, `"Bibata-Modern-Classic"`) and its size at scale 1 (24) |

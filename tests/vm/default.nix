@@ -338,6 +338,29 @@ in
         quiet()
       '';
 
+  # A login without the greeter, once after the boot: alice into the first
+  # session (i3), with the variables the greeter would give it and config's
+  # env; the greeter after she logs out.
+  autologin =
+    test "autologin"
+      {
+        services.yokoso = {
+          autologin.user = "alice";
+          settings.env.YOKOSO_TEST = "1";
+        };
+      }
+      ''
+        machine.wait_for_unit("greetd.service")
+        logged_in("alice")
+        env = machine.succeed("tr '\\0' '\\n' </proc/$(pgrep -u alice -x i3)/environ")
+        assert "XDG_SESSION_TYPE=x11" in env and "YOKOSO_TEST=1" in env, env
+        logout("alice")
+        greeter()
+        machine.send_chars("foobar\n")
+        logged_in("alice")
+        quiet()
+      '';
+
   # Started without XKB_DEFAULT_* (as elsewhere than NixOS), the keyboard
   # layout comes from localed: German here.
   layout =

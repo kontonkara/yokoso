@@ -5,6 +5,8 @@
 #   yokoso preview   a window in the current Wayland session, logging in against
 #                    greetd's fakegreet (password "password", then "9")
 #   yokoso shot <png>  development: render headless and save a screenshot
+#   yokoso session [name]  as greetd's initial_session: start a session as
+#                    the greeter would, for a login without it
 #
 # Before anything draws, this takes a snapshot for the QML side (screens with
 # their physical size, sessions, users) and keeps the stack on the GPU that
@@ -13,10 +15,10 @@ set -eu
 
 mode=${1:-greeter}
 
-# A warning: as greetd's greeter, whose output stays on its VT, in the
-# journal (journalctl -t yokoso) where systemd is there.
+# A warning: as greetd's greeter (whose output stays on its VT) or its
+# session, in the journal (journalctl -t yokoso) where systemd is there.
 warn() {
-	if [ "$mode" = greeter ] && command -v systemd-cat >/dev/null; then
+	if [ "$mode" != preview ] && [ "$mode" != shot ] && command -v systemd-cat >/dev/null; then
 		echo "$*" | systemd-cat -t yokoso -p warning
 	else
 		echo "$*" >&2
@@ -80,6 +82,112 @@ config() {
 }
 # From a greeter before this one that didn't get to it.
 restore_backlight
+
+# Session entries (the first of each file name and type: one that's Hidden
+# hides the ones after it), Wayland's before X11's, as id, name (Name[xx]
+# in the language of yokoso's words), exec, desktop names and type, and
+# missing: the TryExec that isn't installed, if any. YOKOSO_SESSION_DIRS
+# overrides the directories; those named xsessions hold X11 ones.
+desktop_sessions() {
+	dirs=${YOKOSO_SESSION_DIRS:-}
+	if [ -z "$dirs" ]; then
+		IFS=:
+		for kind in wayland-sessions xsessions; do
+			for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+				dirs="$dirs:$d/$kind"
+			done
+		done
+		unset IFS
+	fi
+	# The greeter's PATH can be short (NixOS's units'), and the session's
+	# comes from a login shell: a TryExec is looked for in the system's
+	# directories too.
+	search=$PATH:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+	language=$(config '.language // empty | strings')
+	IFS=:
+	for d in $dirs; do
+		case $d in */xsessions) type=x11 ;; *) type=wayland ;; esac
+		for f in "$d"/*.desktop; do
+			[ -e "$f" ] || continue
+			awk -v id="${f##*/}" -v type="$type" -v search="$search" \
+				-v locale="${language:-${LC_ALL:-${LC_MESSAGES:-$LANG}}}" -F= '
+				function q(s) { gsub(/\047/, "\047\\\047\047", s); return "\047" s "\047" }
+				/^\[/ { entry = ($0 == "[Desktop Entry]"); next }
+				entry && !($1 in v) { k = $1; sub(/^[^=]*=/, ""); v[k] = $0 }
+				END {
+					# Name[ll_CC@m], Name[ll_CC], Name[ll@m], Name[ll], Name.
+					l = locale; m = ""
+					if (match(l, /@.*/)) { m = substr(l, RSTART); l = substr(l, 1, RSTART - 1) }
+					sub(/\..*/, "", l); ll = l; sub(/_.*/, "", ll)
+					split("Name[" l m "] Name[" l "] Name[" ll m "] Name[" ll "] Name", keys, " ")
+					for (i = 1; i <= 5; i++) if (v[keys[i]] != "") { name = v[keys[i]]; break }
+					hidden = v["Hidden"] == "true" || v["NoDisplay"] == "true" || v["Exec"] == ""
+					t = v["TryExec"]; missing = ""
+					if (!hidden && t != "") {
+						found = t ~ /^\// ? "test -x " q(t) : "PATH=" q(search) " command -v " q(t) " >/dev/null"
+						if (system(found) != 0) missing = t
+					}
+					print id; print name; print v["Exec"]; print v["DesktopNames"]; print type
+					print hidden ? "true" : "false"; print missing
+				}' "$f"
+		done
+	done | jq -R . | jq -s '
+		[range(0; length; 7) as $i | .[$i:$i + 7]
+			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3], type: .[4], hidden: (.[5] == "true"), missing: .[6]}]
+		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)
+		| map(select(.hidden | not) | del(.hidden))'
+	unset IFS
+}
+
+# config.sessions (with a name and an exec), then the desktop files' whose
+# TryExec is installed; all of theirs if none is, as a TryExec looked for in
+# the wrong place mustn't leave nothing to log in to.
+sessions_json() {
+	found=$(desktop_sessions)
+	if printf '%s\n' "$found" | jq -e 'length > 0 and all(.missing != "")' >/dev/null; then
+		warn "yokoso: no session's TryExec is installed, listing them all"
+		found=$(printf '%s\n' "$found" | jq 'map(.missing = "")')
+	fi
+	printf '%s\n' "$found" | jq -r '.[] | select(.missing != "")
+		| "yokoso: leaving out \(.id): its TryExec, \(.missing), isn'\''t installed"' |
+		while read -r line; do warn "$line"; done
+	own=$(config '[.sessions // [] | arrays | .[]]')
+	kept=$(printf '%s\n' "$own" | jq -c 'map(objects
+		| select((.name | type) == "string" and .name != "" and (.exec | type) == "string" and .exec != "")
+		| {id: .name, name, exec, type: (if .type == "x11" then "x11" else "wayland" end),
+			desktopNames: (.desktopNames // "" | if type == "array" then join(";") else tostring end),
+			env: (.env // {} | if type == "object" then map_values(tostring) else {} end)})')
+	[ "$(printf '%s\n' "$own" | jq length)" = "$(printf '%s\n' "$kept" | jq length)" ] ||
+		warn "yokoso: leaving out the sessions in $YOKOSO_CONFIG without a name and an exec"
+	jq -n --argjson own "$kept" --argjson found "$found" '$own + [$found[] | select(.missing == "") | del(.missing)]
+		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)'
+}
+
+# As greetd's initial_session (a login without the greeter, once after the
+# boot), as the user: the session named (a desktop file's name or one of
+# config.sessions), else config.session, else the first, with the
+# variables the greeter gives one. Before the greeter's GPU choices, which
+# aren't the session's business.
+if [ "$mode" = session ]; then
+	want=${2:-$(config '.session // "" | strings')}
+	command=$(sessions_json | jq -r --arg want "$want" --argjson config "$config_json" '
+		[(.[] | select(.id == $want or .id == "\($want).desktop")), .[]][0] // empty
+		| (.desktopNames | split(";") | map(select(. != ""))) as $desktops
+		| (.id | if endswith(".desktop") then rtrimstr(".desktop") else "" end) as $name
+		| ({XDG_SESSION_TYPE: .type}
+			+ (if $desktops != [] or $name != "" then
+				{XDG_CURRENT_DESKTOP: ($desktops | join(":") | if . == "" then $name else . end),
+					XDG_SESSION_DESKTOP: ($desktops[0] // $name)}
+			else {} end)
+			+ ($config.env // {} | objects | map_values(tostring)) + (.env // {})) as $vars
+		| "env \($vars | to_entries | map("\(.key)=\(.value)" | @sh) | join(" ")) /bin/sh -c "
+			+ ("exec " + (if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end) | @sh)')
+	if [ -z "$command" ]; then
+		warn "yokoso: no session to start${want:+ by the name $want}"
+		exit 1
+	fi
+	eval "exec $command"
+fi
 
 # GPUs with a connected connector; the boot VGA device if none has one.
 cards() {
@@ -193,86 +301,6 @@ screens_json() {
 				}'
 		done
 	done | jq -s .
-}
-
-# Session entries (the first of each file name and type: one that's Hidden
-# hides the ones after it), Wayland's before X11's, as id, name (Name[xx]
-# in the language of yokoso's words), exec, desktop names and type, and
-# missing: the TryExec that isn't installed, if any. YOKOSO_SESSION_DIRS
-# overrides the directories; those named xsessions hold X11 ones.
-desktop_sessions() {
-	dirs=${YOKOSO_SESSION_DIRS:-}
-	if [ -z "$dirs" ]; then
-		IFS=:
-		for kind in wayland-sessions xsessions; do
-			for d in ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
-				dirs="$dirs:$d/$kind"
-			done
-		done
-		unset IFS
-	fi
-	# The greeter's PATH can be short (NixOS's units'), and the session's
-	# comes from a login shell: a TryExec is looked for in the system's
-	# directories too.
-	search=$PATH:/run/current-system/sw/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-	language=$(config '.language // empty | strings')
-	IFS=:
-	for d in $dirs; do
-		case $d in */xsessions) type=x11 ;; *) type=wayland ;; esac
-		for f in "$d"/*.desktop; do
-			[ -e "$f" ] || continue
-			awk -v id="${f##*/}" -v type="$type" -v search="$search" \
-				-v locale="${language:-${LC_ALL:-${LC_MESSAGES:-$LANG}}}" -F= '
-				function q(s) { gsub(/\047/, "\047\\\047\047", s); return "\047" s "\047" }
-				/^\[/ { entry = ($0 == "[Desktop Entry]"); next }
-				entry && !($1 in v) { k = $1; sub(/^[^=]*=/, ""); v[k] = $0 }
-				END {
-					# Name[ll_CC@m], Name[ll_CC], Name[ll@m], Name[ll], Name.
-					l = locale; m = ""
-					if (match(l, /@.*/)) { m = substr(l, RSTART); l = substr(l, 1, RSTART - 1) }
-					sub(/\..*/, "", l); ll = l; sub(/_.*/, "", ll)
-					split("Name[" l m "] Name[" l "] Name[" ll m "] Name[" ll "] Name", keys, " ")
-					for (i = 1; i <= 5; i++) if (v[keys[i]] != "") { name = v[keys[i]]; break }
-					hidden = v["Hidden"] == "true" || v["NoDisplay"] == "true" || v["Exec"] == ""
-					t = v["TryExec"]; missing = ""
-					if (!hidden && t != "") {
-						found = t ~ /^\// ? "test -x " q(t) : "PATH=" q(search) " command -v " q(t) " >/dev/null"
-						if (system(found) != 0) missing = t
-					}
-					print id; print name; print v["Exec"]; print v["DesktopNames"]; print type
-					print hidden ? "true" : "false"; print missing
-				}' "$f"
-		done
-	done | jq -R . | jq -s '
-		[range(0; length; 7) as $i | .[$i:$i + 7]
-			| {id: .[0], name: .[1], exec: .[2], desktopNames: .[3], type: .[4], hidden: (.[5] == "true"), missing: .[6]}]
-		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)
-		| map(select(.hidden | not) | del(.hidden))'
-	unset IFS
-}
-
-# config.sessions (with a name and an exec), then the desktop files' whose
-# TryExec is installed; all of theirs if none is, as a TryExec looked for in
-# the wrong place mustn't leave nothing to log in to.
-sessions_json() {
-	found=$(desktop_sessions)
-	if printf '%s\n' "$found" | jq -e 'length > 0 and all(.missing != "")' >/dev/null; then
-		warn "yokoso: no session's TryExec is installed, listing them all"
-		found=$(printf '%s\n' "$found" | jq 'map(.missing = "")')
-	fi
-	printf '%s\n' "$found" | jq -r '.[] | select(.missing != "")
-		| "yokoso: leaving out \(.id): its TryExec, \(.missing), isn'\''t installed"' |
-		while read -r line; do warn "$line"; done
-	own=$(config '[.sessions // [] | arrays | .[]]')
-	kept=$(printf '%s\n' "$own" | jq -c 'map(objects
-		| select((.name | type) == "string" and .name != "" and (.exec | type) == "string" and .exec != "")
-		| {id: .name, name, exec, type: (if .type == "x11" then "x11" else "wayland" end),
-			desktopNames: (.desktopNames // "" | if type == "array" then join(";") else tostring end),
-			env: (.env // {} | if type == "object" then map_values(tostring) else {} end)})')
-	[ "$(printf '%s\n' "$own" | jq length)" = "$(printf '%s\n' "$kept" | jq length)" ] ||
-		warn "yokoso: leaving out the sessions in $YOKOSO_CONFIG without a name and an exec"
-	jq -n --argjson own "$kept" --argjson found "$found" '$own + [$found[] | select(.missing == "") | del(.missing)]
-		| reduce .[] as $s ([]; if any(.[]; .id == $s.id and .type == $s.type) then . else . + [$s] end)'
 }
 
 # Every account NSS lists, but a directory (LDAP, sssd) that's slow to
@@ -569,7 +597,7 @@ shot)
 	fake "cage -s -- quickshell -p '$shell_dir'"
 	;;
 *)
-	echo "usage: yokoso [greeter | preview | shot <file.png>]" >&2
+	echo "usage: yokoso [greeter | preview | shot <file.png> | session [name]]" >&2
 	exit 2
 	;;
 esac
