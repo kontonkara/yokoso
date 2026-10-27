@@ -433,7 +433,7 @@ in
           src = self;
           nativeBuildInputs = [ pkgs.gnumake ];
           dontBuild = true;
-          installPhase = "make install PREFIX=$out";
+          installPhase = "make install PREFIX=$out SYSCONFDIR=$out/etc";
         };
       in
       {
