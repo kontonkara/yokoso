@@ -559,6 +559,8 @@ export QT_QPA_PLATFORM=wayland QT_WAYLAND_DISABLE_WINDOWDECORATION=1
 # The parts a look is built from: `import yokoso`.
 export QML_IMPORT_PATH="$shell_dir${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 export QT_NO_XDG_DESKTOP_PORTAL=1 QSG_RHI_BACKEND=opengl
+# The core reads the lid, the LEDs and the battery with XMLHttpRequest.
+export QML_XHR_ALLOW_FILE_READ=1
 # The on-screen keyboard's input method with config.keyboard, else none (a
 # session's, locked, could get in the password's way). What it keeps (the
 # words it learns) stays in the runtime directory, in memory.

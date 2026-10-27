@@ -172,23 +172,28 @@ ShellRoot {
 	}
 	readonly property string fontFamily: config.font || Qt.application.font.family
 
+	// A small file's text (sysfs, /proc), "" when it can't be read: at once,
+	// and not with a FileView, as Quickshell keeps a line of its log for each
+	// of those, in memory, and these files are read again and again for as
+	// long as the greeter is up (the launcher lets XMLHttpRequest read them).
+	function readFile(path) {
+		if (!path)
+			return "";
+		const request = new XMLHttpRequest();
+		request.open("GET", fileUrl(path), false);
+		request.send();
+		return request.responseText || "";
+	}
+
 	// The lid, read every second: closing it moves the form to another screen.
 	property bool lidClosed: false
 
-	FileView {
-		id: lidFile
-
-		path: root.env.lid || ""
-		blockLoading: true
-		printErrors: false
-		onLoaded: root.lidClosed = text().indexOf("closed") >= 0
-	}
-
 	Timer {
 		interval: 1000
-		running: lidFile.path !== ""
+		running: !!root.env.lid
 		repeat: true
-		onTriggered: lidFile.reload()
+		triggeredOnStart: true
+		onTriggered: root.lidClosed = root.readFile(root.env.lid).indexOf("closed") >= 0
 	}
 
 	// The screen with the form: the one chosen here (the pointer's last,
@@ -449,51 +454,23 @@ ShellRoot {
 
 	// Caps Lock and Num Lock, from the keyboards' LEDs, read every 250 ms
 	// while the screen is awake.
-	readonly property bool capsLock: capsLeds.on
-	readonly property bool numLock: numLeds.on
+	property var locks: ({ caps: false, num: false })
+	readonly property bool capsLock: locks.caps
+	readonly property bool numLock: locks.num
 
-	component Leds: Instantiator {
-		property bool on: false
-
-		function read() {
-			let lit = false;
-			for (let i = 0; i < count; i++) {
-				const led = objectAt(i);
-				led.reload();
-				lit = lit || Number(led.text()) > 0;
-			}
-			on = lit;
-		}
-
-		delegate: FileView {
-			required property string modelData
-
-			path: modelData
-			blockLoading: true
-			printErrors: false
-		}
-	}
-
-	Leds {
-		id: capsLeds
-
-		model: root.env.capsLeds || []
-	}
-
-	Leds {
-		id: numLeds
-
-		model: root.env.numLeds || []
+	function lit(leds) {
+		return (leds || []).some(led => Number(readFile(led)) > 0);
 	}
 
 	Timer {
 		interval: 250
-		running: capsLeds.count + numLeds.count > 0 && !root.idle
+		running: (root.env.capsLeds || []).length + (root.env.numLeds || []).length > 0 && !root.idle
 		repeat: true
 		triggeredOnStart: true
 		onTriggered: {
-			capsLeds.read();
-			numLeds.read();
+			const locks = { caps: root.lit(root.env.capsLeds), num: root.lit(root.env.numLeds) };
+			if (locks.caps !== root.locks.caps || locks.num !== root.locks.num)
+				root.locks = locks;
 		}
 	}
 
@@ -502,34 +479,16 @@ ShellRoot {
 	readonly property string hostname: env.hostname || ""
 	property var battery: null
 
-	FileView {
-		id: batteryLevel
-
-		path: root.env.battery ? `${root.env.battery}/capacity` : ""
-		blockLoading: true
-		printErrors: false
-	}
-
-	FileView {
-		id: batteryStatus
-
-		path: root.env.battery ? `${root.env.battery}/status` : ""
-		blockLoading: true
-		printErrors: false
-	}
-
 	Timer {
 		interval: 10000
 		running: !!root.env.battery
 		repeat: true
 		triggeredOnStart: true
 		onTriggered: {
-			batteryLevel.reload();
-			batteryStatus.reload();
-			const level = parseInt(batteryLevel.text());
+			const level = parseInt(root.readFile(`${root.env.battery}/capacity`));
 			root.battery = isNaN(level) ? null : {
 				level: Math.max(0, Math.min(100, level)),
-				plugged: batteryStatus.text().trim() !== "Discharging",
+				plugged: root.readFile(`${root.env.battery}/status`).trim() !== "Discharging",
 			};
 		}
 	}
@@ -848,7 +807,7 @@ ShellRoot {
 		interval: Number(Quickshell.env("YOKOSO_SHOT_DELAY") || 500)
 		onTriggered: {
 			const outputs = Quickshell.screens.map(s => `${s.name} ${s.width}x${s.height}`);
-			console.info(`yokoso: window ${window.width}x${window.height}, screens ${outputs.join(", ")}, form on ${root.screen ? root.screen.name : "-"} at ${root.area}, lid "${lidFile.text().trim()}"`);
+			console.info(`yokoso: window ${window.width}x${window.height}, screens ${outputs.join(", ")}, form on ${root.screen ? root.screen.name : "-"} at ${root.area}, lid "${readFile(env.lid).trim()}"`);
 			content.grabToImage(result => {
 				result.saveToFile(root.shotFile);
 				if (!root.answers.length)
