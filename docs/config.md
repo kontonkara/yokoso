@@ -90,6 +90,7 @@ On NixOS, `services.yokoso.autologin.user = "alice";` (and `.session`,
 | `settings` | `/etc/yokoso/config.json`, typed from the schema: a misspelt value or a session without `exec` stops the build; unset keys stay out, and a path (`background = ./wall.jpg;`) is copied to the store |
 | `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`, typed the same way; a `look = ./mine.qml;` in one is copied to the store |
 | `autologin.user`, `autologin.session` | a login without the greeter, [above](#logging-in-without-the-greeter) |
+| `lock.enable` | `yokoso lock`, a [lock screen](usage.md#locking-the-screen), and its PAM service |
 | `avatars.<user>` | the user's picture (`./alice.png`) |
 | `backgrounds.<user>` | the user's own background (`./alice.jpg`) |
 | `cursor.package`, `cursor.name`, `cursor.size` | the cursor theme (`pkgs.bibata-cursors`, `"Bibata-Modern-Classic"`) and its size at scale 1 (24) |

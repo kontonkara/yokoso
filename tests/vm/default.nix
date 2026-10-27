@@ -361,6 +361,44 @@ in
         quiet()
       '';
 
+  # yokoso lock in alice's Wayland session (sway, headless, drawn in
+  # software), through its PAM service: a wrong password keeps the screen
+  # locked and asks again, hers unlocks it.
+  lock =
+    test "lock"
+      {
+        services.yokoso.lock.enable = true;
+        environment.systemPackages = with pkgs; [
+          sway
+          wtype
+          grim
+        ];
+      }
+      ''
+        def alice(cmd):
+            return machine.succeed(f"su alice -s /bin/sh -c 'export XDG_RUNTIME_DIR=/tmp/alice WAYLAND_DISPLAY=wayland-1; {cmd}'")
+
+        def prompts():
+            return int(machine.succeed("grep -c 'Relaying pam message' /tmp/alice/lock.log || true"))
+
+        machine.wait_for_unit("multi-user.target")
+        machine.succeed("install -d -m 700 -o alice /tmp/alice")
+        alice("WLR_BACKENDS=headless WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1 sway -c /dev/null >/tmp/alice/sway.log 2>&1 &")
+        machine.wait_until_succeeds("test -S /tmp/alice/wayland-1", timeout=30)
+        alice("yokoso lock >/tmp/alice/lock.log 2>&1 &")
+        machine.wait_until_succeeds("grep 'Relaying pam message' /tmp/alice/lock.log >/dev/null", timeout=60)
+        time.sleep(2)
+        alice("wtype -s 300 -k Escape -s 300 wrong -s 300 -k Return")
+        machine.wait_until_succeeds("test $(grep -c 'Relaying pam message' /tmp/alice/lock.log) = 2", timeout=30)
+        time.sleep(0.5)
+        alice("grim /tmp/alice/wrong.png")
+        machine.copy_from_machine("/tmp/alice/wrong.png")
+        machine.succeed("pgrep -u alice -f 'quickshell -p' >/dev/null")
+        alice("wtype -s 300 foobar -s 300 -k Return")
+        machine.wait_until_fails("pgrep -u alice -f 'quickshell -p'", timeout=30)
+        print(machine.succeed("grep -E 'WARN|ERROR' /tmp/alice/lock.log | grep -v wl_keyboard || true"))
+      '';
+
   # Started without XKB_DEFAULT_* (as elsewhere than NixOS), the keyboard
   # layout comes from localed: German here.
   layout =

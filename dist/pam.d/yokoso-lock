@@ -1,0 +1,3 @@
+#%PAM-1.0
+# yokoso lock: the password, as the console's login asks for it.
+auth include login

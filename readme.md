@@ -28,6 +28,8 @@ logs into, and it's light enough for an integrated GPU.
 - greetd's text greeter if yokoso can't start, a broken config or theme
   left out with a warning, Ctrl+Alt+Shift+D for the built-in look, and a
   word when a session ends right after it starts.
+- `yokoso lock`, a lock screen in the same look for Wayland sessions, and a
+  login without the greeter once after the boot, if you like.
 
 ## Try it
 
@@ -83,7 +85,7 @@ for another account, copy `/usr/lib/tmpfiles.d/yokoso.conf` to
 ## Documentation
 
 - [Using yokoso](docs/usage.md): logging in, the keys, several screens,
-  idle, the keyboard layout and the cursor
+  idle, the keyboard layout and the cursor, locking the screen
 - [Config](docs/config.md): `/etc/yokoso/config.json`, every key, and the
   NixOS module's options
 - [Themes](docs/themes.md): colors, a background, where the parts go

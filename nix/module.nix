@@ -20,6 +20,8 @@ in
       yokoso = {
         enable = lib.mkEnableOption "the yokoso greeter on greetd";
 
+        lock.enable = lib.mkEnableOption "`yokoso lock`, a lock screen for Wayland sessions (ext-session-lock), with its PAM service";
+
         package = lib.mkOption {
           type = lib.types.package;
           default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
@@ -104,96 +106,105 @@ in
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    services = {
-      greetd = {
-        enable = true;
-        settings = {
-          default_session = {
-            # The console's keyboard layout (the password is typed in it)
-            # and the cursor theme.
-            command = lib.concatStringsSep " " (
-              [
-                "env"
-                "YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions"
-                "XKB_DEFAULT_LAYOUT=${lib.escapeShellArg xkb.layout}"
-                "XKB_DEFAULT_VARIANT=${lib.escapeShellArg xkb.variant}"
-                "XKB_DEFAULT_OPTIONS=${lib.escapeShellArg xkb.options}"
-              ]
-              ++ lib.optionals (cfg.cursor.package != null) [
-                "XCURSOR_PATH=${cfg.cursor.package}/share/icons"
-                "XCURSOR_THEME=${lib.escapeShellArg cfg.cursor.name}"
-              ]
-              ++ [
-                "XCURSOR_SIZE=${toString cfg.cursor.size}"
-                (lib.getExe cfg.package)
-              ]
-            );
-          };
+  config = lib.mkMerge [
+    (lib.mkIf cfg.enable {
+      services = {
+        greetd = {
+          enable = true;
+          settings = {
+            default_session = {
+              # The console's keyboard layout (the password is typed in it)
+              # and the cursor theme.
+              command = lib.concatStringsSep " " (
+                [
+                  "env"
+                  "YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions"
+                  "XKB_DEFAULT_LAYOUT=${lib.escapeShellArg xkb.layout}"
+                  "XKB_DEFAULT_VARIANT=${lib.escapeShellArg xkb.variant}"
+                  "XKB_DEFAULT_OPTIONS=${lib.escapeShellArg xkb.options}"
+                ]
+                ++ lib.optionals (cfg.cursor.package != null) [
+                  "XCURSOR_PATH=${cfg.cursor.package}/share/icons"
+                  "XCURSOR_THEME=${lib.escapeShellArg cfg.cursor.name}"
+                ]
+                ++ [
+                  "XCURSOR_SIZE=${toString cfg.cursor.size}"
+                  (lib.getExe cfg.package)
+                ]
+              );
+            };
 
-          # A login without the greeter: yokoso starts the session as the
-          # greeter would.
-          initial_session = lib.mkIf (cfg.autologin.user != null) {
-            inherit (cfg.autologin) user;
-            command = "env YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions ${lib.getExe cfg.package} session ${lib.escapeShellArg cfg.autologin.session}";
+            # A login without the greeter: yokoso starts the session as the
+            # greeter would.
+            initial_session = lib.mkIf (cfg.autologin.user != null) {
+              inherit (cfg.autologin) user;
+              command = "env YOKOSO_SESSION_DIRS=${sessions}/share/wayland-sessions:${sessions}/share/xsessions ${lib.getExe cfg.package} session ${lib.escapeShellArg cfg.autologin.session}";
+            };
+          };
+        };
+
+        xserver = {
+          displayManager = {
+            # X11 sessions start through startx (config.x11Wrapper), which
+            # brings X up with NixOS's X server config.
+            startx = {
+              enable = lib.mkIf config.services.xserver.enable (lib.mkDefault true);
+            };
           };
         };
       };
 
-      xserver = {
-        displayManager = {
-          # X11 sessions start through startx (config.x11Wrapper), which
-          # brings X up with NixOS's X server config.
-          startx = {
-            enable = lib.mkIf config.services.xserver.enable (lib.mkDefault true);
-          };
-        };
-      };
-    };
-
-    environment = {
-      etc = {
-        "yokoso/config.json".source = json.generate "yokoso-config.json" (typed.out cfg.settings);
-      }
-      // lib.mapAttrs' (
-        name: theme:
-        lib.nameValuePair "yokoso/themes/${name}.json" {
-          source = json.generate "yokoso-theme-${name}.json" (typed.out theme);
+      environment = {
+        etc = {
+          "yokoso/config.json".source = json.generate "yokoso-config.json" (typed.out cfg.settings);
         }
-      ) cfg.themes
-      // lib.mapAttrs' (
-        name: picture: lib.nameValuePair "yokoso/avatars/${name}" { source = picture; }
-      ) cfg.avatars
-      // lib.mapAttrs' (
-        name: picture: lib.nameValuePair "yokoso/backgrounds/${name}" { source = picture; }
-      ) cfg.backgrounds;
-    };
+        // lib.mapAttrs' (
+          name: theme:
+          lib.nameValuePair "yokoso/themes/${name}.json" {
+            source = json.generate "yokoso-theme-${name}.json" (typed.out theme);
+          }
+        ) cfg.themes
+        // lib.mapAttrs' (
+          name: picture: lib.nameValuePair "yokoso/avatars/${name}" { source = picture; }
+        ) cfg.avatars
+        // lib.mapAttrs' (
+          name: picture: lib.nameValuePair "yokoso/backgrounds/${name}" { source = picture; }
+        ) cfg.backgrounds;
+      };
 
-    systemd = {
-      # greetd's "idle" keeps a text greeter out of the boot messages by
-      # holding it back until the rest of the boot is done (seconds, when a
-      # service waits for the network). cage takes the screen, so yokoso
-      # starts as soon as greetd does.
-      services.greetd.serviceConfig.Type = lib.mkForce "simple";
+      systemd = {
+        # greetd's "idle" keeps a text greeter out of the boot messages by
+        # holding it back until the rest of the boot is done (seconds, when a
+        # service waits for the network). cage takes the screen, so yokoso
+        # starts as soon as greetd does.
+        services.greetd.serviceConfig.Type = lib.mkForce "simple";
 
-      tmpfiles = {
-        settings = {
-          yokoso = {
-            # Mesa's shader cache and Qt's, kept between boots.
-            "/var/cache/yokoso".d = {
-              user = greeter;
-              group = config.users.users.${greeter}.group;
-              mode = "0700";
-            };
-            # The last login's user and session.
-            "/var/lib/yokoso".d = {
-              user = greeter;
-              group = config.users.users.${greeter}.group;
-              mode = "0700";
+        tmpfiles = {
+          settings = {
+            yokoso = {
+              # Mesa's shader cache and Qt's, kept between boots.
+              "/var/cache/yokoso".d = {
+                user = greeter;
+                group = config.users.users.${greeter}.group;
+                mode = "0700";
+              };
+              # The last login's user and session.
+              "/var/lib/yokoso".d = {
+                user = greeter;
+                group = config.users.users.${greeter}.group;
+                mode = "0700";
+              };
             };
           };
         };
       };
-    };
-  };
+    })
+
+    # yokoso lock: its PAM service, the user's password (and what else the
+    # system's login asks).
+    (lib.mkIf cfg.lock.enable {
+      environment.systemPackages = [ cfg.package ];
+      security.pam.services.yokoso-lock = { };
+    })
+  ];
 }

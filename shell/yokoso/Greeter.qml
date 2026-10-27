@@ -9,9 +9,10 @@ QtObject {
 	// The core: what a look's `greeter` is.
 	property var core: null
 
-	readonly property var colors: core ? core.colors : ({})
-	readonly property string font: core ? core.fontFamily : ""
-	readonly property bool animate: core ? core.animate : false
+	// (While the core goes, at the end, its properties are gone first.)
+	readonly property var colors: core && core.colors || ({})
+	readonly property string font: core && core.fontFamily || ""
+	readonly property bool animate: !!(core && core.animate)
 
 	// colors.outline, around the field, the session, the power buttons
 	// and the lists, or "": `faint` of colors.text for the field and the
@@ -24,11 +25,11 @@ QtObject {
 
 	// `n` pixels at the UI scale.
 	function u(n) {
-		return core ? core.u(n) : n;
+		return core && core.u ? core.u(n) : n;
 	}
 
 	// The theme's corner radius at the UI scale, or -1 for round.
-	readonly property real radius: core && typeof core.config.radius === "number" ? u(core.config.radius) : -1
+	readonly property real radius: core && core.config && typeof core.config.radius === "number" ? u(core.config.radius) : -1
 
 	// The corner radius for something `size` across: round, unless the
 	// theme sets one; `inset`, how far inside a rounded thing it sits.

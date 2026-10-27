@@ -7,6 +7,8 @@
 #   yokoso shot <png>  development: render headless and save a screenshot
 #   yokoso session [name]  as greetd's initial_session: start a session as
 #                    the greeter would, for a login without it
+#   yokoso lock      in a Wayland session: lock its screens until the user's
+#                    password (PAM's yokoso-lock)
 #
 # Before anything draws, this takes a snapshot for the QML side (screens with
 # their physical size, sessions, users) and keeps the stack on the GPU that
@@ -474,8 +476,16 @@ strings_json() {
 	jq -c 'objects' "$shell_dir/i18n/$language.json" 2>/dev/null || echo '{}'
 }
 
-jq -n --argjson screens "$(screens_json)" --argjson sessions "$(sessions_json)" \
-	--argjson users "$(users_json)" --argjson power "$(power_json)" \
+# Locked, the user who locked it, and no sessions.
+if [ "$mode" = lock ]; then
+	sessions='[]'
+	users=$(users_json | jq --arg me "$(id -un)" 'map(select(.name == $me))')
+else
+	sessions=$(sessions_json)
+	users=$(users_json)
+fi
+jq -n --argjson screens "$(screens_json)" --argjson sessions "$sessions" \
+	--argjson users "$users" --argjson power "$(power_json)" \
 	--argjson config "$config_json" --argjson theme "$(theme_json)" \
 	--argjson safeTheme "$(jq -c . "$shell_dir/themes/dark.json")" --argjson strings "$(strings_json)" \
 	--arg hostname "$(cat /proc/sys/kernel/hostname 2>/dev/null)" \
@@ -587,6 +597,14 @@ greeter)
 	wait "$cage"
 	restore_backlight
 	;;
+lock)
+	# In the session, on its compositor (ext-session-lock): the screens stay
+	# locked should yokoso stop. A stop is passed on.
+	quickshell -p "$shell_dir" &
+	shell=$!
+	trap 'kill "$shell" 2>/dev/null; wait "$shell" || true; exit 0' TERM INT HUP
+	wait "$shell"
+	;;
 preview)
 	fake "quickshell -p '$shell_dir'"
 	;;
@@ -597,7 +615,7 @@ shot)
 	fake "cage -s -- quickshell -p '$shell_dir'"
 	;;
 *)
-	echo "usage: yokoso [greeter | preview | shot <file.png> | session [name]]" >&2
+	echo "usage: yokoso [greeter | preview | shot <file.png> | session [name] | lock]" >&2
 	exit 2
 	;;
 esac

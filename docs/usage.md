@@ -82,3 +82,17 @@ The cursor is `XCURSOR_THEME`'s, else the system's default theme, at
 `XCURSOR_SIZE` (24) times the UI scale. On NixOS,
 `services.yokoso.cursor` sets them; elsewhere greetd's command does
 (`command = "env XCURSOR_THEME=Adwaita yokoso"`).
+
+## Locking the screen
+
+`yokoso lock`, in a Wayland session whose compositor locks screens
+(ext-session-lock: sway, niri, Hyprland, labwc, river), locks them with the
+greeter's look, theme and config, until the user's password. On NixOS that
+takes `services.yokoso.lock.enable = true;` (for its PAM service,
+`yokoso-lock`); elsewhere `make install` puts `/etc/pam.d/yokoso-lock`
+there. Bind it to a key, or to the idle daemon's lock (`swayidle -w
+before-sleep 'yokoso lock'`).
+
+The form is on the screen the keys go to; the session's own idle daemon,
+not yokoso, turns the screens off. Should yokoso stop, the compositor keeps
+them locked.

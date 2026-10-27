@@ -2,6 +2,7 @@ import QtQml.Models
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import yokoso
 
 // The core: what yokoso knows (the config, screens, users and sessions)
@@ -15,6 +16,9 @@ ShellRoot {
 	readonly property int api: 1
 
 	readonly property string mode: Quickshell.env("YOKOSO_MODE") || "greeter"
+	// "greeter" or "lock": for real, power and backlights and all; else
+	// "preview" or "shot", which only say what they would do.
+	readonly property bool live: mode === "greeter" || mode === "lock"
 
 	function parse(text) {
 		try {
@@ -49,8 +53,6 @@ ShellRoot {
 			return;
 		console.warn("yokoso: safe mode: the built-in look and theme");
 		safe = true;
-		looks.builtIn = true;
-		looks.setSource("Look.qml", { greeter: root });
 	}
 
 	// Every config key, with its default, over the theme the launcher put
@@ -202,7 +204,7 @@ ShellRoot {
 		if (!moved)
 			return;
 		wake();
-		if (config.output === "cursor" && !windowIsScreen)
+		if (config.output === "cursor" && !windowIsScreen && mode !== "lock")
 			choose(screenAt(p));
 	}
 
@@ -216,7 +218,7 @@ ShellRoot {
 
 	// F4: the next screen.
 	function nextScreen() {
-		if (wake() || windowIsScreen)
+		if (wake() || windowIsScreen || mode === "lock")
 			return;
 		const screens = Quickshell.screens.filter(s => usable(s));
 		if (screens.length > 1)
@@ -256,7 +258,7 @@ ShellRoot {
 	readonly property var remembered: config.remember ? lastLogin : {}
 
 	function remember() {
-		if (!stateFile.path || !user || !session)
+		if (!stateFile.path || mode === "lock" || !user || !session)
 			return;
 		const started = { name: sessionName(session), at: Date.now() };
 		if (!config.remember) {
@@ -309,6 +311,8 @@ ShellRoot {
 	property string pickedUser: ""
 	property var pickedSession: null
 	readonly property var user: {
+		if (mode === "lock")
+			return (env.users || [])[0] || account(Quickshell.env("USER"));
 		if (pickedUser)
 			return users.find(u => u.name === pickedUser) || account(pickedUser);
 		if (!userList)
@@ -338,6 +342,8 @@ ShellRoot {
 	// with userList, as another can be typed). Not while a password is
 	// checked (another user) or a session starts.
 	function canPick(which) {
+		if (mode === "lock")
+			return false;
 		if (which === "user")
 			return userList && users.length > 0 && canEnterUser();
 		return sessions.length > 1 && auth.phase !== "launching";
@@ -372,7 +378,7 @@ ShellRoot {
 	}
 
 	// Why a login can't start, if it can't.
-	readonly property string problem: !session ? tr("No session found") : ""
+	readonly property string problem: !session && mode !== "lock" ? tr("No session found") : ""
 
 	// The UI scale: config.scale, else the screen's DPI / 96 rounded to 0.05
 	// (1 when its size is unknown), over what the compositor already scales.
@@ -382,7 +388,7 @@ ShellRoot {
 		if (config.scale > 0)
 			return config.scale / dpr;
 		const known = env.screens || [];
-		const info = known.find(s => screen && s.name === screen.name) || (mode !== "greeter" ? known[0] : null);
+		const info = known.find(s => screen && s.name === screen.name) || (live ? null : known[0]);
 		const pixels = mode === "shot" ? shotSize[0] : (screen ? screen.width * dpr : 0);
 		if (!info || !info.widthMm || !pixels)
 			return 1;
@@ -567,7 +573,8 @@ ShellRoot {
 
 	// { <name>: level } through logind, one call after another: a wake
 	// right after the dimming waits for it. Outside the greeter it only
-	// says what it would set.
+	// says what it would set; locked, it doesn't (the session's idle
+	// daemon has its screens' power).
 	property var nextBacklights: null
 
 	function setBacklights(levels) {
@@ -576,7 +583,9 @@ ShellRoot {
 			args.push(name, String(levels[name]));
 		if (!args.length)
 			return;
-		if (mode !== "greeter") {
+		if (mode === "lock")
+			return;
+		if (!live) {
 			console.info(`yokoso: would set the backlights to ${JSON.stringify(levels)}`);
 			return;
 		}
@@ -655,7 +664,7 @@ ShellRoot {
 			return;
 		}
 		armed = "";
-		if (mode !== "greeter") {
+		if (!live) {
 			console.info(`yokoso: would run ${powerCommand(action).join(" ")}`);
 			return;
 		}
@@ -691,9 +700,14 @@ ShellRoot {
 		}
 	}
 
-	// The login with greetd: phase, prompt, secret, message, messageIsError,
-	// submit() (Auth.qml).
-	readonly property Auth auth: Auth {
+	// The login: phase, prompt, secret, message, messageIsError, submit():
+	// with greetd (Auth.qml), or locked, the unlocking with PAM
+	// (Unlock.qml).
+	readonly property QtObject auth: mode === "lock" ? unlock : greetd
+
+	Auth {
+		id: greetd
+
 		// fakegreet only knows "user".
 		username: root.mode === "greeter" ? (root.user ? root.user.name : "") : "user"
 		session: root.session
@@ -705,94 +719,87 @@ ShellRoot {
 		deniedText: root.tr("This account can't log in now")
 	}
 
+	Unlock {
+		id: unlock
+
+		username: root.user ? root.user.name : ""
+		launchDelay: root.animate ? 450 : 0
+		failedText: root.tr("Wrong password")
+		onUnlocked: {
+			lock.locked = false;
+			// The parts let go of the core before it goes.
+			Qt.callLater(() => {
+				Greeter.core = null;
+				Qt.quit();
+			});
+		}
+	}
+
 	Connections {
-		target: auth
+		target: root.auth
 
 		function onPhaseChanged() {
-			if (auth.phase === "launching")
+			if (root.auth.phase === "launching")
 				root.remember();
 		}
 	}
 
+	// The screens' extent, from origin.
+	readonly property size extent: Qt.size(Math.max(...Quickshell.screens.map(s => s.x + s.width)) - origin.x,
+		Math.max(...Quickshell.screens.map(s => s.y + s.height)) - origin.y)
+
 	FloatingWindow {
 		id: window
 
-		visible: true
+		visible: root.mode !== "lock"
 		fullscreen: root.mode === "greeter"
 		implicitWidth: 1280
 		implicitHeight: 720
 		title: "yokoso"
 		color: root.colors.background
 
-		Rectangle {
+		Stage {
 			id: content
 
+			core: root
+			visible: root.mode !== "lock"
 			width: root.mode === "shot" && root.windowIsScreen ? root.shotSize[0] : window.width
 			height: root.mode === "shot" && root.windowIsScreen ? root.shotSize[1] : window.height
+		}
+	}
+
+	// Locked: a surface on each screen, with the stage moved to show that
+	// screen's part. Unlocked only by the password (or by the compositor,
+	// should yokoso stop).
+	WlSessionLock {
+		id: lock
+
+		locked: root.mode === "lock"
+
+		WlSessionLockSurface {
+			id: surface
+
 			color: root.colors.background
 
-			// The pointer, for idle and for output "cursor".
-			HoverHandler {
-				onPointChanged: root.pointAt(point.position)
-			}
-
-			// A click on a screen without the form brings it there.
-			TapHandler {
-				onTapped: point => {
-					if (!root.windowIsScreen)
-						root.choose(root.screenAt(point.position));
-				}
-			}
-
-			// F4 takes the form to the next screen, whatever the look does
-			// with the keys.
-			Shortcut {
-				sequence: "F4"
-				context: Qt.ApplicationShortcut
-				onActivated: root.nextScreen()
-			}
-
-			// Safe mode, whatever the look does with the keys.
-			Shortcut {
-				sequence: root.safeKey
-				context: Qt.ApplicationShortcut
-				onActivated: root.safeMode()
-			}
-
-			// What's on screen, given the core as `greeter`: the theme's
-			// look, or the built-in one (Look.qml) when there's none or it
-			// can't be loaded.
-			Loader {
-				id: looks
-
-				property bool builtIn: !root.config.look
-
-				anchors.fill: parent
-				focus: true
-				Component.onCompleted: {
-					// The parts reach the core through Greeter.
-					Greeter.core = root;
-					setSource(builtIn ? "Look.qml" : root.fileUrl(root.config.look), { greeter: root });
-				}
-				onStatusChanged: {
-					if (status !== Loader.Error || builtIn)
-						return;
-					console.warn(`yokoso: can't load the look ${root.config.look}, using the built-in one`);
-					builtIn = true;
-					Qt.callLater(() => setSource("Look.qml", { greeter: root }));
-				}
+			Stage {
+				core: root
+				lockScreen: surface.screen
+				x: surface.screen ? root.origin.x - surface.screen.x : 0
+				y: surface.screen ? root.origin.y - surface.screen.y : 0
+				width: root.extent.width
+				height: root.extent.height
 			}
 		}
 	}
 
 	// Development: YOKOSO_TEST_ANSWERS answers prompts (comma separated),
 	// YOKOSO_SCREENSHOT saves a frame and quits.
-	property var answers: mode === "greeter" ? [] : (Quickshell.env("YOKOSO_TEST_ANSWERS") || "").split(",").filter(x => x)
+	property var answers: live ? [] : (Quickshell.env("YOKOSO_TEST_ANSWERS") || "").split(",").filter(x => x)
 	readonly property string shotFile: Quickshell.env("YOKOSO_SCREENSHOT") || ""
 
 	Connections {
 		target: auth
-		enabled: root.mode !== "greeter"
+		enabled: !root.live
 
 		function onPhaseChanged() {
 			console.info(`yokoso: ${auth.phase}`);
@@ -816,7 +823,7 @@ ShellRoot {
 	}
 
 	Component.onCompleted: {
-		Quickshell.watchFiles = mode !== "greeter";
+		Quickshell.watchFiles = !live;
 		checkConfig();
 		if (config.look)
 			console.info(`yokoso: the look is ${config.look}; ${safeKey} brings up the built-in one`);
