@@ -158,6 +158,11 @@ ShellRoot {
 		return /\.(mp4|webm|mkv|mov)$/i.test(url.toString());
 	}
 
+	// Whether a background is a GIF, which moves.
+	function isAnimated(url) {
+		return /\.gif$/i.test(url.toString());
+	}
+
 	// A file's path as a URL, "" for "".
 	function fileUrl(path) {
 		return path ? "file://" + path.split("/").map(encodeURIComponent).join("/") : "";

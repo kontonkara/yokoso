@@ -7,15 +7,16 @@ import QtQuick
 // backgroundDim. The next one, another user's or a directory's, fades in
 // over the one before. Fill the look with it.
 Item {
-	// A picture, or a video (VideoLayer.qml, with Qt Multimedia).
+	// A picture, a GIF, or a video (VideoLayer.qml, with Qt Multimedia).
 	component Layer: Item {
 		id: layer
 
 		required property Item owner
 		property url source: ""
 		readonly property bool video: Greeter.core.isVideo(source)
+		readonly property bool animated: Greeter.core.isAnimated(source)
 		readonly property bool ready: video ? movie.status === Loader.Ready && movie.item.ready
-			: picture.status === Image.Ready
+			: animated ? animation.status === AnimatedImage.Ready : picture.status === Image.Ready
 
 		anchors.fill: parent
 		opacity: 0
@@ -46,10 +47,23 @@ Item {
 			id: picture
 
 			anchors.fill: parent
-			source: layer.video ? "" : layer.source
+			source: layer.video || layer.animated ? "" : layer.source
 			sourceSize: Qt.size(width * Greeter.core.dpr, height * Greeter.core.dpr)
 			fillMode: Image.PreserveAspectCrop
 			asynchronous: true
+		}
+
+		// A GIF, its frames decoded as they come, not kept (a long one's would
+		// take hundreds of megabytes); still while the screen is dark.
+		AnimatedImage {
+			id: animation
+
+			anchors.fill: parent
+			source: layer.animated ? layer.source : ""
+			fillMode: Image.PreserveAspectCrop
+			asynchronous: true
+			cache: false
+			playing: !Greeter.core.idle
 		}
 
 		Loader {

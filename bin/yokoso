@@ -506,7 +506,7 @@ slides_json() {
 			for f in "$dir"/*; do
 				[ -f "$f" ] || continue
 				case $(printf '%s' "${f##*.}" | tr '[:upper:]' '[:lower:]') in
-				jpg | jpeg | png | webp | svg | mp4 | webm | mkv | mov) echo "$f" ;;
+				jpg | jpeg | png | webp | svg | gif | mp4 | webm | mkv | mov) echo "$f" ;;
 				esac
 			done | jq -R . | jq -sc --arg dir "$dir" '{($dir): .}'
 		done | jq -s 'add // {}'

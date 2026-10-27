@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides video"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides gif video"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -56,6 +56,9 @@ conf idle '{"idle": 2}'
 conf nolist '{"userList": false}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
+# Two frames, half a second each, for a GIF background.
+magick -delay 50 "$work/bg1.png" "$work/bg2.png" -loop 0 "$work/clip.gif"
+conf gif "{\"background\": \"$work/clip.gif\"}"
 # Three seconds of a test pattern, for a video background.
 ffmpeg -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=10 -t 3 -c:v mpeg4 "$work/clip.mkv"
 conf video "{\"background\": \"$work/clip.mkv\"}"
@@ -171,6 +174,8 @@ for name; do
 	nonlatin) shot nonlatin 3000 "$(keys 'wtype пароль; sleep 0.3')" ;;
 	# A directory as the background: its first picture, in a shot.
 	slides) shot slides 1500 '' YOKOSO_CONFIG="$work/conf/slides.json" ;;
+	# A GIF as the background.
+	gif) shot gif 1500 '' YOKOSO_CONFIG="$work/conf/gif.json" ;;
 	# A video as the background (with Qt Multimedia).
 	video) shot video 2500 '' YOKOSO_CONFIG="$work/conf/video.json" ;;
 	# Caps Lock and Num Lock on.
