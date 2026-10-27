@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -159,6 +159,8 @@ for name; do
 	userbg) shot userbg 1500 '' YOKOSO_CONFIG="$work/userbg/config.json" ;;
 	userswitch) shot userswitch 3500 "$(keys 'wtype -k F2; sleep 0.2; wtype -k Down; wtype -k Return; sleep 0.8')" \
 		YOKOSO_CONFIG="$work/userbg/config.json" ;;
+	# A password typed in Cyrillic: the layout, most likely.
+	nonlatin) shot nonlatin 3000 "$(keys 'wtype пароль; sleep 0.3')" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

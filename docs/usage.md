@@ -75,6 +75,9 @@ elsewhere localed's (`localectl set-x11-keymap us,de "" ""
 grp:alt_shift_toggle`), unless greetd's command sets `XKB_DEFAULT_LAYOUT`
 and the rest.
 
+A password typed in Cyrillic or Greek (a layout switched by mistake) gets
+a word under the field, gone with the next Latin letter.
+
 The cursor is `XCURSOR_THEME`'s, else the system's default theme, at
 `XCURSOR_SIZE` (24) times the UI scale. On NixOS,
 `services.yokoso.cursor` sets them; elsewhere greetd's command does

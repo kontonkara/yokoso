@@ -2,7 +2,8 @@ import QtQuick
 
 // The line under the field, one line high so that the form doesn't move: a
 // message of PAM's too long for the field (onto more lines below, if it
-// must), else Caps Lock's warning and that Num Lock is on, side by side.
+// must), else the warnings that Caps Lock is on or the layout isn't
+// Latin, and that Num Lock is on, side by side.
 Item {
 	id: root
 
@@ -35,6 +36,12 @@ Item {
 
 			on: Greeter.core.capsLock && !message.shown
 			text: Greeter.core.tr("Caps Lock is on")
+			color: Greeter.colors.error
+		}
+
+		LockNote {
+			on: root.form !== null && root.form.nonLatin && !message.shown
+			text: Greeter.core.tr("The layout isn't Latin")
 			color: Greeter.colors.error
 		}
 

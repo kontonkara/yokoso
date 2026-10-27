@@ -16,8 +16,9 @@ logs into, and it's light enough for an integrated GPU.
   accounts to pick from, or a name to type; the sessions in the system's
   language, X11 ones too, and any of your own.
 - The last login's user and session to start with, the system's keyboard
-  layout, a Caps Lock warning, the power buttons logind allows, a reboot
-  to the firmware's setup or into Windows among them.
+  layout, a word when Caps Lock is on or the layout isn't Latin, the power
+  buttons logind allows, a reboot to the firmware's setup or into Windows
+  among them.
 - `dark`, `light` and `high-contrast` themes; any other is a small JSON
   file, and can bring a QML look of its own, made of yokoso's parts or
   from scratch. Tab reaches everything, and an eye shows the password.

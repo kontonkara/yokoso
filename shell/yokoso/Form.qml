@@ -52,6 +52,13 @@ QtObject {
 	}
 	// What's typed.
 	readonly property string text: input ? input.text : ""
+	// The last letter typed isn't Latin (Cyrillic, Greek): most likely the
+	// keyboard's layout, for a password, so FieldNote says so. Until a Latin
+	// one, or the field is empty.
+	property bool nonLatin: false
+
+	onTextChanged: if (text === "")
+		nonLatin = false
 
 	// Tab and Shift+Tab go from one thing to the next, Enter or Space
 	// presses it, Escape and any other key go back to the field (which
@@ -203,6 +210,10 @@ QtObject {
 			// alone, which comes before a Shift+Tab).
 			if (away && ![Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_AltGr, Qt.Key_Meta].includes(event.key))
 				focused = "field";
+			// A letter has cases; Latin ones are up to U+024F.
+			const letter = event.text.length === 1 && event.text.toLowerCase() !== event.text.toUpperCase();
+			if (letter && typing)
+				nonLatin = event.text.charCodeAt(0) > 0x24f;
 			event.accepted = false;
 		}
 	}

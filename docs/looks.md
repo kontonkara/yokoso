@@ -63,7 +63,7 @@ the look's. [`examples/sidebar.qml`](../examples/sidebar.qml), with its
 | `UserName` | the user's name; `form`, `user`, `size` (24) |
 | `SessionPill` | the session, with more than one; `form` |
 | `PasswordField` | the field, its eye and its button; `form`, `size` (50) |
-| `FieldNote` | the line under the field: a message too long for it, Caps Lock, Num Lock; `form` |
+| `FieldNote` | the line under the field: a message too long for it, Caps Lock, a layout that isn't Latin, Num Lock; `form` |
 | `PowerBar` | the power buttons and what they say; `form`, `size` (48) |
 | `Picker` | the open list, under `under` (the `UserName` or the `SessionPill` it's for); fill the look with it |
 | `IdleCover` | dark while the screen is asleep; fill the look with it, over the rest |
