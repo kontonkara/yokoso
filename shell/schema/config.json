@@ -22,6 +22,11 @@
       "type": "boolean",
       "default": true
     },
+    "keyboard": {
+      "description": "An on-screen keyboard, for a screen without a keyboard of its own.",
+      "type": "boolean",
+      "default": false
+    },
     "power": {
       "description": "The power buttons, in order, those logind allows.",
       "type": "array",

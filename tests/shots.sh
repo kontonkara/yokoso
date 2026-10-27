@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides gif video"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides gif video keyboard"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -54,6 +54,7 @@ conf cursor '{"output": "cursor"}'
 conf pinned '{"output": "HEADLESS-1"}'
 conf idle '{"idle": 2}'
 conf nolist '{"userList": false}'
+conf keyboard '{"keyboard": true}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
 # Two frames, half a second each, for a GIF background.
@@ -178,6 +179,8 @@ for name; do
 	gif) shot gif 1500 '' YOKOSO_CONFIG="$work/conf/gif.json" ;;
 	# A video as the background (with Qt Multimedia).
 	video) shot video 2500 '' YOKOSO_CONFIG="$work/conf/video.json" ;;
+	# The on-screen keyboard, two letters typed.
+	keyboard) shot keyboard 3000 "$(keys 'wtype ab; sleep 0.5')" YOKOSO_CONFIG="$work/conf/keyboard.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

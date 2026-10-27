@@ -53,6 +53,16 @@ Rectangle {
 		onActivated: stage.core.safeMode()
 	}
 
+	// The on-screen keyboard, over the look (Keyboard.qml, with Qt Virtual
+	// Keyboard), on the one stage that has the keys.
+	Loader {
+		z: 1
+		active: stage.core.config.keyboard === true && stage.active && stage.visible
+		source: "Keyboard.qml"
+		onStatusChanged: if (status === Loader.Error)
+			console.warn("yokoso: the on-screen keyboard takes Qt Virtual Keyboard")
+	}
+
 	// What's on screen, given the core as `greeter`: the theme's look, or
 	// the built-in one (Look.qml) in safe mode, when there's none or when it
 	// can't be loaded.

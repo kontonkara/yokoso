@@ -78,6 +78,9 @@ ShellRoot {
 		env: {},
 		// An eye in the field that shows the password as it's typed.
 		reveal: true,
+		// An on-screen keyboard (Qt Virtual Keyboard), for a screen without a
+		// keyboard of its own.
+		keyboard: false,
 		// The power buttons, in order, those logind allows: "suspend",
 		// "reboot", "poweroff", "firmware" (a reboot to the firmware's
 		// setup) and { entry, label } for a reboot into a boot loader entry
@@ -256,11 +259,15 @@ ShellRoot {
 	// Where the form's screen is in the window. In preview (and a one-screen
 	// shot) the window stands for it.
 	readonly property bool windowIsScreen: mode === "preview" || (mode === "shot" && Quickshell.screens.length < 2)
-	readonly property rect area: {
+	readonly property rect screenArea: {
 		if (windowIsScreen || !screen)
 			return Qt.rect(0, 0, content.width, content.height);
 		return Qt.rect(screen.x - origin.x, screen.y - origin.y, screen.width, screen.height);
 	}
+	// The form's place: its screen, but for the on-screen keyboard (Keyboard.qml
+	// sets its height while it's up).
+	property real keyboardHeight: 0
+	readonly property rect area: Qt.rect(screenArea.x, screenArea.y, screenArea.width, screenArea.height - keyboardHeight)
 
 	// Every screen in the window, as { name, rect }, for what goes on each.
 	readonly property var screens: windowIsScreen ? [{ name: "", rect: Qt.rect(0, 0, content.width, content.height) }]

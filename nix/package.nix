@@ -38,6 +38,7 @@ stdenvNoCC.mkDerivation {
     cp -r shell $out/share/yokoso/shell
     install -Dm755 bin/yokoso $out/libexec/yokoso
     # From greetd: agreety is the fallback, fakegreet is for `yokoso preview`.
+    # Qt Virtual Keyboard (a few megabytes) for config.keyboard.
     makeWrapper $out/libexec/yokoso $out/bin/yokoso \
       --set-default YOKOSO_SHELL_DIR $out/share/yokoso/shell \
       --prefix PATH : ${
@@ -53,6 +54,7 @@ stdenvNoCC.mkDerivation {
           getent
         ]
       } \
+      --prefix QML_IMPORT_PATH : ${qt6.qtvirtualkeyboard}/lib/qt-6/qml --prefix QT_PLUGIN_PATH : ${qt6.qtvirtualkeyboard}/lib/qt-6/plugins \
       ${lib.optionalString video "--prefix QML_IMPORT_PATH : ${qt6.qtmultimedia}/lib/qt-6/qml --prefix QT_PLUGIN_PATH : ${qt6.qtmultimedia}/lib/qt-6/plugins"}
 
     runHook postInstall

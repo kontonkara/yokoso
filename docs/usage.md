@@ -79,6 +79,10 @@ and the rest.
 A password typed in Cyrillic or Greek (a layout switched by mistake) gets
 a word under the field, gone with the next Latin letter.
 
+On a touch screen without a keyboard, `"keyboard": true` brings up one on
+the screen (Qt Virtual Keyboard; on Arch, `qt6-virtualkeyboard`), the form
+above it.
+
 The cursor is `XCURSOR_THEME`'s, else the system's default theme, at
 `XCURSOR_SIZE` (24) times the UI scale. On NixOS,
 `services.yokoso.cursor` sets them; elsewhere greetd's command does

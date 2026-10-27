@@ -399,6 +399,21 @@ in
         print(machine.succeed("grep -E 'WARN|ERROR' /tmp/alice/lock.log | grep -v wl_keyboard || true"))
       '';
 
+  # The on-screen keyboard: alice's password tapped on it, its Enter too.
+  keyboard =
+    test "keyboard" { services.yokoso.settings.keyboard = true; }
+      ''
+        machine.wait_for_unit("greetd.service")
+        greeter()
+        machine.screenshot("keyboard")
+        # Its rows, 800 wide at the bottom of the screen.
+        keys = {"f": (560, 648), "o": (920, 584), "b": (720, 704), "a": (320, 648), "r": (520, 584), "enter": (980, 768)}
+        for key in ["f", "o", "o", "b", "a", "r", "enter"]:
+            click(*keys[key])
+        logged_in("alice")
+        quiet()
+      '';
+
   # Started without XKB_DEFAULT_* (as elsewhere than NixOS), the keyboard
   # layout comes from localed: German here.
   layout =

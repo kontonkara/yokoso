@@ -10,6 +10,7 @@ is optional:
 | `session` | the first one | session to start with: a desktop file's name (`niri`, `i3`) or one of `sessions` |
 | `remember` | `true` | start with the last login's user and that user's last session instead |
 | `reveal` | `true` | an eye in the field that shows the password as it's typed |
+| `keyboard` | `false` | an on-screen keyboard, for a touch screen without a keyboard; the form moves up over it |
 | `power` | `["suspend", "reboot", "poweroff"]` | the power buttons, in order; see below |
 | `sessions` | `[]` | sessions of your own, first in the list; see below |
 | `env` | `{}` | variables for every session (`{"QT_QPA_PLATFORMTHEME": "qt6ct"}`); a session's own `env` wins |
