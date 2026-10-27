@@ -17,8 +17,10 @@ changed. `nix run .#docs-shots` redraws the pictures in
 `nix flake check` runs shellcheck, holds the schemas up to the core and the
 themes, and runs the VM tests in
 [`tests/vm`](../tests/vm): the greeter under the real greetd, PAM and cage,
-logging in through the lists, idle, the power buttons, PAM's messages, an
-expired password, a fingerprint, sessions of one's own, a session that ends
-at once, a GPU driver that loads after the greeter starts, a layout from
-localed, and an install with `make` instead of the module. GitHub runs it on
-every push and pull request.
+logging in through the lists, idle, the power buttons (a boot loader
+entry's under systemd-boot too), PAM's messages, an expired password, a
+fingerprint, sessions of one's own, a session that ends at once, a GPU
+driver that loads after the greeter starts, a layout from localed, a login
+without the greeter, the on-screen keyboard, `yokoso lock` in sway, and an
+install with `make` instead of the module. GitHub runs it on every push
+and pull request.
