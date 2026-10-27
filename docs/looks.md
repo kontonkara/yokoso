@@ -24,7 +24,7 @@ does the login, the power buttons and the memory, and watches the pointer.
 | `config`, `colors`, `fontFamily`, `animate` | the config over the theme, its colors and font; whether things should move |
 | `mode` | `"greeter"`, `"lock"` (`yokoso lock`: one user, no sessions, `auth` unlocks), `"preview"` or `"shot"` |
 | `tr(text)` | yokoso's English words in the config's language |
-| `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL, the user's own first |
+| `screens`, `area`, `backgroundFor(name)` | every screen in the window as `{ name, rect }`; the rectangle of the one with the form; a screen's background as a URL, the user's own first (`isVideo(url)` for a video) |
 | `u(n)`, `dpr` | `n` pixels at the UI scale; the screen's device pixel ratio |
 | `now`, `locale` | the time, by the minute; the system's locale for dates |
 | `users`, `user`, `pickUser(u)` | the accounts as `{ name, realName, icon, background }`; the one logging in; another one, whose login then starts over |

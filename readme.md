@@ -21,7 +21,8 @@ logs into, and it's light enough for an integrated GPU.
   among them.
 - `dark`, `light` and `high-contrast` themes; any other is a small JSON
   file, and can bring a QML look of its own, made of yokoso's parts or
-  from scratch. Tab reaches everything, and an eye shows the password.
+  from scratch; a picture behind it, a slideshow or a video, each user's
+  own too. Tab reaches everything, and an eye shows the password.
 - The UI scale from the screen's size, only the GPU that drives the screens
   (a PRIME laptop's NVIDIA one stays asleep), the form on the screen in
   use, and the backlight low after a minute idle.

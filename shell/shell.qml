@@ -130,9 +130,32 @@ ShellRoot {
 	// per output, "*" for the rest.
 	function backgroundFor(name) {
 		if (user && user.background)
-			return fileUrl(user.background);
+			return fileUrl(slideOf(user.background));
 		const bg = config.background;
-		return fileUrl(typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || "");
+		return fileUrl(slideOf(typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || ""));
+	}
+
+	// A directory as a background: its pictures and videos in turn (the
+	// launcher lists them), the next every config.backgroundEvery seconds
+	// (0: one, for as long as yokoso runs), from one at random (the first,
+	// in a preview or a shot); not while the screen is dark.
+	property int slide: live ? Math.floor(Math.random() * 1000) : 0
+
+	function slideOf(path) {
+		const slides = env.slides && env.slides[path];
+		return slides && slides.length ? slides[slide % slides.length] : path;
+	}
+
+	Timer {
+		interval: Math.max(1, root.config.backgroundEvery) * 1000
+		running: root.config.backgroundEvery > 0 && !root.idle && Object.keys(root.env.slides || {}).length > 0
+		repeat: true
+		onTriggered: root.slide++
+	}
+
+	// Whether a background is a video, by its name.
+	function isVideo(url) {
+		return /\.(mp4|webm|mkv|mov)$/i.test(url.toString());
 	}
 
 	// A file's path as a URL, "" for "".

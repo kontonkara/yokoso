@@ -26,7 +26,7 @@
     },
     "font": { "description": "A font family; \"\" for the default one.", "type": "string" },
     "background": {
-      "description": "An image for every screen, or one per output with \"*\" for the rest; paths are relative to the theme.",
+      "description": "A picture, a video or a directory of them (a slideshow) for every screen, or one per output with \"*\" for the rest; paths are relative to the theme.",
       "oneOf": [
         { "type": "string" },
         { "type": "object", "additionalProperties": { "type": "string" } }
@@ -37,6 +37,12 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1
+    },
+    "backgroundEvery": {
+      "description": "With a directory as the background, the seconds between its pictures; 0 for one the whole time.",
+      "type": "number",
+      "minimum": 0,
+      "default": 600
     },
     "animations": {
       "description": "\"auto\" for things that move unless everything is drawn in software, true, or false for none.",

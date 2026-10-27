@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin"
+scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides video"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -56,6 +56,13 @@ conf idle '{"idle": 2}'
 conf nolist '{"userList": false}'
 conf layout '{"layout": {"form": "left", "clock": "top", "power": "corner", "status": "top-left"}, "radius": 8, "fieldWidth": 300, "clockFormat": "HH:mm"}'
 conf look "{\"theme\": \"$repo/examples/minimal.json\"}"
+# Three seconds of a test pattern, for a video background.
+ffmpeg -loglevel error -f lavfi -i testsrc2=size=1280x720:rate=10 -t 3 -c:v mpeg4 "$work/clip.mkv"
+conf video "{\"background\": \"$work/clip.mkv\"}"
+mkdir -p "$work/slides"
+cp "$work/bg1.png" "$work/slides/a.png"
+cp "$work/bg2.png" "$work/slides/b.png"
+conf slides "{\"background\": \"$work/slides\"}"
 conf sidebar "{\"theme\": \"$repo/examples/sidebar.json\", \"background\": \"$work/bg2.png\"}"
 conf card "{\"theme\": \"$repo/examples/card.json\", \"background\": \"$work/bg2.png\"}"
 conf own '{"sessions": [{"name": "Niri (debug)", "exec": "niri-session", "desktopNames": ["niri"], "env": {"RUST_LOG": "debug"}}]}'
@@ -79,6 +86,7 @@ shot() {
 	mkdir -m 700 "$rt"
 	cp "$state" "$rt/state.json"
 	env -i HOME="$HOME" PATH="$fixtures/users/several:$PATH" XDG_RUNTIME_DIR="$rt" \
+		QML_IMPORT_PATH="${QML_IMPORT_PATH:-}" QT_PLUGIN_PATH="${QT_PLUGIN_PATH:-}" \
 		YOKOSO_SHELL_DIR="$repo/shell" YOKOSO_CONFIG="$work/conf/plain.json" YOKOSO_STATE="$rt/state.json" \
 		YOKOSO_SESSION_DIRS="$fixtures/sessions/several/wayland-sessions:$fixtures/sessions/several/xsessions" \
 		YOKOSO_SHOT_DELAY="$delay" YOKOSO_SHOT_SIZE=1280x720 WLR_HEADLESS_OUTPUTS=1 LANG=en_US.UTF-8 \
@@ -161,6 +169,10 @@ for name; do
 		YOKOSO_CONFIG="$work/userbg/config.json" ;;
 	# A password typed in Cyrillic: the layout, most likely.
 	nonlatin) shot nonlatin 3000 "$(keys 'wtype пароль; sleep 0.3')" ;;
+	# A directory as the background: its first picture, in a shot.
+	slides) shot slides 1500 '' YOKOSO_CONFIG="$work/conf/slides.json" ;;
+	# A video as the background (with Qt Multimedia).
+	video) shot video 2500 '' YOKOSO_CONFIG="$work/conf/video.json" ;;
 	# Caps Lock and Num Lock on.
 	locks) shot locks 1500 '' YOKOSO_LEDS="$fixtures/leds" ;;
 	# The last session, Niri, ended a second ago.

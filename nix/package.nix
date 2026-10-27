@@ -11,6 +11,10 @@
   systemd,
   greetd,
   getent,
+  qt6,
+  # Video backgrounds: Qt Multimedia, ffmpeg and GStreamer, a large closure
+  # (over a gigabyte), so only when asked for.
+  video ? false,
 }:
 
 stdenvNoCC.mkDerivation {
@@ -48,7 +52,8 @@ stdenvNoCC.mkDerivation {
           greetd
           getent
         ]
-      }
+      } \
+      ${lib.optionalString video "--prefix QML_IMPORT_PATH : ${qt6.qtmultimedia}/lib/qt-6/qml --prefix QT_PLUGIN_PATH : ${qt6.qtmultimedia}/lib/qt-6/plugins"}
 
     runHook postInstall
   '';

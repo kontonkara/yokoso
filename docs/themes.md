@@ -43,8 +43,9 @@ to start from.
 | `colors.error` | errors, the Caps Lock and layout warnings and a low battery |
 | `colors.outline` | a solid outline around the field, the session, the power buttons and the lists; `""` for a faint one around the field and the lists |
 | `font` | a font family; `""` for the default one |
-| `background` | an image for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`); paths are relative to the theme; a user's own (`backgrounds/<name>` next to the config) goes over it |
+| `background` | a picture for every screen, or one per output with `"*"` for the rest (`{"DP-1": "a.jpg", "*": "b.jpg"}`); a directory of them, one after another; a video (`.mp4`, `.webm`, `.mkv`, `.mov`, with `services.yokoso.video` on NixOS, Qt Multimedia elsewhere). Paths are relative to the theme; a user's own (`backgrounds/<name>` next to the config) goes over it |
 | `backgroundDim` | how much `colors.background` covers the image, `0` to `1` |
+| `backgroundEvery` | with a directory, the seconds before the next picture (`600`); `0` for one, picked at random, the whole time |
 | `animations` | `"auto"` (the default) for things that move unless everything is drawn in software (a VM without 3D), `true`, or `false` for none |
 | `status` | what a top corner shows: `"hostname"`, `"battery"`, both by default; `[]` for nothing |
 | `layout.form` | the form in the `"center"`, on the `"left"` or on the `"right"` |

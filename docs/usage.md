@@ -19,7 +19,8 @@ one, so yokoso says where to.
 A user's picture is `/etc/yokoso/avatars/<name>`, in any format Qt reads,
 else AccountsService's (`/var/lib/AccountsService/icons/<name>`), else their
 initial. `/etc/yokoso/backgrounds/<name>` is a background of their own, on
-every screen while they're picked, over the theme's.
+every screen while they're picked, over the theme's: a picture, or a
+directory of pictures and videos, one after another.
 
 ## Keys
 

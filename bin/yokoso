@@ -282,6 +282,15 @@ if [ "$uses_nvidia" = false ]; then
 	done
 fi
 
+# A video background (Qt Multimedia) through ffmpeg only, decoded by VAAPI
+# when the first render node, where VAAPI looks, is the GPU that drives the
+# screens, else on the CPU: trying CUDA and the rest wakes an idle NVIDIA
+# GPU too ("none", which Qt calls an unknown type, is none at all).
+export QT_MEDIA_BACKEND=ffmpeg QT_FFMPEG_ENCODING_HW_DEVICE_TYPES=none QT_FFMPEG_DECODING_HW_DEVICE_TYPES=none
+if [ "$render_node" = /dev/dri/renderD128 ] && [ "$uses_nvidia" = false ]; then
+	export QT_FFMPEG_DECODING_HW_DEVICE_TYPES=vaapi
+fi
+
 # Connected screens and the physical size their EDID gives (first detailed
 # timing, else the basic block's centimetres; 0 when unknown).
 screens_json() {
@@ -318,7 +327,8 @@ accounts() {
 # a picture, if the greeter can read one: avatars/<name> next to the
 # config, else AccountsService's (not ~/.face: homes are rarely readable,
 # and a network one would hold up the login screen); and a background of
-# their own, backgrounds/<name> next to the config.
+# their own, backgrounds/<name> next to the config (a picture, a video or
+# a directory of them).
 users_json() {
 	min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
 	max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
@@ -332,7 +342,7 @@ users_json() {
 			[ -f "$f" ] && [ -r "$f" ] && icon=$f && break
 		done
 		background=${YOKOSO_CONFIG%/*}/backgrounds/$name
-		[ -f "$background" ] && [ -r "$background" ] || background=
+		[ -e "$background" ] && [ -r "$background" ] || background=
 		printf '%s\n%s\n%s\n%s\n' "$name" "$real" "$icon" "$background"
 	done | jq -R . | jq -s '[range(0; length; 4) as $i | {name: .[$i], realName: .[$i + 1], icon: .[$i + 2], background: .[$i + 3]}]'
 }
@@ -484,9 +494,27 @@ else
 	sessions=$(sessions_json)
 	users=$(users_json)
 fi
+
+# A directory as a background (the config's, the theme's or a user's): the
+# pictures and videos in it, sorted, for a slideshow, as { <dir>: [files] }.
+slides_json() {
+	printf '%s\n%s\n%s\n' "$config_json" "$theme" "$users" | jq -r '
+		if type == "array" then .[].background else .background end
+		| if type == "object" then .[] else . end | strings | select(. != "")' |
+		sort -u | while IFS= read -r dir; do
+			[ -d "$dir" ] || continue
+			for f in "$dir"/*; do
+				[ -f "$f" ] || continue
+				case $(printf '%s' "${f##*.}" | tr '[:upper:]' '[:lower:]') in
+				jpg | jpeg | png | webp | svg | mp4 | webm | mkv | mov) echo "$f" ;;
+				esac
+			done | jq -R . | jq -sc --arg dir "$dir" '{($dir): .}'
+		done | jq -s 'add // {}'
+}
+theme=$(theme_json)
 jq -n --argjson screens "$(screens_json)" --argjson sessions "$sessions" \
 	--argjson users "$users" --argjson power "$(power_json)" \
-	--argjson config "$config_json" --argjson theme "$(theme_json)" \
+	--argjson config "$config_json" --argjson theme "$theme" --argjson slides "$(slides_json)" \
 	--argjson safeTheme "$(jq -c . "$shell_dir/themes/dark.json")" --argjson strings "$(strings_json)" \
 	--arg hostname "$(cat /proc/sys/kernel/hostname 2>/dev/null)" \
 	--arg lid "$lid" --argjson capsLeds "$caps_leds" --argjson numLeds "$num_leds" \
@@ -494,7 +522,7 @@ jq -n --argjson screens "$(screens_json)" --argjson sessions "$sessions" \
 	'{screens: $screens, sessions: $sessions, users: $users, power: $power,
 		lid: $lid, capsLeds: $capsLeds, numLeds: $numLeds, backlights: $backlights, battery: $battery,
 		hostname: $hostname, software: $software, config: $config, theme: $theme, safeTheme: $safeTheme,
-		strings: $strings}' \
+		strings: $strings, slides: $slides}' \
 	>"$run_dir/env.json"
 
 # The UI scale the QML side comes to, near enough for the cursor's size:

@@ -91,8 +91,9 @@ On NixOS, `services.yokoso.autologin.user = "alice";` (and `.session`,
 | `themes.<name>` | `/etc/yokoso/themes/<name>.json`, for `settings.theme = "<name>"`, typed the same way; a `look = ./mine.qml;` in one is copied to the store |
 | `autologin.user`, `autologin.session` | a login without the greeter, [above](#logging-in-without-the-greeter) |
 | `lock.enable` | `yokoso lock`, a [lock screen](usage.md#locking-the-screen), and its PAM service |
+| `video` | video backgrounds: Qt Multimedia, a closure of over a gigabyte |
 | `avatars.<user>` | the user's picture (`./alice.png`) |
-| `backgrounds.<user>` | the user's own background (`./alice.jpg`) |
+| `backgrounds.<user>` | the user's own background (`./alice.jpg`, or a directory) |
 | `cursor.package`, `cursor.name`, `cursor.size` | the cursor theme (`pkgs.bibata-cursors`, `"Bibata-Modern-Classic"`) and its size at scale 1 (24) |
 | `package` | yokoso itself |
 

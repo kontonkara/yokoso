@@ -22,9 +22,14 @@ in
 
         lock.enable = lib.mkEnableOption "`yokoso lock`, a lock screen for Wayland sessions (ext-session-lock), with its PAM service";
 
+        video = lib.mkEnableOption "video backgrounds (a video, or one in a directory, as `background`): Qt Multimedia, a closure of over a gigabyte";
+
         package = lib.mkOption {
           type = lib.types.package;
-          default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+          default = self.packages.${pkgs.stdenv.hostPlatform.system}.default.override {
+            inherit (cfg) video;
+          };
+          defaultText = lib.literalExpression "yokoso's package, with Qt Multimedia for `video`";
           description = "The yokoso package.";
         };
 

@@ -12,6 +12,7 @@
   "font": "",
   "background": "",
   "backgroundDim": 0.4,
+  "backgroundEvery": 600,
   "animations": "auto",
   "status": ["hostname", "battery"],
   "layout": {

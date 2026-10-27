@@ -53,14 +53,19 @@
           };
 
           # nix run .#shots -- <out>: the working tree's greeter, headless, in
-          # tests/shots.sh's scenarios.
+          # tests/shots.sh's scenarios; with Qt Multimedia, for a video, and
+          # ffmpeg to make one.
           shots = {
             type = "app";
             program = nixpkgs.lib.getExe (
               pkgs.writeShellApplication {
                 name = "yokoso-shots";
-                runtimeInputs = shooting;
-                text = ''exec sh ${./tests/shots.sh} "$@"'';
+                runtimeInputs = shooting ++ [ pkgs.ffmpeg-headless ];
+                text = ''
+                  export QML_IMPORT_PATH=${pkgs.qt6.qtmultimedia}/lib/qt-6/qml
+                  export QT_PLUGIN_PATH=${pkgs.qt6.qtmultimedia}/lib/qt-6/plugins
+                  exec sh ${./tests/shots.sh} "$@"
+                '';
               }
             );
           };

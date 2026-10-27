@@ -10,6 +10,7 @@ url="https://github.com/kontonkara/yokoso"
 license=(MIT)
 depends=(greetd greetd-agreety quickshell cage jq gawk systemd)
 makedepends=(git make)
+optdepends=("qt6-multimedia-ffmpeg: video backgrounds")
 provides=(yokoso)
 conflicts=(yokoso)
 backup=(etc/pam.d/yokoso-lock)
