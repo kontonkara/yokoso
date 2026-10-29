@@ -7,6 +7,8 @@ import QtQuick
 // backgroundDim. The next one, another user's or a directory's, fades in
 // over the one before. Fill the look with it.
 Item {
+	id: background
+
 	// A picture, a GIF, or a video (VideoLayer.qml, with Qt Multimedia).
 	component Layer: Item {
 		id: layer
@@ -91,8 +93,25 @@ Item {
 		}
 	}
 
+	// Locked, each screen's surface has a stage of its own: only that
+	// screen's background (the stage's lockScreen), not every screen's on
+	// every surface.
+	property var lockScreen: null
+	property bool placed: false
+
+	Component.onCompleted: {
+		for (let p = parent; p; p = p.parent) {
+			if ("lockScreen" in p) {
+				lockScreen = p.lockScreen;
+				break;
+			}
+		}
+		placed = true;
+	}
+
 	Repeater {
-		model: Greeter.core.screens
+		model: !background.placed ? [] : background.lockScreen
+			? Greeter.core.screens.filter(s => s.name === background.lockScreen.name) : Greeter.core.screens
 
 		Item {
 			id: place
