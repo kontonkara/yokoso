@@ -11,7 +11,7 @@
 # QML complained in any of them.
 set -eu
 
-scenarios="base sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides gif video keyboard"
+scenarios="base login sessions light wrong one screens cursor idle russian layout look ended other nolist typed locks safe software sidebar pinned f4 own tab backtab tabpick reveal contrast contrastlist ctrlu firmware entry userbg userswitch card nonlatin slides gif video keyboard"
 
 [ -f bin/yokoso ] && [ -d shell ] || {
 	echo "shots: run it in yokoso's repository" >&2
@@ -116,6 +116,9 @@ complained=0
 for name; do
 	case $name in
 	base) shot base 1500 '' ;;
+	# All the way into the session, which ends the greeter before its
+	# picture: what QML says as it goes.
+	login) shot login 6000 '' YOKOSO_TEST_ANSWERS=password,9 ;;
 	sessions) shot sessions 3000 "$(keys 'wtype -k F3; sleep 0.2; wtype -k Down; sleep 0.3')" ;;
 	light) shot light 3000 "$(keys 'wtype -k F2; sleep 0.2; wtype -k Down; sleep 0.3')" \
 		YOKOSO_CONFIG="$work/conf/light.json" ;;
@@ -196,7 +199,7 @@ for name; do
 		;;
 	esac
 	line="$name:"
-	[ -s "$out/$name.png" ] || line="$line no picture!"
+	[ -s "$out/$name.png" ] || [ "$name" = login ] || line="$line no picture!"
 	if [ -n "$against" ] && [ -f "$against/$name.png" ]; then
 		line="$line $(magick compare -metric AE "$against/$name.png" "$out/$name.png" null: 2>&1 | cut -d' ' -f1) pixels differ"
 	fi
