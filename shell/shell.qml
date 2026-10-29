@@ -711,6 +711,7 @@ ShellRoot {
 		failedText: root.tr("Wrong password")
 		expiredText: root.tr("The password has expired: change it with passwd on a text console (Ctrl+Alt+F2)")
 		deniedText: root.tr("This account can't log in now")
+		onLaunched: root.quit()
 	}
 
 	Unlock {
@@ -721,12 +722,21 @@ ShellRoot {
 		failedText: root.tr("Wrong password")
 		onUnlocked: {
 			lock.locked = false;
-			// The parts let go of the core before it goes.
-			Qt.callLater(() => {
-				Greeter.core = null;
-				Qt.quit();
-			});
+			root.quit();
 		}
+	}
+
+	// At the end: the looks go, then the parts let go of the core, while
+	// QML still runs (gone with it, the core would come back to them as
+	// undefined).
+	property bool ending: false
+
+	function quit() {
+		ending = true;
+		Qt.callLater(() => {
+			Greeter.core = null;
+			Qt.quit();
+		});
 	}
 
 	Connections {

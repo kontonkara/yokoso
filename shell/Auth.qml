@@ -32,6 +32,9 @@ QtObject {
 	property string message: ""
 	property bool messageIsError: false
 
+	// The session is greetd's: the greeter is to quit.
+	signal launched
+
 	// After a failure greetd answers the cancel_session Quickshell sends, and
 	// Quickshell (0.3.1) doesn't wait for that answer: a createSession sent
 	// before it arrives would get it as its own reply. So a new attempt
@@ -100,7 +103,8 @@ QtObject {
 				if (more && typeof more === "object" && !Array.isArray(more))
 					Object.assign(vars, more);
 			}
-			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], Object.keys(vars).map(k => `${k}=${vars[k]}`), true);
+			// The greeter quits itself, at launched().
+			Greetd.launch(x11 ? [auth.x11Wrapper, s.exec] : [s.exec], Object.keys(vars).map(k => `${k}=${vars[k]}`), false);
 		}
 	}
 
@@ -145,6 +149,11 @@ QtObject {
 		function onReadyToLaunch() {
 			auth.phase = "launching";
 			auth.launchTimer.start();
+		}
+
+		// greetd has the session: it starts once the greeter is gone.
+		function onLaunched() {
+			auth.launched();
 		}
 	}
 }

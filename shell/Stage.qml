@@ -57,7 +57,7 @@ Rectangle {
 	// Keyboard), on the one stage that has the keys.
 	Loader {
 		z: 1
-		active: stage.core.config.keyboard === true && stage.active && stage.visible
+		active: stage.core.config.keyboard === true && stage.active && stage.visible && !stage.core.ending
 		source: "Keyboard.qml"
 		onStatusChanged: if (status === Loader.Error)
 			console.warn("yokoso: the on-screen keyboard takes Qt Virtual Keyboard")
@@ -78,7 +78,7 @@ Rectangle {
 
 		anchors.fill: parent
 		focus: true
-		active: stage.visible
+		active: stage.visible && !stage.core.ending
 		onBuiltInChanged: Qt.callLater(load)
 		Component.onCompleted: {
 			// The parts reach the core through Greeter.
