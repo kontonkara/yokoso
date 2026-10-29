@@ -524,14 +524,12 @@ ShellRoot {
 		idle = true;
 		const levels = {};
 		const low = {};
-		for (let i = 0; i < backlights.count; i++) {
-			const b = backlights.objectAt(i);
-			b.reload();
-			const level = Number(b.text());
-			const least = Math.max(1, Math.round(b.modelData.max / 100));
+		for (const b of env.backlights || []) {
+			const level = Number(readFile(`/sys/class/backlight/${b.name}/brightness`));
+			const least = Math.max(1, Math.round(b.max / 100));
 			if (level > least) {
-				levels[b.modelData.name] = level;
-				low[b.modelData.name] = least;
+				levels[b.name] = level;
+				low[b.name] = least;
 			}
 		}
 		dimmed = levels;
@@ -544,19 +542,6 @@ ShellRoot {
 		interval: root.config.idle * 1000
 		running: root.config.idle > 0 && !root.idle && root.auth.phase !== "launching"
 		onTriggered: root.sleep()
-	}
-
-	Instantiator {
-		id: backlights
-
-		model: root.env.backlights || []
-		delegate: FileView {
-			required property var modelData
-
-			path: `/sys/class/backlight/${modelData.name}/brightness`
-			blockLoading: true
-			printErrors: false
-		}
 	}
 
 	FileView {
