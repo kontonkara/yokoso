@@ -26,7 +26,8 @@ lets an editor check one.
 ```
 
 Every key is optional. A theme goes on top of the one it `extends` (`dark`
-when it doesn't say; by name, a theme in the same folder first), and the
+when it doesn't say; by name, a theme in the same folder first, so a
+`light.json` there that extends `light` changes the built-in one), and the
 config's keys on top of the theme; `colors` and `layout` merge key by key.
 A theme that can't be read is left out, with a warning in the journal.
 [`examples/catppuccin-mocha.json`](../examples/catppuccin-mocha.json) is one

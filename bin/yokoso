@@ -358,14 +358,18 @@ theme_json() {
 	[ -n "$ref" ] || ref=dark
 	theme='{}'
 	near=
+	prev=
 	depth=0
 	while [ "$depth" -lt 8 ]; do
 		case $ref in
 		/*) file=$ref ;;
 		*)
-			file=${near:+$near/$ref.json}
-			[ -n "$file" ] && [ -e "$file" ] || file=${YOKOSO_CONFIG%/*}/themes/$ref.json
-			[ -e "$file" ] || file=$shell_dir/themes/$ref.json
+			# Not the theme that names it: "light" extending "light" is
+			# the built-in one under it.
+			file=$shell_dir/themes/$ref.json
+			for f in ${near:+"$near/$ref.json"} "${YOKOSO_CONFIG%/*}/themes/$ref.json"; do
+				[ -e "$f" ] && [ "$f" != "$prev" ] && file=$f && break
+			done
 			;;
 		esac
 		[ "$file" = "$base" ] && break
@@ -379,9 +383,11 @@ theme_json() {
 			theme=$(jq -nc --argjson low "$layer" --argjson high "$theme" '$low * $high')
 			ref=$(jq -nr --argjson layer "$layer" '$layer.extends // "dark"')
 			near=${file%/*}
+			prev=$file
 		else
 			warn "yokoso: can't read the theme $ref ($file), using dark"
 			near=
+			prev=
 			ref=dark
 		fi
 		depth=$((depth + 1))
