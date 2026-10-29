@@ -318,10 +318,10 @@ screens_json() {
 	done | jq -s .
 }
 
-# Every account NSS lists, but a directory (LDAP, sssd) that's slow to
+# Every account NSS lists (or the one named), but a directory (LDAP, sssd) that's slow to
 # answer mustn't hold up the login screen: after 5 s, /etc/passwd's.
 accounts() {
-	timeout 5 getent passwd 2>/dev/null && return
+	timeout 5 getent passwd ${1:+"$1"} 2>/dev/null && return
 	[ $? != 124 ] || warn "yokoso: listing the accounts took over 5 s, going with /etc/passwd's"
 	cat /etc/passwd
 }
@@ -332,12 +332,12 @@ accounts() {
 # config, else AccountsService's (not ~/.face: homes are rarely readable,
 # and a network one would hold up the login screen); and a background of
 # their own, backgrounds/<name> next to the config (a picture, a video or
-# a directory of them).
+# a directory of them). With a name, only that account, whatever it is.
 users_json() {
 	min=$(awk '$1 == "UID_MIN" { print $2 }' /etc/login.defs 2>/dev/null)
 	max=$(awk '$1 == "UID_MAX" { print $2 }' /etc/login.defs 2>/dev/null)
-	accounts | awk -F: -v min="${min:-1000}" -v max="${max:-60000}" '
-		($3 >= min && $3 <= max || $3 >= 60001 && $3 <= 60513) && $7 !~ /(nologin|false)$/ && !seen[$1]++ {
+	accounts "${1:-}" | awk -F: -v only="${1:-}" -v min="${min:-1000}" -v max="${max:-60000}" '
+		(only != "" ? $1 == only : ($3 >= min && $3 <= max || $3 >= 60001 && $3 <= 60513) && $7 !~ /(nologin|false)$/) && !seen[$1]++ {
 			real = $5; sub(/,.*/, "", real)
 			print $1; print (real == "" ? $1 : real)
 		}' | while IFS= read -r name && IFS= read -r real; do
@@ -499,7 +499,7 @@ strings_json() {
 # Locked, the user who locked it, and no sessions.
 if [ "$mode" = lock ]; then
 	sessions='[]'
-	users=$(users_json | jq --arg me "$(id -un)" 'map(select(.name == $me))')
+	users=$(users_json "$(id -un)")
 else
 	sessions=$(sessions_json)
 	users=$(users_json)
