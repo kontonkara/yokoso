@@ -132,8 +132,9 @@ ShellRoot {
 	// screen, else config.background's, one path for every screen or one
 	// per output, "*" for the rest.
 	function backgroundFor(name) {
-		if (user && user.background)
-			return fileUrl(slideOf(user.background));
+		const own = user && user.background ? slideOf(user.background) : "";
+		if (own)
+			return fileUrl(own);
 		const bg = config.background;
 		return fileUrl(slideOf(typeof bg === "string" ? bg : bg && (bg[name] || bg["*"]) || ""));
 	}
@@ -144,9 +145,10 @@ ShellRoot {
 	// in a preview or a shot); not while the screen is dark.
 	property int slide: live ? Math.floor(Math.random() * 1000) : 0
 
+	// (A directory without them is no background.)
 	function slideOf(path) {
 		const slides = env.slides && env.slides[path];
-		return slides && slides.length ? slides[slide % slides.length] : path;
+		return !slides ? path : slides.length ? slides[slide % slides.length] : "";
 	}
 
 	Timer {
