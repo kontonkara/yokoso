@@ -125,8 +125,13 @@ QtObject {
 			input.forceActiveFocus();
 	}
 
-	// The entry at `index` of pickList ("Other…" types a name).
+	// The entry at `index` of pickList ("Other…" types a name); none (-1,
+	// for a typed name that isn't listed) only closes it.
 	function pick(index) {
+		if (index < 0 || index >= pickList.length) {
+			closePicker();
+			return;
+		}
 		const other = picking === "user" && index === core.users.length;
 		if (picking === "user" && !other)
 			core.pickUser(core.users[index]);
