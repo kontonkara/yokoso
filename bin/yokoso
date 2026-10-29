@@ -41,6 +41,22 @@ restore_backlight() {
 	: >"$YOKOSO_BACKLIGHT"
 }
 
+# A session's command line (jq, on a session of sessions_json's), with the
+# variables the greeter gives one: XDG_SESSION_TYPE, XDG_CURRENT_DESKTOP
+# and XDG_SESSION_DESKTOP, then config.env's and the session's.
+# shellcheck disable=SC2016 # jq's $config
+session_command='def session_command($config):
+	(.desktopNames // "" | split(";") | map(select(. != ""))) as $desktops
+	| (.id | if endswith(".desktop") then rtrimstr(".desktop") else "" end) as $name
+	| ({XDG_SESSION_TYPE: .type}
+		+ (if $desktops != [] or $name != "" then
+			{XDG_CURRENT_DESKTOP: ($desktops | join(":") | if . == "" then $name else . end),
+				XDG_SESSION_DESKTOP: ($desktops[0] // $name)}
+		else {} end)
+		+ ($config.env // {} | objects | map_values(tostring)) + (.env // {})) as $vars
+	| "env \($vars | to_entries | map("\(.key)=\(.value)" | @sh) | join(" ")) /bin/sh -c "
+		+ ("exec " + (if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end) | @sh);'
+
 # As greetd's greeter, any failure (here, in cage or in Quickshell) falls back
 # to greetd's text greeter, so a broken yokoso doesn't lock anyone out. It
 # logs in to the session yokoso would have started, or the user's shell.
@@ -51,13 +67,10 @@ fallback() {
 	restore_backlight
 	config=$(jq -c 'objects' "${YOKOSO_CONFIG:-/etc/yokoso/config.json}" 2>/dev/null)
 	[ -n "$config" ] || config={}
-	cmd=$(jq -r --argjson config "$config" '
+	cmd=$(jq -r --argjson config "$config" "$session_command"'
 		($config.session // "") as $want
 		| [(.sessions[] | select(.id == $want or .id == "\($want).desktop")), .sessions[]][0] // empty
-		| (($config.env // {} | objects) + (.env // {}) | to_entries | map("\(.key)=\(.value)" | @sh)) as $vars
-		| (if $vars == [] then "" else "env \($vars | join(" ")) " end)
-			+ (if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end)
-		' "$run_dir/env.json" 2>/dev/null)
+		| session_command($config)' "$run_dir/env.json" 2>/dev/null)
 	exec agreety --cmd "${cmd:-\$SHELL}"
 }
 if [ "$mode" = greeter ]; then
@@ -172,18 +185,9 @@ sessions_json() {
 # aren't the session's business.
 if [ "$mode" = session ]; then
 	want=${2:-$(config '.session // "" | strings')}
-	command=$(sessions_json | jq -r --arg want "$want" --argjson config "$config_json" '
+	command=$(sessions_json | jq -r --arg want "$want" --argjson config "$config_json" "$session_command"'
 		[(.[] | select(.id == $want or .id == "\($want).desktop")), .[]][0] // empty
-		| (.desktopNames | split(";") | map(select(. != ""))) as $desktops
-		| (.id | if endswith(".desktop") then rtrimstr(".desktop") else "" end) as $name
-		| ({XDG_SESSION_TYPE: .type}
-			+ (if $desktops != [] or $name != "" then
-				{XDG_CURRENT_DESKTOP: ($desktops | join(":") | if . == "" then $name else . end),
-					XDG_SESSION_DESKTOP: ($desktops[0] // $name)}
-			else {} end)
-			+ ($config.env // {} | objects | map_values(tostring)) + (.env // {})) as $vars
-		| "env \($vars | to_entries | map("\(.key)=\(.value)" | @sh) | join(" ")) /bin/sh -c "
-			+ ("exec " + (if .type == "x11" then "\($config.x11Wrapper // "startx /usr/bin/env") \(.exec)" else .exec end) | @sh)')
+		| session_command($config)')
 	if [ -z "$command" ]; then
 		warn "yokoso: no session to start${want:+ by the name $want}"
 		exit 1
