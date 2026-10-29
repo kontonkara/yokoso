@@ -54,10 +54,11 @@ Rectangle {
 	}
 
 	// The on-screen keyboard, over the look (Keyboard.qml, with Qt Virtual
-	// Keyboard), on the one stage that has the keys.
+	// Keyboard), on the one stage that has the keys: config.json's, as the
+	// launcher's input method is.
 	Loader {
 		z: 1
-		active: stage.core.config.keyboard === true && stage.active && stage.visible && !stage.core.ending
+		active: stage.core.configFile.keyboard === true && stage.active && stage.visible && !stage.core.ending
 		source: "Keyboard.qml"
 		onStatusChanged: if (status === Loader.Error)
 			console.warn("yokoso: the on-screen keyboard takes Qt Virtual Keyboard")
