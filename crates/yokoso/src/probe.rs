@@ -48,6 +48,8 @@ pub struct Probe {
     overlays: std::collections::HashMap<Place, (String, Option<Paragraph>)>,
     /// The last thing the pointer or keyboard did, said in words.
     heard: String,
+    /// The last scroll, kept apart: what comes after must not hide it.
+    scrolled: String,
     /// Each place's field and what it heard, laid out; dropped when they change.
     field: std::collections::HashMap<Place, (Paragraph, Paragraph)>,
 }
@@ -215,6 +217,9 @@ impl Shell for Probe {
                 format!("{:?} {:?}{}", k.keysym, k.state, if k.mods.ctrl { " ctrl" } else { "" })
             }
         };
+        if matches!(input, Input::Scroll(_)) {
+            self.scrolled = heard.clone();
+        }
         if heard != self.heard || self.typed.len() != typed {
             self.heard = heard;
             self.field.clear();
@@ -434,6 +439,7 @@ impl crate::ipc::Answer for Probe {
                 "config_error": self.config_error,
                 "accent": format!("{:?}", self.config.probe.accent.0),
                 "heard": self.heard,
+                "scrolled": self.scrolled,
                 "outputs": ui.outputs().iter().map(|o| json!({
                     "name": o.name, "description": o.description, "size": o.size,
                 })).collect::<Vec<_>>(),
