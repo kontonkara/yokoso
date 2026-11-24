@@ -12,6 +12,8 @@ pub struct Probe {
     moving_for: Option<f64>,
     /// Per output: when its square started, and where it is, 0 to 1.
     squares: std::collections::HashMap<OutputId, (Option<f64>, f32)>,
+    /// Outputs whose last update moved only the square.
+    moved: std::collections::HashSet<OutputId>,
 }
 
 /// How long one way along the track takes, seconds.
@@ -48,6 +50,7 @@ impl Shell for Probe {
         let Some(duration) = self.moving_for else {
             return false;
         };
+        self.moved.insert(key);
         let (started, at) = self.squares.entry(key).or_insert((None, 0.0));
         // Motion starts at its first frame, never at the moment it was asked.
         let start = *started.get_or_insert(time.now);
@@ -64,6 +67,10 @@ impl Shell for Probe {
         let phase = (elapsed / SWEEP) % 2.0;
         *at = if phase < 1.0 { phase } else { 2.0 - phase } as f32;
         true
+    }
+
+    fn damage(&mut self, key: OutputId) -> Option<Vec<Rect>> {
+        self.moved.remove(&key).then(|| vec![track()])
     }
 
     fn render(&self, key: OutputId, frame: &mut Frame) {
@@ -95,12 +102,17 @@ impl Shell for Probe {
             accent.alpha(0.6),
         );
         // The track and its square.
-        let track = Rect::new(card.x + 16.0, card.y + 200.0, WIDTH - 32.0, 32.0);
+        let track = track();
         frame.fill(track, 16.0, Color::WHITE.alpha(0.08));
         let at = self.squares.get(&key).map_or(0.0, |(_, at)| *at);
         let square = Rect::new(track.x + 4.0 + at * (track.w - 32.0), track.y + 4.0, 24.0, 24.0);
         frame.fill(square, 6.0, accent);
     }
+}
+
+/// Where the square runs.
+fn track() -> Rect {
+    Rect::new(MARGIN + 16.0, MARGIN + 200.0, WIDTH - 32.0, 32.0)
 }
 
 impl crate::ipc::Answer for Probe {
@@ -126,6 +138,7 @@ impl crate::ipc::Answer for Probe {
                     "wakeups": stats.wakeups,
                     "frames": stats.frames,
                     "last_frame_ms": stats.last_frame * 1000.0,
+                    "partial": stats.partial,
                 }))
             }
             Some("dump") => Ok(json!({
