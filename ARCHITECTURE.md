@@ -68,6 +68,18 @@ When a surface draws:
   only that region.
 - Images decode on a worker thread, never in a frame.
 
+## Text
+
+- Parley lays text out; swash rasterizes its glyphs into the atlas. Fonts
+  and their fallbacks are fontconfig's, opened at run time.
+- Chosen over cosmic-text by a probe in stage 0: Parley follows the
+  system's font settings by itself and shapes about twice as fast; what it
+  lacks, an ellipsis, is a few lines here.
+- Text is laid out in layout, at the surface's scale, so glyphs sit on its
+  pixels; render only draws it.
+- Emoji get a family of their own, in color: left to fallbacks they go to
+  the first font that has them, often in plain outlines.
+
 ## Scale
 
 - Buffers are drawn at the surface's fractional scale
