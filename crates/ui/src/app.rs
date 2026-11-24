@@ -6,14 +6,16 @@
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData},
     output::{OutputHandler, OutputState},
+    presentation_time::{PresentTime, PresentationTimeHandler, PresentationTimeState},
     reexports::{
         calloop::{EventLoop, LoopHandle, channel},
         calloop_wayland_source::WaylandSource,
         client::{
-            Connection, Proxy, QueueHandle,
+            Connection, Proxy, QueueHandle, WEnum,
             globals::registry_queue_init,
             protocol::{wl_output, wl_surface},
         },
+        protocols::wp::presentation_time::client::wp_presentation_feedback,
     },
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -160,6 +162,10 @@ pub struct SurfaceInfo {
     pub frames: u64,
     pub waiting: bool,
     pub moving: bool,
+    /// The output's refresh, Hz, as the last presented frame said.
+    pub refresh: f64,
+    /// Frames shown a second, as the last presented ones went.
+    pub fps: f64,
 }
 
 /// Counts of what the process did, for the debug overlay and `msg stats`.
@@ -189,6 +195,10 @@ struct Surface<K> {
     waiting: bool,
     moving: bool,
     last_time: Option<f64>,
+    /// When the last frame was shown, and the refresh period then, seconds.
+    presented: Option<f64>,
+    refresh: Option<f64>,
+    fps: f64,
     frames: u64,
 }
 
@@ -215,6 +225,7 @@ pub struct Ui<S: Shell> {
     compositor: CompositorState,
     layer_shell: Option<LayerShell>,
     scaling: Option<Scaling>,
+    presentation: Option<PresentationTimeState>,
     gpu: Gpu,
     painter: Painter,
     outputs: Vec<(Output, wl_output::WlOutput)>,
@@ -273,6 +284,8 @@ impl<S: Shell> Ui<S> {
                 frames: s.frames,
                 waiting: s.waiting,
                 moving: s.moving,
+                refresh: s.refresh.map_or(0.0, |r| 1.0 / r),
+                fps: s.fps,
             })
             .collect()
     }
@@ -380,6 +393,9 @@ impl<S: Shell> Ui<S> {
             waiting: false,
             moving: false,
             last_time: None,
+            presented: None,
+            refresh: None,
+            fps: 0.0,
             frames: 0,
         })
     }
@@ -410,8 +426,8 @@ impl<S: Shell> Ui<S> {
 
     fn draw(&mut self, shell: &mut S, index: usize) -> Result<(), String> {
         let started = std::time::Instant::now();
-        let now = monotonic();
         let surface = &mut self.surfaces[index];
+        let now = frame_time(monotonic(), surface.presented, surface.refresh);
         let key = surface.key;
         // Update.
         let dt = match (surface.moving, surface.last_time) {
@@ -446,6 +462,9 @@ impl<S: Shell> Ui<S> {
                 .viewport
                 .set_destination(surface.size.0 as i32, surface.size.1 as i32);
         }
+        if let Some(presentation) = &self.presentation {
+            let _ = presentation.feedback(surface.wl(), &self.qh);
+        }
         // The next frame is the compositor's to ask for.
         surface.wl().frame(&self.qh, FrameCallbackData(surface.wl().clone()));
         surface.waiting = true;
@@ -474,6 +493,19 @@ fn apply_layer(layer: &LayerSurface, spec: &LayerSpec) {
     layer.set_margin(top, right, bottom, left);
     layer.set_exclusive_zone(spec.exclusive_zone);
     layer.set_keyboard_interactivity(spec.keyboard);
+}
+
+/// The time a frame made `now` will likely be shown: the first vblank after
+/// now, counted from the last presented frame. Motion stepped by these moves
+/// in even steps, whatever the CPU was doing. Plain `now` where nothing was
+/// presented lately.
+fn frame_time(now: f64, presented: Option<f64>, refresh: Option<f64>) -> f64 {
+    match (presented, refresh) {
+        (Some(shown), Some(period)) if period > 0.0 && now >= shown && now - shown < 1.0 => {
+            shown + ((now - shown) / period).ceil().max(1.0) * period
+        }
+        _ => now,
+    }
 }
 
 /// Seconds of CLOCK_MONOTONIC, the clock the compositor's timestamps use.
@@ -518,6 +550,7 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         compositor: CompositorState::bind(&globals, &qh).map_err(|error| error.to_string())?,
         layer_shell: LayerShell::bind(&globals, &qh).ok(),
         scaling: Scaling::bind(&globals, &qh),
+        presentation: Some(PresentationTimeState::bind(&globals, &qh)),
         qh,
         gpu,
         painter,
@@ -643,3 +676,68 @@ impl<S: Shell> ProvidesRegistryState for App<S> {
 
 smithay_client_toolkit::delegate_registry!(@<S: Shell> App<S>);
 smithay_client_toolkit::delegate_dispatch2!(@<S: Shell> App<S>);
+
+impl<S: Shell> PresentationTimeHandler for App<S> {
+    fn presentation_time_state(&mut self) -> &mut PresentationTimeState {
+        self.ui.presentation.as_mut().expect("bound at start")
+    }
+
+    fn presented(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wp_presentation_feedback::WpPresentationFeedback,
+        wl: &wl_surface::WlSurface,
+        _: Vec<wl_output::WlOutput>,
+        time: PresentTime,
+        refresh: u32,
+        _: u64,
+        _: WEnum<wp_presentation_feedback::Kind>,
+    ) {
+        if let Some(surface) = self.ui.surfaces.iter_mut().find(|s| s.wl() == wl) {
+            let shown = time.tv_sec as f64 + time.tv_nsec as f64 * 1e-9;
+            if let Some(before) = surface.presented {
+                let gap = shown - before;
+                if gap > 0.0 {
+                    // Smoothed a little: one late frame should not swing it.
+                    let rate = 1.0 / gap;
+                    surface.fps = if surface.fps == 0.0 {
+                        rate
+                    } else {
+                        surface.fps * 0.8 + rate * 0.2
+                    };
+                }
+            }
+            surface.presented = Some(shown);
+            surface.refresh = (refresh > 0).then_some(refresh as f64 * 1e-9);
+        }
+    }
+
+    fn discarded(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wp_presentation_feedback::WpPresentationFeedback,
+        _: &wl_surface::WlSurface,
+    ) {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_time;
+
+    #[test]
+    fn frames_land_on_the_next_vblank() {
+        let period = 1.0 / 240.0;
+        // Just after a frame was shown: the next one, one period on.
+        let t = frame_time(10.0 + period * 0.1, Some(10.0), Some(period));
+        assert!((t - (10.0 + period)).abs() < 1e-9);
+        // Late by two and a half periods: the third vblank.
+        let t = frame_time(10.0 + period * 2.5, Some(10.0), Some(period));
+        assert!((t - (10.0 + 3.0 * period)).abs() < 1e-9);
+        // Long idle: plain now.
+        assert_eq!(frame_time(20.0, Some(10.0), Some(period)), 20.0);
+        assert_eq!(frame_time(5.0, None, None), 5.0);
+    }
+}
