@@ -22,6 +22,10 @@ use smithay_client_toolkit::{
     shell::{
         WaylandSurface,
         wlr_layer::{LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
+        xdg::{
+            XdgShell,
+            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
+        },
     },
 };
 
@@ -52,6 +56,16 @@ pub struct OutputId(u32);
 #[derive(Clone, Debug, PartialEq)]
 pub enum Spec {
     Layer(LayerSpec),
+    /// A plain window, for trying a part without touching the session.
+    Window(WindowSpec),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowSpec {
+    pub title: String,
+    pub app_id: String,
+    /// Logical pixels, until the compositor says otherwise.
+    pub size: (u32, u32),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -117,6 +131,11 @@ pub trait Shell: Sized + 'static {
 
     /// Render: paints `key`. The state is only read here.
     fn render(&self, key: Self::Key, frame: &mut Frame);
+
+    /// The user closed the window `key`. Quits, unless the shell says else.
+    fn closed(&mut self, ui: &mut Ui<Self>, _key: Self::Key) {
+        ui.quit();
+    }
 }
 
 /// Painting a surface, in its logical pixels.
@@ -189,9 +208,9 @@ pub struct Stats {
 struct Surface<K> {
     key: K,
     spec: Spec,
-    // Before the layer: dropped before its surface is.
+    // Before the role: dropped before its surface is.
     scaled: Option<Scaled>,
-    layer: LayerSurface,
+    role: Role,
     target: Option<Target>,
     /// Logical size, as configured.
     size: (u32, u32),
@@ -214,9 +233,25 @@ struct Surface<K> {
     drawn: (i32, i32),
 }
 
+enum Role {
+    Layer(LayerSurface),
+    Window(Window),
+}
+
 impl<K> Surface<K> {
     fn wl(&self) -> &wl_surface::WlSurface {
-        self.layer.wl_surface()
+        match &self.role {
+            Role::Layer(layer) => layer.wl_surface(),
+            Role::Window(window) => window.wl_surface(),
+        }
+    }
+
+    fn is_layer(&self, layer: &LayerSurface) -> bool {
+        matches!(&self.role, Role::Layer(own) if own == layer)
+    }
+
+    fn is_window(&self, window: &Window) -> bool {
+        matches!(&self.role, Role::Window(own) if own == window)
     }
 
     fn buffer_size(&self) -> (i32, i32) {
@@ -236,6 +271,7 @@ pub struct Ui<S: Shell> {
     output_state: OutputState,
     compositor: CompositorState,
     layer_shell: Option<LayerShell>,
+    xdg: Option<XdgShell>,
     scaling: Option<Scaling>,
     presentation: Option<PresentationTimeState>,
     gpu: Gpu,
@@ -342,20 +378,28 @@ impl<S: Shell> Ui<S> {
         let wanted = shell.surfaces(&outputs);
         let mut index = 0;
         while index < self.surfaces.len() {
-            let surface = &self.surfaces[index];
-            match wanted.iter().find(|(key, _)| *key == surface.key) {
-                Some((_, spec)) if *spec == surface.spec => index += 1,
-                Some((_, Spec::Layer(new))) if same_place(&surface.spec, new) => {
-                    let surface = &mut self.surfaces[index];
-                    apply_layer(&surface.layer, new);
+            let surface = &mut self.surfaces[index];
+            let changed_in_place = match (wanted.iter().find(|(key, _)| *key == surface.key), &surface.role) {
+                (Some((_, spec)), _) if *spec == surface.spec => true,
+                (Some((_, Spec::Layer(new))), Role::Layer(layer)) if same_place(&surface.spec, new) => {
+                    apply_layer(layer, new);
+                    layer.commit();
                     surface.spec = Spec::Layer(new.clone());
-                    surface.layer.commit();
-                    index += 1;
+                    true
                 }
-                _ => {
-                    let gone = self.surfaces.remove(index);
-                    self.drop_surface(gone);
+                (Some((_, Spec::Window(new))), Role::Window(window)) => {
+                    window.set_title(new.title.clone());
+                    window.set_app_id(new.app_id.clone());
+                    surface.spec = Spec::Window(new.clone());
+                    true
                 }
+                _ => false,
+            };
+            if changed_in_place {
+                index += 1;
+            } else {
+                let gone = self.surfaces.remove(index);
+                self.drop_surface(gone);
             }
         }
         for (key, spec) in wanted {
@@ -370,35 +414,44 @@ impl<S: Shell> Ui<S> {
     }
 
     fn make(&self, key: S::Key, spec: &Spec) -> Result<Surface<S::Key>, String> {
-        let Spec::Layer(layer_spec) = spec;
-        let layer_shell = self.layer_shell.as_ref().ok_or("the compositor has no layer shell")?;
-        let output = self
-            .outputs
-            .iter()
-            .find(|(output, _)| output.id == layer_spec.output)
-            .map(|(_, wl)| wl)
-            .ok_or("no such output")?;
         let wl = self.compositor.create_surface(&self.qh);
-        let layer = layer_shell.create_layer_surface(
-            &self.qh,
-            wl,
-            layer_spec.layer,
-            Some(layer_spec.namespace.clone()),
-            Some(output),
-        );
-        apply_layer(&layer, layer_spec);
-        let scaled = self
-            .scaling
-            .as_ref()
-            .map(|scaling| scaling.attach(layer.wl_surface(), &self.qh));
-        layer.commit();
+        let scaled = self.scaling.as_ref().map(|scaling| scaling.attach(&wl, &self.qh));
+        let (role, size) = match spec {
+            Spec::Layer(layer_spec) => {
+                let layer_shell = self.layer_shell.as_ref().ok_or("the compositor has no layer shell")?;
+                let output = self
+                    .outputs
+                    .iter()
+                    .find(|(output, _)| output.id == layer_spec.output)
+                    .map(|(_, wl)| wl)
+                    .ok_or("no such output")?;
+                let layer = layer_shell.create_layer_surface(
+                    &self.qh,
+                    wl,
+                    layer_spec.layer,
+                    Some(layer_spec.namespace.clone()),
+                    Some(output),
+                );
+                apply_layer(&layer, layer_spec);
+                layer.commit();
+                (Role::Layer(layer), layer_spec.size)
+            }
+            Spec::Window(window_spec) => {
+                let xdg = self.xdg.as_ref().ok_or("the compositor has no xdg shell")?;
+                let window = xdg.create_window(wl, WindowDecorations::RequestServer, &self.qh);
+                window.set_title(window_spec.title.clone());
+                window.set_app_id(window_spec.app_id.clone());
+                window.commit();
+                (Role::Window(window), window_spec.size)
+            }
+        };
         Ok(Surface {
             key,
             spec: spec.clone(),
             scaled,
-            layer,
+            role,
             target: None,
-            size: layer_spec.size,
+            size,
             scale: 1.0,
             configured: false,
             dirty: true,
@@ -529,8 +582,7 @@ impl<S: Shell> Ui<S> {
 
 /// Whether a layer can change into `new` in place: same output and layer.
 fn same_place(old: &Spec, new: &LayerSpec) -> bool {
-    let Spec::Layer(old) = old;
-    old.output == new.output && old.layer == new.layer && old.namespace == new.namespace
+    matches!(old, Spec::Layer(old) if old.output == new.output && old.layer == new.layer && old.namespace == new.namespace)
 }
 
 fn apply_layer(layer: &LayerSurface, spec: &LayerSpec) {
@@ -596,6 +648,7 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         output_state: OutputState::new(&globals, &qh),
         compositor: CompositorState::bind(&globals, &qh).map_err(|error| error.to_string())?,
         layer_shell: LayerShell::bind(&globals, &qh).ok(),
+        xdg: XdgShell::bind(&globals, &qh).ok(),
         scaling: Scaling::bind(&globals, &qh),
         presentation: Some(PresentationTimeState::bind(&globals, &qh)),
         qh,
@@ -686,7 +739,7 @@ impl<S: Shell> OutputHandler for App<S> {
 
 impl<S: Shell> LayerShellHandler for App<S> {
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, layer: &LayerSurface) {
-        if let Some(index) = self.ui.surfaces.iter().position(|s| &s.layer == layer) {
+        if let Some(index) = self.ui.surfaces.iter().position(|s| s.is_layer(layer)) {
             let gone = self.ui.surfaces.remove(index);
             tracing::info!(key = ?gone.key, "closed by the compositor");
             self.ui.drop_surface(gone);
@@ -701,13 +754,14 @@ impl<S: Shell> LayerShellHandler for App<S> {
         configure: LayerSurfaceConfigure,
         _: u32,
     ) {
-        if let Some(surface) = self.ui.surfaces.iter_mut().find(|s| &s.layer == layer) {
+        if let Some(surface) = self.ui.surfaces.iter_mut().find(|s| s.is_layer(layer)) {
             let (w, h) = configure.new_size;
-            let Spec::Layer(spec) = &surface.spec;
-            surface.size = (
-                if w == 0 { spec.size.0 } else { w },
-                if h == 0 { spec.size.1 } else { h },
-            );
+            if let Spec::Layer(spec) = &surface.spec {
+                surface.size = (
+                    if w == 0 { spec.size.0 } else { w },
+                    if h == 0 { spec.size.1 } else { h },
+                );
+            }
             surface.configured = true;
             surface.dirty = true;
         }
@@ -767,6 +821,33 @@ impl<S: Shell> PresentationTimeHandler for App<S> {
         _: &wp_presentation_feedback::WpPresentationFeedback,
         _: &wl_surface::WlSurface,
     ) {
+    }
+}
+
+impl<S: Shell> WindowHandler for App<S> {
+    fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, window: &Window) {
+        if let Some(key) = self.ui.surfaces.iter().find(|s| s.is_window(window)).map(|s| s.key) {
+            self.shell.closed(&mut self.ui, key);
+        }
+    }
+
+    fn configure(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        window: &Window,
+        configure: WindowConfigure,
+        _: u32,
+    ) {
+        if let Some(surface) = self.ui.surfaces.iter_mut().find(|s| s.is_window(window)) {
+            let (w, h) = configure.new_size;
+            surface.size = (
+                w.map_or(surface.size.0, |w| w.get()),
+                h.map_or(surface.size.1, |h| h.get()),
+            );
+            surface.configured = true;
+            surface.dirty = true;
+        }
     }
 }
 
