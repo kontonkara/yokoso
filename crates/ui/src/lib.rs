@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod atlas;
+pub mod el;
 pub mod geometry;
 pub mod gpu;
 pub mod input;
