@@ -151,6 +151,17 @@ impl Frame<'_> {
     }
 }
 
+/// A surface as it is now, for `msg dump`.
+#[derive(Clone, Debug)]
+pub struct SurfaceInfo {
+    pub key: String,
+    pub size: (u32, u32),
+    pub scale: f32,
+    pub frames: u64,
+    pub waiting: bool,
+    pub moving: bool,
+}
+
 /// Counts of what the process did, for the debug overlay and `msg stats`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Stats {
@@ -250,6 +261,20 @@ impl<S: Shell> Ui<S> {
 
     pub fn stats(&self) -> Stats {
         self.stats
+    }
+
+    pub fn surface_info(&self) -> Vec<SurfaceInfo> {
+        self.surfaces
+            .iter()
+            .map(|s| SurfaceInfo {
+                key: format!("{:?}", s.key),
+                size: s.size,
+                scale: s.scale,
+                frames: s.frames,
+                waiting: s.waiting,
+                moving: s.moving,
+            })
+            .collect()
     }
 
     pub fn quit(&mut self) {
@@ -465,7 +490,7 @@ pub struct App<S: Shell> {
 
 /// Runs `shell` until it quits. `start` runs once everything is up, to
 /// start the shell's services.
-pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>)) -> Result<(), String> {
+pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), String>) -> Result<(), String> {
     let conn = Connection::connect_to_env().map_err(|error| format!("no Wayland: {error}"))?;
     let (globals, queue) = registry_queue_init::<App<S>>(&conn).map_err(|error| error.to_string())?;
     let qh = queue.handle();
@@ -504,7 +529,7 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>)) -> Result<(), St
         quit: false,
     };
     let mut app = App { shell, ui };
-    start(&mut app);
+    start(&mut app)?;
     let signal = event_loop.get_signal();
     event_loop
         .run(None, &mut app, |app| {

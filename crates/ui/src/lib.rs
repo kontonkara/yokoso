@@ -9,3 +9,5 @@ pub mod paint;
 pub mod scale;
 
 pub use geometry::{Color, Rect};
+
+pub use smithay_client_toolkit::reexports::calloop;

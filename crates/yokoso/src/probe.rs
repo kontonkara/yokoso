@@ -65,3 +65,31 @@ impl Shell for Probe {
         );
     }
 }
+
+impl crate::ipc::Answer for Probe {
+    fn answer(&mut self, ui: &mut yokoso_ui::app::Ui<Self>, words: &[String]) -> Result<serde_json::Value, String> {
+        use serde_json::json;
+        match words.first().map(String::as_str) {
+            Some("ping") => Ok(json!("pong")),
+            Some("stats") => {
+                let stats = ui.stats();
+                Ok(json!({
+                    "wakeups": stats.wakeups,
+                    "frames": stats.frames,
+                    "last_frame_ms": stats.last_frame * 1000.0,
+                }))
+            }
+            Some("dump") => Ok(json!({
+                "outputs": ui.outputs().iter().map(|o| json!({
+                    "name": o.name, "description": o.description, "size": o.size,
+                })).collect::<Vec<_>>(),
+                "surfaces": ui.surface_info().iter().map(|s| json!({
+                    "key": s.key, "size": s.size, "scale": s.scale, "frames": s.frames,
+                    "waiting": s.waiting, "moving": s.moving,
+                })).collect::<Vec<_>>(),
+            })),
+            Some(other) => Err(format!("no such command: {other}")),
+            None => Err("no command".into()),
+        }
+    }
+}
