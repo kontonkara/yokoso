@@ -109,6 +109,12 @@ pub trait Shell: Sized + 'static {
     /// Layout: sizes and positions for `view`.
     fn layout(&mut self, _key: Self::Key, _view: &View) {}
 
+    /// Where `key` changed since its last frame, in logical pixels; None for
+    /// all of it. Asked after layout.
+    fn damage(&mut self, _key: Self::Key) -> Option<Vec<Rect>> {
+        None
+    }
+
     /// Render: paints `key`. The state is only read here.
     fn render(&self, key: Self::Key, frame: &mut Frame);
 }
@@ -176,6 +182,8 @@ pub struct Stats {
     pub frames: u64,
     /// CPU time of the last frame, in seconds.
     pub last_frame: f64,
+    /// Frames that drew only what changed.
+    pub partial: u64,
 }
 
 struct Surface<K> {
@@ -200,6 +208,10 @@ struct Surface<K> {
     refresh: Option<f64>,
     fps: f64,
     frames: u64,
+    /// What each of the last few frames drew, buffer pixels, newest last.
+    history: Vec<Rect>,
+    /// The buffer size the last frame was drawn at.
+    drawn: (i32, i32),
 }
 
 impl<K> Surface<K> {
@@ -396,6 +408,8 @@ impl<S: Shell> Ui<S> {
             presented: None,
             refresh: None,
             fps: 0.0,
+            history: Vec::new(),
+            drawn: (0, 0),
             frames: 0,
         })
     }
@@ -443,6 +457,7 @@ impl<S: Shell> Ui<S> {
             scale: surface.scale,
         };
         shell.layout(key, &view);
+        let asked = shell.damage(key);
         // Render.
         let (width, height) = surface.buffer_size();
         match &surface.target {
@@ -451,12 +466,40 @@ impl<S: Shell> Ui<S> {
         }
         let target = surface.target.as_ref().expect("made above");
         self.gpu.bind(target)?;
+        // Only what changed, where the shell says what that is and the buffer
+        // is one whose age is known: this frame's damage and that of the
+        // frames the buffer missed. All of it after a resize.
+        let whole = Rect::new(0.0, 0.0, width as f32, height as f32);
+        let changed = match asked {
+            Some(rects) if surface.drawn == (width, height) => Some(
+                rects
+                    .iter()
+                    .fold(Rect::default(), |all, r| all.union(&r.covering(view.scale))),
+            ),
+            _ => None,
+        };
+        let age = self.gpu.buffer_age(target) as usize;
+        let region = changed
+            .filter(|_| age >= 1 && age - 1 <= surface.history.len())
+            .map(|changed| {
+                surface
+                    .history
+                    .iter()
+                    .rev()
+                    .take(age - 1)
+                    .fold(changed, |all, r| all.union(r))
+            });
+        surface.history.push(changed.unwrap_or(whole));
+        if surface.history.len() > 4 {
+            surface.history.remove(0);
+        }
+        surface.drawn = (width, height);
         let mut frame = Frame {
             painter: &mut self.painter,
             view,
         };
         shell.render(key, &mut frame);
-        self.painter.flush(&self.gpu.gl, width, height, None);
+        self.painter.flush(&self.gpu.gl, width, height, region);
         if let Some(scaled) = &surface.scaled {
             scaled
                 .viewport
@@ -469,7 +512,11 @@ impl<S: Shell> Ui<S> {
         surface.wl().frame(&self.qh, FrameCallbackData(surface.wl().clone()));
         surface.waiting = true;
         surface.dirty = false;
-        self.gpu.present(target, &[], height)?;
+        let region: Vec<Rect> = region.into_iter().filter(|r| !r.is_empty()).collect();
+        if !region.is_empty() {
+            self.stats.partial += 1;
+        }
+        self.gpu.present(target, &region, height)?;
         if surface.frames == 0 {
             tracing::info!(key = ?key, width, height, scale = surface.scale, "first frame");
         }
