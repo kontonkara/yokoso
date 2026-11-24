@@ -7,7 +7,7 @@ use yokoso_ui::{
         Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec, View,
         WindowSpec,
     },
-    text::Text,
+    text::{Paragraph, Style, Text},
 };
 
 /// Where a probe is: on an output, or in a window of its own.
@@ -23,6 +23,8 @@ pub struct Probe {
     window: bool,
     /// Each place's last view, from layout.
     views: std::collections::HashMap<Place, View>,
+    /// Each place's lines of text, laid out at its scale.
+    lines: std::collections::HashMap<Place, Vec<Paragraph>>,
     /// Seconds the square still has to move, once asked to.
     moving_for: Option<f64>,
     /// Per output: when its square started, and where it is, 0 to 1.
@@ -35,7 +37,7 @@ pub struct Probe {
 const SWEEP: f64 = 1.0;
 
 const WIDTH: f32 = 420.0;
-const HEIGHT: f32 = 260.0;
+const HEIGHT: f32 = 320.0;
 const MARGIN: f32 = 24.0;
 
 impl Shell for Probe {
@@ -92,8 +94,12 @@ impl Shell for Probe {
         true
     }
 
-    fn layout(&mut self, key: Place, view: &View, _text: &mut Text) {
+    fn layout(&mut self, key: Place, view: &View, text: &mut Text) {
+        let fresh = self.views.get(&key).is_none_or(|old| old.scale != view.scale);
         self.views.insert(key, *view);
+        if fresh || !self.lines.contains_key(&key) {
+            self.lines.insert(key, lines(text, view.scale));
+        }
     }
 
     fn damage(&mut self, key: Place) -> Option<Vec<Rect>> {
@@ -134,6 +140,17 @@ impl Shell for Probe {
             48.0,
             accent.alpha(0.6),
         );
+        // Text: a title, scripts and emoji, digits, and a line cut short.
+        let mut y = card.y + 148.0;
+        for (index, line) in self.lines.get(&key).into_iter().flatten().enumerate() {
+            let color = if index == 0 {
+                Color::WHITE
+            } else {
+                Color::WHITE.alpha(0.75)
+            };
+            frame.text(line, card.x + 16.0, y, color);
+            y += line.height() + 4.0;
+        }
         // The track and its square.
         let track = track(card);
         frame.fill(track, 16.0, Color::WHITE.alpha(0.08));
@@ -163,7 +180,36 @@ impl Probe {
 
 /// Where the square runs, in `card`.
 fn track(card: Rect) -> Rect {
-    Rect::new(card.x + 16.0, card.y + 200.0, card.w - 32.0, 32.0)
+    Rect::new(card.x + 16.0, card.bottom() - 48.0, card.w - 32.0, 32.0)
+}
+
+/// The probe's lines of text at `scale`.
+fn lines(text: &mut Text, scale: f32) -> Vec<Paragraph> {
+    let body = Style {
+        size: 13.0,
+        ..Style::default()
+    };
+    let title = Style {
+        size: 15.0,
+        weight: 600.0,
+        ..Style::default()
+    };
+    let digits = Style {
+        tabular: true,
+        ..body.clone()
+    };
+    vec![
+        text.layout(&format!("yokoso probe \u{b7} {scale}\u{d7}"), &title, scale, None, false),
+        text.layout("Latin, \u{41a}\u{438}\u{440}\u{438}\u{43b}\u{43b}\u{438}\u{446}\u{430}, \u{451}\u{401}, emoji \u{1f525}\u{1f389}", &body, scale, None, false),
+        text.layout("0123456789 \u{b7} 11:11 \u{b7} 00:00 \u{b7} 100%", &digits, scale, None, false),
+        text.layout(
+            "A line far too long for its place, so it has to end in an ellipsis well before its very end",
+            &body,
+            scale,
+            Some(WIDTH - 32.0),
+            true,
+        ),
+    ]
 }
 
 impl crate::ipc::Answer for Probe {
