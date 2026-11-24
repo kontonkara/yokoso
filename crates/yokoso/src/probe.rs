@@ -4,9 +4,10 @@
 use yokoso_ui::{
     Color, Rect,
     app::{
-        Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec, View,
+        Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec, Ui, View,
         WindowSpec,
     },
+    input::{Input, KeyState, Keysym, ScrollSource},
     text::{Paragraph, Style, Text},
 };
 
@@ -31,13 +32,19 @@ pub struct Probe {
     squares: std::collections::HashMap<Place, (Option<f64>, f32)>,
     /// Outputs whose last update moved only the square.
     moved: std::collections::HashSet<Place>,
+    /// What was typed into the field.
+    typed: String,
+    /// The last thing the pointer or keyboard did, said in words.
+    heard: String,
+    /// Each place's field and what it heard, laid out; dropped when they change.
+    field: std::collections::HashMap<Place, (Paragraph, Paragraph)>,
 }
 
 /// How long one way along the track takes, seconds.
 const SWEEP: f64 = 1.0;
 
 const WIDTH: f32 = 420.0;
-const HEIGHT: f32 = 320.0;
+const HEIGHT: f32 = 380.0;
 const MARGIN: f32 = 24.0;
 
 impl Shell for Probe {
@@ -63,7 +70,8 @@ impl Shell for Probe {
                     size: ((WIDTH + 2.0 * MARGIN) as u32, (HEIGHT + 2.0 * MARGIN) as u32),
                     margin: (0, 0, 0, 0),
                     exclusive_zone: 0,
-                    keyboard: KeyboardInteractivity::None,
+                    // The keyboard when clicked, for the field.
+                    keyboard: KeyboardInteractivity::OnDemand,
                     namespace: "yokoso-probe".into(),
                 };
                 (Place::Output(output.id), Spec::Layer(spec))
@@ -99,6 +107,72 @@ impl Shell for Probe {
         self.views.insert(key, *view);
         if fresh || !self.lines.contains_key(&key) {
             self.lines.insert(key, lines(text, view.scale));
+            self.field.remove(&key);
+        }
+        if !self.field.contains_key(&key) {
+            let style = Style {
+                size: 13.0,
+                ..Style::default()
+            };
+            let typed = if self.typed.is_empty() {
+                "Click and type"
+            } else {
+                &self.typed
+            };
+            let heard = if self.heard.is_empty() {
+                "No input yet"
+            } else {
+                &self.heard
+            };
+            let width = Some(WIDTH - 56.0);
+            let field = (
+                text.layout(typed, &style, view.scale, width, true),
+                text.layout(heard, &style, view.scale, width, true),
+            );
+            self.field.insert(key, field);
+        }
+    }
+
+    fn input(&mut self, ui: &mut Ui<Self>, key: Place, input: &Input) {
+        tracing::debug!(?input, "input");
+        let typed = self.typed.len();
+        let heard = match input {
+            Input::PointerEnter { x, y } | Input::PointerMove { x, y } => format!("pointer at {x:.0}, {y:.0}"),
+            Input::PointerLeave => "pointer left".into(),
+            Input::Press { button, .. } => format!("pressed {button:#x}"),
+            Input::Release { button, .. } => format!("released {button:#x}"),
+            Input::Scroll(scroll) => match scroll.source {
+                ScrollSource::Wheel | ScrollSource::WheelTilt => {
+                    format!("wheel: {} {} steps", scroll.steps_x, scroll.steps_y)
+                }
+                ScrollSource::Finger => format!(
+                    "fingers: {:.1} {:.1} px{}",
+                    scroll.x,
+                    scroll.y,
+                    if scroll.stop { ", lifted" } else { "" }
+                ),
+                ScrollSource::Continuous => format!("continuous: {:.1} {:.1} px", scroll.x, scroll.y),
+            },
+            Input::KeyboardEnter => "keyboard here".into(),
+            Input::KeyboardLeave => "keyboard gone".into(),
+            Input::Key(k) => {
+                if k.state != KeyState::Released {
+                    match (k.keysym, &k.text) {
+                        (Keysym::BackSpace, _) => {
+                            self.typed.pop();
+                        }
+                        (Keysym::Escape, _) => self.typed.clear(),
+                        (_, Some(text)) => self.typed.push_str(text),
+                        _ => {}
+                    }
+                }
+                format!("{:?} {:?}{}", k.keysym, k.state, if k.mods.ctrl { " ctrl" } else { "" })
+            }
+        };
+        if heard != self.heard || self.typed.len() != typed {
+            self.heard = heard;
+            self.field.clear();
+            ui.dirty(key);
         }
     }
 
@@ -150,6 +224,14 @@ impl Shell for Probe {
             };
             frame.text(line, card.x + 16.0, y, color);
             y += line.height() + 4.0;
+        }
+        // The field: what was typed, and what the pointer and keyboard did.
+        let field = Rect::new(card.x + 16.0, card.bottom() - 104.0, card.w - 32.0, 48.0);
+        frame.fill(field, 8.0, Color::WHITE.alpha(0.06));
+        frame.ring(field, 8.0, 1.0, Color::WHITE.alpha(0.2));
+        if let Some((typed, heard)) = self.field.get(&key) {
+            frame.text(typed, field.x + 12.0, field.y + 6.0, Color::WHITE);
+            frame.text(heard, field.x + 12.0, field.y + 26.0, Color::WHITE.alpha(0.6));
         }
         // The track and its square.
         let track = track(card);
@@ -239,6 +321,8 @@ impl crate::ipc::Answer for Probe {
                 }))
             }
             Some("dump") => Ok(json!({
+                "typed": self.typed,
+                "heard": self.heard,
                 "outputs": ui.outputs().iter().map(|o| json!({
                     "name": o.name, "description": o.description, "size": o.size,
                 })).collect::<Vec<_>>(),
