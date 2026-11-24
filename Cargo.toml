@@ -7,7 +7,7 @@ version = "0.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/kontonkara/yokoso"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

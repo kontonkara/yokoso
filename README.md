@@ -15,7 +15,7 @@ nix develop          # a shell with everything to build and test
 cargo build --release
 ```
 
-Without Nix: a Rust toolchain (1.85 or newer), `pkg-config`, and the
+Without Nix: a Rust toolchain (1.88 or newer), `pkg-config`, and the
 development files of `wayland` and `libxkbcommon`. EGL and GLES are loaded at
 run time from `libglvnd` or Mesa.
 
