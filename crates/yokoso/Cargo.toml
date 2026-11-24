@@ -12,3 +12,5 @@ workspace = true
 
 [dependencies]
 yokoso-ui = { path = "../ui" }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
