@@ -96,6 +96,40 @@ When a surface draws:
 - The keymap comes from the compositor (xkbcommon), with compose (dead keys)
   and the compositor's repeat rate and delay.
 
+## Elements
+
+Everything the shell shows is built from one set of elements, alike
+everywhere: button, toggle, slider, list, text field, card, tile, tooltip,
+menu, and the boxes that hold them.
+
+- **Described, then kept.** The shell describes what a surface shows as a tree
+  of light descriptions (`El`), built anew only when its state changes. The
+  toolkit keeps a tree of its own beside it, keyed by stable ids: each
+  element's hover, press and focus, its springs, scroll offsets and text being
+  edited live there, and survive every rebuild.
+- **Ids.** An element's id is its key where it has one, else its place under
+  its parent. Things that come and go in lists get keys. The same ids name
+  elements for accessibility, each with a role.
+- **Layout.** Rows, columns and stacks, with padding, gaps and alignment;
+  each side of an element hugs its content, fills what is left (by weight)
+  or is fixed. Lists lay out only the rows in view.
+- **Input.** A pointer event goes to the topmost element under it; keys go
+  to the focused one. Elements change their own state (hovered, pressed,
+  dragged) and send the shell messages (`on_press`, `on_change`); the shell
+  changes its state and rebuilds.
+- **Focus.** Tab and Shift+Tab walk the focusable elements in order; arrows
+  move within a group. The focus ring shows only after a key was pressed,
+  never on a click. Escape unwinds one level at a time: a menu, then a page,
+  then the surface.
+- **Theme.** Colors are Material 3 roles from a palette; sizes, spacing,
+  radii and type are tokens. Elements never hold a color or a size of their
+  own; changing the theme changes everything at once, without a flicker.
+- **Motion.** Every change of state that shows moves on a spring. A spring
+  aimed somewhere new keeps its speed, so interrupting never jerks. Springs
+  come from the motion settings: a preset or a stiffness and damping, a speed,
+  globally and per part; reduced turns bounces off, off makes everything
+  instant.
+
 ## Config
 
 - `config.toml` — written by Nix or by hand; yokoso only reads it.
