@@ -106,6 +106,13 @@ pub struct FrameTime {
     /// Since the frame before, while something moves; 0 for the first frame
     /// after idle, so motion never jumps over time it did not show.
     pub dt: f64,
+    /// How the surface has drawn so far, for a debug overlay: frames shown a
+    /// second, the output's refresh in Hz (0 when unknown), the CPU time of
+    /// its last frame in seconds, and its frames in all.
+    pub fps: f64,
+    pub refresh: f64,
+    pub cpu: f64,
+    pub frames: u64,
 }
 
 /// The shell: what it shows and how it answers. Its methods go in the order
@@ -248,6 +255,8 @@ struct Surface<K> {
     refresh: Option<f64>,
     fps: f64,
     frames: u64,
+    /// CPU time of the last frame, seconds.
+    cpu: f64,
     /// What each of the last few frames drew, buffer pixels, newest last.
     history: Vec<Rect>,
     /// The buffer size the last frame was drawn at.
@@ -501,6 +510,7 @@ impl<S: Shell> Ui<S> {
             history: Vec::new(),
             drawn: (0, 0),
             frames: 0,
+            cpu: 0.0,
         })
     }
 
@@ -548,7 +558,15 @@ impl<S: Shell> Ui<S> {
             (true, Some(last)) => (now - last).clamp(0.0, 0.1),
             _ => 0.0,
         };
-        surface.moving = shell.update(key, &FrameTime { now, dt });
+        let time = FrameTime {
+            now,
+            dt,
+            fps: surface.fps,
+            refresh: surface.refresh.map_or(0.0, |period| 1.0 / period),
+            cpu: surface.cpu,
+            frames: surface.frames,
+        };
+        surface.moving = shell.update(key, &time);
         surface.last_time = Some(now);
         // Layout.
         let view = View {
@@ -623,7 +641,8 @@ impl<S: Shell> Ui<S> {
         }
         surface.frames += 1;
         self.stats.frames += 1;
-        self.stats.last_frame = started.elapsed().as_secs_f64();
+        surface.cpu = started.elapsed().as_secs_f64();
+        self.stats.last_frame = surface.cpu;
         Ok(())
     }
 }
