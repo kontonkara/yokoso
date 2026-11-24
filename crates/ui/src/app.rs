@@ -384,7 +384,11 @@ impl<S: Shell> Ui<S> {
 
     fn output_changed(&mut self, wl: &wl_output::WlOutput, gone: bool) {
         let id = OutputId(wl.id().protocol_id());
-        self.outputs.retain(|(output, _)| output.id != id);
+        let old = self
+            .outputs
+            .iter()
+            .position(|(output, _)| output.id == id)
+            .map(|at| self.outputs.remove(at).0);
         if !gone && let Some(info) = self.output_state.info(wl) {
             let output = Output {
                 id,
@@ -392,12 +396,15 @@ impl<S: Shell> Ui<S> {
                 description: info.description.clone().unwrap_or_default(),
                 size: info.logical_size.unwrap_or((0, 0)),
             };
-            tracing::info!(name = %output.name, size = ?output.size, "output");
+            if old.as_ref() != Some(&output) {
+                tracing::info!(name = %output.name, size = ?output.size, "output");
+                self.refresh = true;
+            }
             self.outputs.push((output, wl.clone()));
         } else if gone {
             tracing::info!(?id, "output gone");
+            self.refresh = true;
         }
-        self.refresh = true;
     }
 
     /// Matches the surfaces with what the shell wants: new ones made, gone
