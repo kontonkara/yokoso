@@ -5,6 +5,7 @@ pub mod app;
 pub mod atlas;
 pub mod geometry;
 pub mod gpu;
+pub mod input;
 pub mod paint;
 pub mod scale;
 pub mod text;

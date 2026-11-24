@@ -13,12 +13,17 @@ use smithay_client_toolkit::{
         client::{
             Connection, Proxy, QueueHandle, WEnum,
             globals::registry_queue_init,
-            protocol::{wl_output, wl_surface},
+            protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_surface},
         },
         protocols::wp::presentation_time::client::wp_presentation_feedback,
     },
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
+    seat::{
+        Capability, SeatHandler, SeatState,
+        keyboard::{KeyEvent, KeyboardHandler, Modifiers, RawModifiers},
+        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+    },
     shell::{
         WaylandSurface,
         wlr_layer::{LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure},
@@ -34,6 +39,7 @@ pub use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity
 use crate::{
     geometry::{Color, Rect},
     gpu::{Gpu, Target},
+    input::{Input, Key, KeyState, Keysym, Mods, Scroll, ScrollSource},
     paint::Painter,
     scale::{Scaled, Scaling},
     text::{Paragraph, Text},
@@ -114,6 +120,9 @@ pub trait Shell: Sized + 'static {
     fn surfaces(&self, outputs: &[Output]) -> Vec<(Self::Key, Spec)>;
 
     fn message(&mut self, _ui: &mut Ui<Self>, _message: Self::Message) {}
+
+    /// Input on `key`. It changes state and marks dirty; it never draws.
+    fn input(&mut self, _ui: &mut Ui<Self>, _key: Self::Key, _input: &Input) {}
 
     /// Update: advances `key`'s state to `time`. True while something on it
     /// still moves.
@@ -281,6 +290,12 @@ pub struct Ui<S: Shell> {
     qh: QueueHandle<App<S>>,
     registry: RegistryState,
     output_state: OutputState,
+    seat: SeatState,
+    pointer: Option<wl_pointer::WlPointer>,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
+    /// The surface with the keyboard.
+    focus: Option<S::Key>,
+    mods: Mods,
     compositor: CompositorState,
     layer_shell: Option<LayerShell>,
     xdg: Option<XdgShell>,
@@ -672,6 +687,11 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         handle: event_loop.handle(),
         registry: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
+        seat: SeatState::new(&globals, &qh),
+        pointer: None,
+        keyboard: None,
+        focus: None,
+        mods: Mods::default(),
         compositor: CompositorState::bind(&globals, &qh).map_err(|error| error.to_string())?,
         layer_shell: LayerShell::bind(&globals, &qh).ok(),
         xdg: XdgShell::bind(&globals, &qh).ok(),
@@ -800,7 +820,7 @@ impl<S: Shell> ProvidesRegistryState for App<S> {
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.ui.registry
     }
-    registry_handlers![OutputState];
+    registry_handlers![OutputState, SeatState];
 }
 
 smithay_client_toolkit::delegate_registry!(@<S: Shell> App<S>);
@@ -876,6 +896,218 @@ impl<S: Shell> WindowHandler for App<S> {
             surface.configured = true;
             surface.dirty = true;
         }
+    }
+}
+
+impl<S: Shell> SeatHandler for App<S> {
+    fn seat_state(&mut self) -> &mut SeatState {
+        &mut self.ui.seat
+    }
+
+    fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+
+    fn new_capability(
+        &mut self,
+        _: &Connection,
+        qh: &QueueHandle<Self>,
+        seat: wl_seat::WlSeat,
+        capability: Capability,
+    ) {
+        if capability == Capability::Pointer && self.ui.pointer.is_none() {
+            self.ui.pointer = self.ui.seat.get_pointer(qh, &seat).ok();
+        }
+        if capability == Capability::Keyboard && self.ui.keyboard.is_none() {
+            // Repeats at the compositor's rate and delay, timed on the loop.
+            let repeat = Box::new(|app: &mut App<S>, _: &wl_keyboard::WlKeyboard, event: KeyEvent| {
+                app.key(event, KeyState::Repeated);
+            });
+            self.ui.keyboard = self
+                .ui
+                .seat
+                .get_keyboard_with_repeat(qh, &seat, None, self.ui.handle.clone(), repeat)
+                .ok();
+        }
+    }
+
+    fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat, capability: Capability) {
+        if capability == Capability::Pointer
+            && let Some(pointer) = self.ui.pointer.take()
+        {
+            pointer.release();
+        }
+        if capability == Capability::Keyboard
+            && let Some(keyboard) = self.ui.keyboard.take()
+        {
+            keyboard.release();
+        }
+    }
+
+    fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl<S: Shell> PointerHandler for App<S> {
+    fn pointer_frame(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_pointer::WlPointer,
+        events: &[PointerEvent],
+    ) {
+        for event in events {
+            let Some(key) = self
+                .ui
+                .surfaces
+                .iter()
+                .find(|s| s.wl() == &event.surface)
+                .map(|s| s.key)
+            else {
+                continue;
+            };
+            let (x, y) = (event.position.0 as f32, event.position.1 as f32);
+            let input = match event.kind {
+                PointerEventKind::Enter { .. } => Input::PointerEnter { x, y },
+                PointerEventKind::Leave { .. } => Input::PointerLeave,
+                PointerEventKind::Motion { .. } => Input::PointerMove { x, y },
+                PointerEventKind::Press { button, .. } => Input::Press { button, x, y },
+                PointerEventKind::Release { button, .. } => Input::Release { button, x, y },
+                // A frame with neither motion nor fingers lifted carries nothing.
+                PointerEventKind::Axis {
+                    horizontal, vertical, ..
+                } if horizontal.is_none() && vertical.is_none() => continue,
+                PointerEventKind::Axis {
+                    horizontal,
+                    vertical,
+                    source,
+                    ..
+                } => {
+                    let source = match source {
+                        Some(wl_pointer::AxisSource::Finger) => ScrollSource::Finger,
+                        Some(wl_pointer::AxisSource::Continuous) => ScrollSource::Continuous,
+                        Some(wl_pointer::AxisSource::WheelTilt) => ScrollSource::WheelTilt,
+                        _ => ScrollSource::Wheel,
+                    };
+                    Input::Scroll(Scroll {
+                        x: horizontal.absolute as f32,
+                        y: vertical.absolute as f32,
+                        steps_x: steps(horizontal.value120, horizontal.discrete),
+                        steps_y: steps(vertical.value120, vertical.discrete),
+                        source,
+                        stop: horizontal.stop || vertical.stop,
+                    })
+                }
+            };
+            self.shell.input(&mut self.ui, key, &input);
+        }
+    }
+}
+
+/// Wheel steps from `value120`, or from the older whole `discrete` ones.
+fn steps(value120: i32, discrete: i32) -> f32 {
+    if value120 != 0 {
+        value120 as f32 / 120.0
+    } else {
+        discrete as f32
+    }
+}
+
+impl<S: Shell> KeyboardHandler for App<S> {
+    #[allow(clippy::too_many_arguments)]
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        wl: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+        self.ui.focus = self.ui.surfaces.iter().find(|s| s.wl() == wl).map(|s| s.key);
+        if let Some(key) = self.ui.focus {
+            self.shell.input(&mut self.ui, key, &Input::KeyboardEnter);
+        }
+    }
+
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+        if let Some(key) = self.ui.focus.take() {
+            self.shell.input(&mut self.ui, key, &Input::KeyboardLeave);
+        }
+    }
+
+    fn press_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        self.key(event, KeyState::Pressed);
+    }
+
+    fn repeat_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        self.key(event, KeyState::Repeated);
+    }
+
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        self.key(event, KeyState::Released);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        modifiers: Modifiers,
+        _: RawModifiers,
+        _: u32,
+    ) {
+        self.ui.mods = Mods {
+            ctrl: modifiers.ctrl,
+            alt: modifiers.alt,
+            shift: modifiers.shift,
+            logo: modifiers.logo,
+            caps_lock: modifiers.caps_lock,
+            num_lock: modifiers.num_lock,
+        };
+    }
+}
+
+impl<S: Shell> App<S> {
+    fn key(&mut self, event: KeyEvent, state: KeyState) {
+        let Some(key) = self.ui.focus else { return };
+        let input = Input::Key(Key {
+            keysym: event.keysym,
+            text: event
+                .utf8
+                .filter(|text| !text.is_empty() && !text.chars().any(char::is_control)),
+            state,
+            mods: self.ui.mods,
+        });
+        self.shell.input(&mut self.ui, key, &input);
     }
 }
 
