@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 const USAGE: &str = "usage: yokoso [shell [--window]]
        yokoso validate [file]          (the config and its overrides, or one file)
-       yokoso msg <command> [args…]   (ping, stats, dump, reload, move [seconds])";
+       yokoso msg <command> [args…]   (ping, stats, dump, reload, overlay [on|off], move [seconds])";
 
 fn main() -> ExitCode {
     // First, before any thread: it changes the environment.

@@ -42,6 +42,10 @@ pub struct Probe {
     config: crate::config::Config,
     /// Why the config on disk is not the one in force, if it isn't.
     config_error: Option<String>,
+    /// The debug overlay as `msg overlay` set it; None follows the config.
+    overlay: Option<bool>,
+    /// Each place's overlay: what it says, and that laid out.
+    overlays: std::collections::HashMap<Place, (String, Option<Paragraph>)>,
     /// The last thing the pointer or keyboard did, said in words.
     heard: String,
     /// Each place's field and what it heard, laid out; dropped when they change.
@@ -94,6 +98,23 @@ impl Shell for Probe {
     }
 
     fn update(&mut self, key: Place, time: &FrameTime) -> bool {
+        if self.overlay_on() {
+            let says = format!(
+                "{:.0} fps \u{b7} {} \u{b7} {:.2} ms \u{b7} {} frames",
+                time.fps,
+                if time.refresh > 0.0 {
+                    format!("{:.0} Hz", time.refresh)
+                } else {
+                    "? Hz".into()
+                },
+                time.cpu * 1000.0,
+                time.frames
+            );
+            let entry = self.overlays.entry(key).or_insert((String::new(), None));
+            if entry.0 != says {
+                *entry = (says, None);
+            }
+        }
         let Some(duration) = self.moving_for else {
             return false;
         };
@@ -122,6 +143,17 @@ impl Shell for Probe {
         if fresh || !self.lines.contains_key(&key) {
             self.lines.insert(key, lines(text, view.scale));
             self.field.remove(&key);
+        }
+        if fresh {
+            self.overlays.remove(&key);
+        }
+        if let Some((says, laid @ None)) = self.overlays.get_mut(&key) {
+            let style = Style {
+                size: 11.0,
+                tabular: true,
+                ..Style::default()
+            };
+            *laid = Some(text.layout(says, &style, view.scale, None, false));
         }
         if !self.field.contains_key(&key) {
             let style = Style {
@@ -192,7 +224,10 @@ impl Shell for Probe {
 
     fn damage(&mut self, key: Place) -> Option<Vec<Rect>> {
         let card = self.card(key);
-        self.moved.remove(&key).then(|| vec![track(card)])
+        let overlay = self.overlay_on().then(|| self.overlay_rect(key));
+        self.moved
+            .remove(&key)
+            .then(|| [Some(track(card)), overlay].into_iter().flatten().collect())
     }
 
     fn render(&self, key: Place, frame: &mut Frame) {
@@ -254,6 +289,14 @@ impl Shell for Probe {
         let at = self.squares.get(&key).map_or(0.0, |(_, at)| *at);
         let square = Rect::new(track.x + 4.0 + at * (track.w - 32.0), track.y + 4.0, 24.0, 24.0);
         frame.fill(square, 6.0, accent);
+        // The debug overlay, over everything.
+        if self.overlay_on()
+            && let Some((_, Some(says))) = self.overlays.get(&key)
+        {
+            let at = self.overlay_rect(key);
+            frame.fill(at, at.h / 2.0, Color::BLACK.alpha(0.7));
+            frame.text(says, at.x + 8.0, at.y + (at.h - says.height()) / 2.0, Color::WHITE);
+        }
     }
 }
 
@@ -263,6 +306,20 @@ impl Probe {
             window,
             config,
             ..Self::default()
+        }
+    }
+
+    fn overlay_on(&self) -> bool {
+        self.overlay.unwrap_or(self.config.debug.overlay)
+    }
+
+    /// Where the overlay goes: in the layer's margin above the card, or on a
+    /// window's top left.
+    fn overlay_rect(&self, key: Place) -> Rect {
+        let card = self.card(key);
+        match key {
+            Place::Output(_) => Rect::new(card.x, 2.0, 300.0, 20.0),
+            Place::Window => Rect::new(card.x + 8.0, card.y + 8.0, 300.0, 20.0),
         }
     }
 
@@ -333,6 +390,17 @@ impl crate::ipc::Answer for Probe {
         use serde_json::json;
         match words.first().map(String::as_str) {
             Some("ping") => Ok(json!("pong")),
+            Some("overlay") => {
+                let on = match words.get(1).map(String::as_str) {
+                    Some("on") => true,
+                    Some("off") => false,
+                    None => !self.overlay_on(),
+                    Some(other) => return Err(format!("on or off, not {other}")),
+                };
+                self.overlay = Some(on);
+                ui.dirty_all();
+                Ok(json!(on))
+            }
             Some("reload") => {
                 self.apply(ui, crate::config::load(&crate::config::dir()));
                 match &self.config_error {
