@@ -3,17 +3,31 @@
 
 use yokoso_ui::{
     Color, Rect,
-    app::{Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec},
+    app::{
+        Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec, View,
+        WindowSpec,
+    },
 };
+
+/// Where a probe is: on an output, or in a window of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Place {
+    Output(OutputId),
+    Window,
+}
 
 #[derive(Default)]
 pub struct Probe {
+    /// In a window, instead of on every output.
+    window: bool,
+    /// Each place's last view, from layout.
+    views: std::collections::HashMap<Place, View>,
     /// Seconds the square still has to move, once asked to.
     moving_for: Option<f64>,
     /// Per output: when its square started, and where it is, 0 to 1.
-    squares: std::collections::HashMap<OutputId, (Option<f64>, f32)>,
+    squares: std::collections::HashMap<Place, (Option<f64>, f32)>,
     /// Outputs whose last update moved only the square.
-    moved: std::collections::HashSet<OutputId>,
+    moved: std::collections::HashSet<Place>,
 }
 
 /// How long one way along the track takes, seconds.
@@ -24,10 +38,18 @@ const HEIGHT: f32 = 260.0;
 const MARGIN: f32 = 24.0;
 
 impl Shell for Probe {
-    type Key = OutputId;
+    type Key = Place;
     type Message = ();
 
-    fn surfaces(&self, outputs: &[Output]) -> Vec<(OutputId, Spec)> {
+    fn surfaces(&self, outputs: &[Output]) -> Vec<(Place, Spec)> {
+        if self.window {
+            let spec = WindowSpec {
+                title: "yokoso probe".into(),
+                app_id: "yokoso".into(),
+                size: (WIDTH as u32, HEIGHT as u32),
+            };
+            return vec![(Place::Window, Spec::Window(spec))];
+        }
         outputs
             .iter()
             .map(|output| {
@@ -41,12 +63,12 @@ impl Shell for Probe {
                     keyboard: KeyboardInteractivity::None,
                     namespace: "yokoso-probe".into(),
                 };
-                (output.id, Spec::Layer(spec))
+                (Place::Output(output.id), Spec::Layer(spec))
             })
             .collect()
     }
 
-    fn update(&mut self, key: OutputId, time: &FrameTime) -> bool {
+    fn update(&mut self, key: Place, time: &FrameTime) -> bool {
         let Some(duration) = self.moving_for else {
             return false;
         };
@@ -69,15 +91,25 @@ impl Shell for Probe {
         true
     }
 
-    fn damage(&mut self, key: OutputId) -> Option<Vec<Rect>> {
-        self.moved.remove(&key).then(|| vec![track()])
+    fn layout(&mut self, key: Place, view: &View) {
+        self.views.insert(key, *view);
     }
 
-    fn render(&self, key: OutputId, frame: &mut Frame) {
-        let card = Rect::new(MARGIN, MARGIN, WIDTH, HEIGHT);
-        frame.shadow(card.grow(-2.0), 8.0, 16.0, Color::BLACK.alpha(0.45));
-        frame.fill(card, 8.0, Color::hex("#1d1b20").unwrap_or(Color::BLACK));
-        frame.ring(card, 8.0, 1.0, Color::WHITE.alpha(0.12));
+    fn damage(&mut self, key: Place) -> Option<Vec<Rect>> {
+        let card = self.card(key);
+        self.moved.remove(&key).then(|| vec![track(card)])
+    }
+
+    fn render(&self, key: Place, frame: &mut Frame) {
+        let card = self.card(key);
+        let background = Color::hex("#1d1b20").unwrap_or(Color::BLACK);
+        if key == Place::Window {
+            frame.fill(card, 0.0, background);
+        } else {
+            frame.shadow(card.grow(-2.0), 8.0, 16.0, Color::BLACK.alpha(0.45));
+            frame.fill(card, 8.0, background);
+            frame.ring(card, 8.0, 1.0, Color::WHITE.alpha(0.12));
+        }
         // Sharpness: one-pixel lines a pixel apart, and a checker.
         let inner = Rect::new(card.x + 16.0, card.y + 16.0, 120.0, 120.0);
         for step in 0..30 {
@@ -102,7 +134,7 @@ impl Shell for Probe {
             accent.alpha(0.6),
         );
         // The track and its square.
-        let track = track();
+        let track = track(card);
         frame.fill(track, 16.0, Color::WHITE.alpha(0.08));
         let at = self.squares.get(&key).map_or(0.0, |(_, at)| *at);
         let square = Rect::new(track.x + 4.0 + at * (track.w - 32.0), track.y + 4.0, 24.0, 24.0);
@@ -110,9 +142,27 @@ impl Shell for Probe {
     }
 }
 
-/// Where the square runs.
-fn track() -> Rect {
-    Rect::new(MARGIN + 16.0, MARGIN + 200.0, WIDTH - 32.0, 32.0)
+impl Probe {
+    pub fn new(window: bool) -> Self {
+        Self {
+            window,
+            ..Self::default()
+        }
+    }
+
+    /// The card: in from the layer's edges, or all of a window.
+    fn card(&self, key: Place) -> Rect {
+        match (key, self.views.get(&key)) {
+            (Place::Window, Some(view)) => Rect::new(0.0, 0.0, view.width, view.height),
+            (Place::Window, None) => Rect::new(0.0, 0.0, WIDTH, HEIGHT),
+            (Place::Output(_), _) => Rect::new(MARGIN, MARGIN, WIDTH, HEIGHT),
+        }
+    }
+}
+
+/// Where the square runs, in `card`.
+fn track(card: Rect) -> Rect {
+    Rect::new(card.x + 16.0, card.y + 200.0, card.w - 32.0, 32.0)
 }
 
 impl crate::ipc::Answer for Probe {

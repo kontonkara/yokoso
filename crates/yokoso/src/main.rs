@@ -5,7 +5,7 @@ mod probe;
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: yokoso [shell]
+const USAGE: &str = "usage: yokoso [shell [--window]]
        yokoso msg <command> [args…]   (ping, stats, dump, move [seconds])";
 
 fn main() -> ExitCode {
@@ -21,7 +21,7 @@ fn main() -> ExitCode {
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let done = match args.first().map(String::as_str) {
-        None | Some("shell") => shell(),
+        None | Some("shell") => shell(args.iter().any(|arg| arg == "--window")),
         Some("msg") if args.len() > 1 => ipc::send(&args[1..]),
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
@@ -41,9 +41,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn shell() -> Result<(), String> {
+fn shell(window: bool) -> Result<(), String> {
     let mut socket = None;
-    let done = yokoso_ui::app::run(probe::Probe::default(), |app| {
+    let done = yokoso_ui::app::run(probe::Probe::new(window), |app| {
         socket = Some(ipc::listen(&app.ui)?);
         Ok(())
     });
