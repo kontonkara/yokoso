@@ -6,5 +6,6 @@ pub mod atlas;
 pub mod geometry;
 pub mod gpu;
 pub mod paint;
+pub mod scale;
 
 pub use geometry::{Color, Rect};

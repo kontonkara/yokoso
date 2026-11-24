@@ -29,6 +29,7 @@ use crate::{
     geometry::{Color, Rect},
     gpu::{Gpu, Target},
     paint::Painter,
+    scale::{Scaled, Scaling},
 };
 
 /// An output as the shell sees it.
@@ -163,6 +164,8 @@ pub struct Stats {
 struct Surface<K> {
     key: K,
     spec: Spec,
+    // Before the layer: dropped before its surface is.
+    scaled: Option<Scaled>,
     layer: LayerSurface,
     target: Option<Target>,
     /// Logical size, as configured.
@@ -200,6 +203,7 @@ pub struct Ui<S: Shell> {
     output_state: OutputState,
     compositor: CompositorState,
     layer_shell: Option<LayerShell>,
+    scaling: Option<Scaling>,
     gpu: Gpu,
     painter: Painter,
     outputs: Vec<(Output, wl_output::WlOutput)>,
@@ -250,6 +254,16 @@ impl<S: Shell> Ui<S> {
 
     pub fn quit(&mut self) {
         self.quit = true;
+    }
+
+    pub(crate) fn set_scale(&mut self, wl: &wl_surface::WlSurface, scale: f32) {
+        if let Some(surface) = self.surfaces.iter_mut().find(|s| s.wl() == wl)
+            && surface.scale != scale
+        {
+            tracing::info!(key = ?surface.key, scale, "scale");
+            surface.scale = scale;
+            surface.dirty = true;
+        }
     }
 
     fn output_changed(&mut self, wl: &wl_output::WlOutput, gone: bool) {
@@ -323,10 +337,15 @@ impl<S: Shell> Ui<S> {
             Some(output),
         );
         apply_layer(&layer, layer_spec);
+        let scaled = self
+            .scaling
+            .as_ref()
+            .map(|scaling| scaling.attach(layer.wl_surface(), &self.qh));
         layer.commit();
         Ok(Surface {
             key,
             spec: spec.clone(),
+            scaled,
             layer,
             target: None,
             size: layer_spec.size,
@@ -397,6 +416,11 @@ impl<S: Shell> Ui<S> {
         };
         shell.render(key, &mut frame);
         self.painter.flush(&self.gpu.gl, width, height, None);
+        if let Some(scaled) = &surface.scaled {
+            scaled
+                .viewport
+                .set_destination(surface.size.0 as i32, surface.size.1 as i32);
+        }
         // The next frame is the compositor's to ask for.
         surface.wl().frame(&self.qh, FrameCallbackData(surface.wl().clone()));
         surface.waiting = true;
@@ -468,6 +492,7 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>)) -> Result<(), St
         output_state: OutputState::new(&globals, &qh),
         compositor: CompositorState::bind(&globals, &qh).map_err(|error| error.to_string())?,
         layer_shell: LayerShell::bind(&globals, &qh).ok(),
+        scaling: Scaling::bind(&globals, &qh),
         qh,
         gpu,
         painter,
@@ -494,7 +519,8 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>)) -> Result<(), St
 
 impl<S: Shell> CompositorHandler for App<S> {
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, wl: &wl_surface::WlSurface, factor: i32) {
-        if let Some(surface) = self.ui.surfaces.iter_mut().find(|s| s.wl() == wl) {
+        // Only where nothing finer says it.
+        if let Some(surface) = self.ui.surfaces.iter_mut().find(|s| s.wl() == wl && s.scaled.is_none()) {
             surface.scale = factor.max(1) as f32;
             wl.set_buffer_scale(factor.max(1));
             surface.dirty = true;
