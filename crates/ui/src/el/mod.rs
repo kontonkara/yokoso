@@ -3,6 +3,7 @@
 //! keeps between rebuilds lives in the tree, by its id.
 
 pub mod layout;
+pub mod tree;
 
 use crate::geometry::Color;
 
