@@ -4,6 +4,8 @@
 #
 #   shot NAME       a picture of the 1400x900 screen, <out>/NAME.png
 #   pixel X Y       the color there in the last shot, as #rrggbb
+#   move X Y        the pointer to X Y, in niri's logical pixels
+#   click [BUTTON]  left, right or middle
 #   log             the shell's log so far
 #   own PID         a process the script started, stopped with the stand
 #
@@ -94,6 +96,12 @@ shot() {
 	last_shot=$out/$1.png
 }
 pixel() { magick "$last_shot" -crop "1x1+$1+$2" -depth 8 txt:- | grep -o '#[0-9A-F]\{6\}' | head -n 1; }
+move() {
+	wlrctl pointer move -3000 -3000
+	wlrctl pointer move "$1" "$2"
+	sleep 0.1
+}
+click() { wlrctl pointer click "${1:-left}"; sleep 0.2; }
 log() { cat "$out/shell.log"; }
 fail() { echo "stand: $*" >&2; exit 1; }
 # What a script starts in the background, stopped with the rest: `own $!`.
