@@ -142,6 +142,12 @@ impl Text {
         builder.push_default(StyleProperty::FontWeight(FontWeight::new(style.weight)));
         let family = style.family.as_deref().unwrap_or("sans-serif");
         builder.push_default(StyleProperty::FontFamily(FontFamily::from(family)));
+        // Emoji from a font of their own, in color. Left to the family's
+        // fallbacks they go to the first font that has them at all, often in
+        // plain outlines; and an emoji font first would take digits too.
+        for range in emoji_ranges(text) {
+            builder.push(StyleProperty::FontFamily(FontFamily::from("emoji")), range);
+        }
         if style.tabular {
             builder.push_default(StyleProperty::FontFeatures(FontFeatures::from("\"tnum\" 1")));
         }
@@ -293,6 +299,28 @@ impl Text {
     }
 }
 
+/// The byte ranges of `text` that are emoji: pictographs, flags, and
+/// symbols asked to show as emoji (U+FE0F), with what joins them to the
+/// next and what modifies them.
+pub fn emoji_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for (index, &(at, c)) in chars.iter().enumerate() {
+        let code = c as u32;
+        let asked = chars.get(index + 1).is_some_and(|(_, next)| *next == '\u{fe0f}');
+        let emoji = matches!(code, 0x1f000..=0x1faff)
+            || (matches!(code, 0x2600..=0x27bf | 0x2300..=0x23ff | 0x2b00..=0x2bff) && asked);
+        let joining = matches!(code, 0x200d | 0xfe0f | 0x20e3 | 0x1f3fb..=0x1f3ff | 0xe0020..=0xe007f);
+        let end = at + c.len_utf8();
+        match ranges.last_mut() {
+            Some(last) if (emoji || joining) && last.end == at => last.end = end,
+            _ if emoji => ranges.push(at..end),
+            _ => {}
+        }
+    }
+    ranges
+}
+
 fn premultiply(data: &[u8]) -> Vec<u8> {
     data.as_chunks::<4>()
         .0
@@ -307,4 +335,23 @@ fn premultiply(data: &[u8]) -> Vec<u8> {
             ]
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::emoji_ranges;
+
+    #[test]
+    fn emoji_are_found_with_what_joins_them_and_digits_are_not() {
+        let text = "ok 🔥 12:30 👩‍💻 ✓ ☀️";
+        let found: Vec<&str> = emoji_ranges(text).into_iter().map(|range| &text[range]).collect();
+        assert_eq!(found, ["🔥", "👩‍💻", "☀️"]);
+    }
+
+    #[test]
+    fn flags_and_skin_tones_stay_whole() {
+        let text = "🇺🇦👍🏽";
+        let found: Vec<&str> = emoji_ranges(text).into_iter().map(|range| &text[range]).collect();
+        assert_eq!(found, ["🇺🇦👍🏽"]);
+    }
 }
