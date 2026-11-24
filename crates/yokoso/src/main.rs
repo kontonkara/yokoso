@@ -1,12 +1,14 @@
 //! yokoso: a desktop shell for Wayland.
 
 mod config;
+mod demo;
 mod ipc;
 mod probe;
 
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: yokoso [shell [--window]]
+       yokoso demo [--layer]           (every element, in a window or as a layer)
        yokoso validate [file]          (the config and its overrides, or one file)
        yokoso msg <command> [args…]   (ping, stats, dump, reload, overlay [on|off], move [seconds])";
 
@@ -24,6 +26,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let done = match args.first().map(String::as_str) {
         None | Some("shell") => shell(args.iter().any(|arg| arg == "--window")),
+        Some("demo") => demo(args.iter().any(|arg| arg == "--layer")),
         Some("msg") if args.len() > 1 => ipc::send(&args[1..]),
         Some("validate") => validate(args.get(1)),
         Some("-h" | "--help" | "help") => {
@@ -42,6 +45,19 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The demo of every element.
+fn demo(layer: bool) -> Result<(), String> {
+    let mut socket = None;
+    let done = yokoso_ui::app::run(demo::Demo::new(layer), |app| {
+        socket = Some(ipc::listen(&app.ui)?);
+        Ok(())
+    });
+    if let Some(path) = socket {
+        let _ = std::fs::remove_file(path);
+    }
+    done
 }
 
 /// Checks `file`, or the config and its overrides where they are.
