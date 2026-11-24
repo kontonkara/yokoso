@@ -1,4 +1,5 @@
 # The square moves at the output's rate while asked to, then frames stop.
+shot before
 "$binary" msg move 2
 sleep 1
 dump=$("$binary" msg dump)
@@ -14,3 +15,12 @@ sleep 1.5
 frames=$("$binary" msg stats | jq .frames)
 sleep 1
 [ "$("$binary" msg stats | jq .frames)" = "$frames" ] || fail "frames go on after the motion"
+
+# While it moved, frames drew only its track; after, the card is whole.
+partial=$("$binary" msg stats | jq .partial)
+[ "$partial" -gt 30 ] || fail "only $partial frames drew just the track"
+echo "partial frames: $partial"
+shot after
+# Back at its start, the card is what it was, to the pixel.
+differ=$(magick compare -metric AE "$out/before.png" "$out/after.png" null: 2>&1 || true)
+[ "${differ%% *}" = 0 ] || fail "$differ pixels differ after partial frames"
