@@ -18,3 +18,7 @@ wayland-egl = "0.32.11"
 rustix = { version = "1.1.2", features = ["time"] }
 smithay-client-toolkit = "0.21.1"
 tracing = "0.1.44"
+parley = "0.13.0"
+# fontconfig is opened at run time: nothing of it is needed to build.
+fontique = { version = "0.13.0", default-features = false, features = ["fontconfig-dlopen"] }
+swash = "0.2.10"

@@ -7,6 +7,7 @@ pub mod geometry;
 pub mod gpu;
 pub mod paint;
 pub mod scale;
+pub mod text;
 
 pub use geometry::{Color, Rect};
 

@@ -48,6 +48,7 @@
               libglvnd
               wayland
               libxkbcommon
+              fontconfig
             ]
           );
         };

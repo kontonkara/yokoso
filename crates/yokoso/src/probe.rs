@@ -7,6 +7,7 @@ use yokoso_ui::{
         Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec, View,
         WindowSpec,
     },
+    text::Text,
 };
 
 /// Where a probe is: on an output, or in a window of its own.
@@ -91,7 +92,7 @@ impl Shell for Probe {
         true
     }
 
-    fn layout(&mut self, key: Place, view: &View) {
+    fn layout(&mut self, key: Place, view: &View, _text: &mut Text) {
         self.views.insert(key, *view);
     }
 

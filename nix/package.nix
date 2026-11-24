@@ -6,6 +6,7 @@
   wayland,
   libxkbcommon,
   libglvnd,
+  fontconfig,
 }:
 
 rustPlatform.buildRustPackage {
@@ -41,7 +42,7 @@ rustPlatform.buildRustPackage {
     substituteInPlace $out/lib/systemd/user/yokoso.service --replace-fail /usr/bin/yokoso $out/bin/yokoso
   '';
 
-  # EGL and GLES are opened at run time, through libglvnd.
+  # EGL and GLES are opened at run time, through libglvnd; fontconfig too.
   postFixup = ''
     wrapProgram $out/bin/yokoso \
       --prefix LD_LIBRARY_PATH : ${
@@ -49,6 +50,7 @@ rustPlatform.buildRustPackage {
           libglvnd
           wayland
           libxkbcommon
+          fontconfig
         ]
       }
   '';

@@ -36,6 +36,7 @@ use crate::{
     gpu::{Gpu, Target},
     paint::Painter,
     scale::{Scaled, Scaling},
+    text::{Paragraph, Text},
 };
 
 /// An output as the shell sees it.
@@ -120,8 +121,9 @@ pub trait Shell: Sized + 'static {
         false
     }
 
-    /// Layout: sizes and positions for `view`.
-    fn layout(&mut self, _key: Self::Key, _view: &View) {}
+    /// Layout: sizes and positions for `view`; text is laid out here, at
+    /// the view's scale.
+    fn layout(&mut self, _key: Self::Key, _view: &View, _text: &mut Text) {}
 
     /// Where `key` changed since its last frame, in logical pixels; None for
     /// all of it. Asked after layout.
@@ -141,6 +143,7 @@ pub trait Shell: Sized + 'static {
 /// Painting a surface, in its logical pixels.
 pub struct Frame<'a> {
     painter: &'a mut Painter,
+    text: &'a mut Text,
     view: View,
 }
 
@@ -169,6 +172,15 @@ impl Frame<'_> {
         let rect = self.snap(rect);
         let scale = self.view.scale;
         self.painter.shadow(rect, radius * scale, blur * scale, color);
+    }
+
+    /// `paragraph` with its top left at `x`, `y`. One laid out at another
+    /// scale is skipped: layout runs again before the next frame.
+    pub fn text(&mut self, paragraph: &Paragraph, x: f32, y: f32, color: Color) {
+        if paragraph.scale() == self.view.scale {
+            let scale = self.view.scale;
+            self.text.draw(self.painter, paragraph, x * scale, y * scale, color);
+        }
     }
 
     /// What is painted from here on shows only in `rect`, or everywhere.
@@ -276,6 +288,9 @@ pub struct Ui<S: Shell> {
     presentation: Option<PresentationTimeState>,
     gpu: Gpu,
     painter: Painter,
+    text: Text,
+    /// The atlas generation the frames so far were drawn with.
+    atlas_generation: u64,
     outputs: Vec<(Output, wl_output::WlOutput)>,
     surfaces: Vec<Surface<S::Key>>,
     /// Surfaces are to be matched with what the shell wants.
@@ -489,6 +504,16 @@ impl<S: Shell> Ui<S> {
                 tracing::warn!(key = ?self.surfaces[index].key, %error, "frame failed");
             }
         }
+        // The atlas started over: what any buffer shows of it is gone, so
+        // every surface draws all of itself again.
+        if self.painter.atlas.generation != self.atlas_generation {
+            self.atlas_generation = self.painter.atlas.generation;
+            tracing::info!("the atlas started over");
+            for surface in &mut self.surfaces {
+                surface.dirty = true;
+                surface.drawn = (0, 0);
+            }
+        }
     }
 
     fn draw(&mut self, shell: &mut S, index: usize) -> Result<(), String> {
@@ -509,7 +534,7 @@ impl<S: Shell> Ui<S> {
             height: surface.size.1 as f32,
             scale: surface.scale,
         };
-        shell.layout(key, &view);
+        shell.layout(key, &view, &mut self.text);
         let asked = shell.damage(key);
         // Render.
         let (width, height) = surface.buffer_size();
@@ -549,6 +574,7 @@ impl<S: Shell> Ui<S> {
         surface.drawn = (width, height);
         let mut frame = Frame {
             painter: &mut self.painter,
+            text: &mut self.text,
             view,
         };
         shell.render(key, &mut frame);
@@ -654,6 +680,8 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         qh,
         gpu,
         painter,
+        text: Text::new(),
+        atlas_generation: 0,
         outputs: Vec::new(),
         surfaces: Vec::new(),
         refresh: true,
