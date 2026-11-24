@@ -10,7 +10,8 @@
 #   own PID         a process the script started, stopped with the stand
 #
 # A <script>.before.sh beside it runs before the shell starts: it may set
-# shell_args (the words yokoso runs with, "shell" if unset).
+# shell_args (the words yokoso runs with, "shell" if unset), or on_sway=1
+# to run it on the outer sway instead of niri.
 #   fail WHY        stops with an error
 #
 # Nothing here outlives it: every process it starts is stopped by its PID.
@@ -61,6 +62,12 @@ for _ in $(seq 100); do
 	sleep 0.05
 done
 [ -n "$outer" ] || { cat "$work/sway.log" >&2; exit 1; }
+for _ in $(seq 50); do
+	SWAYSOCK=$(ls "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -n 1 || true)
+	[ -n "$SWAYSOCK" ] && break
+	sleep 0.05
+done
+export SWAYSOCK
 
 printf 'hotkey-overlay {\n\tskip-at-startup\n}\ngestures {\n\thot-corners {\n\t\toff\n\t}\n}\nprefer-no-csd\nanimations {\n\toff\n}\n' >"$work/niri.kdl"
 WAYLAND_DISPLAY=$outer niri -c "$work/niri.kdl" >"$work/niri.log" 2>&1 &
@@ -73,10 +80,14 @@ for _ in $(seq 100); do
 done
 [ -n "${NIRI_SOCKET:-}" ] || { cat "$work/niri.log" >&2; exit 1; }
 export NIRI_SOCKET WAYLAND_DISPLAY=$inner
+export OUTER_DISPLAY=$outer
 
-# What a script wants before the shell starts, as `shell_args`: <script>.before.sh.
+# What a script wants before the shell starts, as `shell_args`, or
+# `on_sway=1` to run it on the outer sway, whose outputs can come and go:
+# <script>.before.sh.
 before=${script%.sh}.before.sh
 [ ! -f "$before" ] || . "$before"
+[ -z "${on_sway:-}" ] || export WAYLAND_DISPLAY=$outer
 
 # yokoso finds Mesa by itself: none of the vendor list above for it.
 # shellcheck disable=SC2086 # the words of shell_args are meant to split
