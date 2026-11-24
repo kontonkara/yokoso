@@ -10,6 +10,7 @@ pub mod motion;
 pub mod paint;
 pub mod scale;
 pub mod text;
+pub mod theme;
 
 pub use geometry::{Color, Rect};
 
