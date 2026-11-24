@@ -11,3 +11,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+glow = "0.18.0"
+khronos-egl = { version = "6.0.0", features = ["dynamic", "libloading"] }
+wayland-client = "0.31.15"
+wayland-egl = "0.32.11"
