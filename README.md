@@ -28,7 +28,25 @@ yokoso msg ping         # talk to the running shell
 yokoso validate         # check the config
 ```
 
-The config lives in `$XDG_CONFIG_HOME/yokoso/config.toml`.
+The config lives in `$XDG_CONFIG_HOME/yokoso/config.toml`, with
+`overrides.toml` beside it laid over it. Both are read again as they change;
+a broken file is reported with its line and column, and the last good config
+stays.
+
+```toml
+[probe]
+accent = "#f3a17a"
+radius = 8
+
+[debug]
+overlay = false   # frame times over every surface
+```
+
+`yokoso msg` talks to the running shell: `ping`, `stats`, `dump`, `reload`,
+`overlay [on|off]`, `move [seconds]`.
+
+As a user service: `dist/yokoso.service` (the package installs it), part of
+`graphical-session.target`.
 
 ## Test
 

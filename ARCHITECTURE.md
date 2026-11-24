@@ -100,7 +100,8 @@ When a surface draws:
 
 - `config.toml` — written by Nix or by hand; yokoso only reads it.
 - `overrides.toml` — what the settings window changes, laid over the first.
-- `state.toml` — what yokoso remembers by itself: history, counters.
+- `state.toml` — what yokoso remembers by itself: history, counters. It
+  comes with the first part that has something to remember.
 - Files are watched and reloaded on change. A broken file is reported with
   its line and column, and the last good config stays in force.
 
