@@ -6,7 +6,7 @@ mod probe;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: yokoso [shell]
-       yokoso msg <command> [args…]   (ping, stats, dump)";
+       yokoso msg <command> [args…]   (ping, stats, dump, move [seconds])";
 
 fn main() -> ExitCode {
     // First, before any thread: it changes the environment.
@@ -43,7 +43,7 @@ fn main() -> ExitCode {
 
 fn shell() -> Result<(), String> {
     let mut socket = None;
-    let done = yokoso_ui::app::run(probe::Probe, |app| {
+    let done = yokoso_ui::app::run(probe::Probe::default(), |app| {
         socket = Some(ipc::listen(&app.ui)?);
         Ok(())
     });

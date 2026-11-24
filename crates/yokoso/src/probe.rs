@@ -3,10 +3,19 @@
 
 use yokoso_ui::{
     Color, Rect,
-    app::{Anchor, Frame, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec},
+    app::{Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec},
 };
 
-pub struct Probe;
+#[derive(Default)]
+pub struct Probe {
+    /// Seconds the square still has to move, once asked to.
+    moving_for: Option<f64>,
+    /// Per output: when its square started, and where it is, 0 to 1.
+    squares: std::collections::HashMap<OutputId, (Option<f64>, f32)>,
+}
+
+/// How long one way along the track takes, seconds.
+const SWEEP: f64 = 1.0;
 
 const WIDTH: f32 = 420.0;
 const HEIGHT: f32 = 260.0;
@@ -35,7 +44,29 @@ impl Shell for Probe {
             .collect()
     }
 
-    fn render(&self, _: OutputId, frame: &mut Frame) {
+    fn update(&mut self, key: OutputId, time: &FrameTime) -> bool {
+        let Some(duration) = self.moving_for else {
+            return false;
+        };
+        let (started, at) = self.squares.entry(key).or_insert((None, 0.0));
+        // Motion starts at its first frame, never at the moment it was asked.
+        let start = *started.get_or_insert(time.now);
+        let elapsed = time.now - start;
+        if elapsed >= duration {
+            *started = None;
+            *at = 0.0;
+            if self.squares.values().all(|(started, _)| started.is_none()) {
+                self.moving_for = None;
+            }
+            return false;
+        }
+        // There and back, at an even speed: any judder shows.
+        let phase = (elapsed / SWEEP) % 2.0;
+        *at = if phase < 1.0 { phase } else { 2.0 - phase } as f32;
+        true
+    }
+
+    fn render(&self, key: OutputId, frame: &mut Frame) {
         let card = Rect::new(MARGIN, MARGIN, WIDTH, HEIGHT);
         frame.shadow(card.grow(-2.0), 8.0, 16.0, Color::BLACK.alpha(0.45));
         frame.fill(card, 8.0, Color::hex("#1d1b20").unwrap_or(Color::BLACK));
@@ -63,6 +94,12 @@ impl Shell for Probe {
             48.0,
             accent.alpha(0.6),
         );
+        // The track and its square.
+        let track = Rect::new(card.x + 16.0, card.y + 200.0, WIDTH - 32.0, 32.0);
+        frame.fill(track, 16.0, Color::WHITE.alpha(0.08));
+        let at = self.squares.get(&key).map_or(0.0, |(_, at)| *at);
+        let square = Rect::new(track.x + 4.0 + at * (track.w - 32.0), track.y + 4.0, 24.0, 24.0);
+        frame.fill(square, 6.0, accent);
     }
 }
 
@@ -71,6 +108,18 @@ impl crate::ipc::Answer for Probe {
         use serde_json::json;
         match words.first().map(String::as_str) {
             Some("ping") => Ok(json!("pong")),
+            Some("move") => {
+                let seconds = match words.get(1) {
+                    Some(text) => text.parse::<f64>().map_err(|_| format!("not seconds: {text}"))?,
+                    None => 4.0,
+                };
+                self.moving_for = Some(seconds.clamp(0.0, 600.0));
+                for (started, _) in self.squares.values_mut() {
+                    *started = None;
+                }
+                ui.dirty_all();
+                Ok(json!(null))
+            }
             Some("stats") => {
                 let stats = ui.stats();
                 Ok(json!({
@@ -85,7 +134,7 @@ impl crate::ipc::Answer for Probe {
                 })).collect::<Vec<_>>(),
                 "surfaces": ui.surface_info().iter().map(|s| json!({
                     "key": s.key, "size": s.size, "scale": s.scale, "frames": s.frames,
-                    "waiting": s.waiting, "moving": s.moving,
+                    "waiting": s.waiting, "moving": s.moving, "refresh": s.refresh, "fps": s.fps,
                 })).collect::<Vec<_>>(),
             })),
             Some(other) => Err(format!("no such command: {other}")),
