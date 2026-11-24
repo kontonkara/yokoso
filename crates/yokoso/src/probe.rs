@@ -11,6 +11,11 @@ use yokoso_ui::{
     text::{Paragraph, Style, Text},
 };
 
+/// What the probe's services send it.
+pub enum Message {
+    Config(Result<crate::config::Config, String>),
+}
+
 /// Where a probe is: on an output, or in a window of its own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Place {
@@ -34,6 +39,9 @@ pub struct Probe {
     moved: std::collections::HashSet<Place>,
     /// What was typed into the field.
     typed: String,
+    config: crate::config::Config,
+    /// Why the config on disk is not the one in force, if it isn't.
+    config_error: Option<String>,
     /// The last thing the pointer or keyboard did, said in words.
     heard: String,
     /// Each place's field and what it heard, laid out; dropped when they change.
@@ -49,7 +57,13 @@ const MARGIN: f32 = 24.0;
 
 impl Shell for Probe {
     type Key = Place;
-    type Message = ();
+    type Message = Message;
+
+    fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
+        match message {
+            Message::Config(loaded) => self.apply(ui, loaded),
+        }
+    }
 
     fn surfaces(&self, outputs: &[Output]) -> Vec<(Place, Spec)> {
         if self.window {
@@ -184,12 +198,13 @@ impl Shell for Probe {
     fn render(&self, key: Place, frame: &mut Frame) {
         let card = self.card(key);
         let background = Color::hex("#1d1b20").unwrap_or(Color::BLACK);
+        let radius = self.config.probe.radius;
         if key == Place::Window {
             frame.fill(card, 0.0, background);
         } else {
-            frame.shadow(card.grow(-2.0), 8.0, 16.0, Color::BLACK.alpha(0.45));
-            frame.fill(card, 8.0, background);
-            frame.ring(card, 8.0, 1.0, Color::WHITE.alpha(0.12));
+            frame.shadow(card.grow(-2.0), radius, 16.0, Color::BLACK.alpha(0.45));
+            frame.fill(card, radius, background);
+            frame.ring(card, radius, 1.0, Color::WHITE.alpha(0.12));
         }
         // Sharpness: one-pixel lines a pixel apart, and a checker.
         let inner = Rect::new(card.x + 16.0, card.y + 16.0, 120.0, 120.0);
@@ -206,7 +221,7 @@ impl Shell for Probe {
             }
         }
         // Shapes: a pill, a ring, a circle.
-        let accent = Color::hex("#f3a17a").unwrap_or(Color::WHITE);
+        let accent = self.config.probe.accent;
         frame.fill(Rect::new(card.x + 160.0, card.y + 16.0, 120.0, 40.0), 20.0, accent);
         frame.ring(Rect::new(card.x + 160.0, card.y + 72.0, 120.0, 40.0), 8.0, 2.0, accent);
         frame.fill(
@@ -243,10 +258,29 @@ impl Shell for Probe {
 }
 
 impl Probe {
-    pub fn new(window: bool) -> Self {
+    pub fn new(window: bool, config: crate::config::Config) -> Self {
         Self {
             window,
+            config,
             ..Self::default()
+        }
+    }
+
+    /// A config read anew: in force if it read, else the old one stays.
+    fn apply(&mut self, ui: &mut Ui<Self>, loaded: Result<crate::config::Config, String>) {
+        match loaded {
+            Ok(config) => {
+                self.config_error = None;
+                if config != self.config {
+                    tracing::info!("config changed");
+                    self.config = config;
+                    ui.dirty_all();
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "config kept as it was");
+                self.config_error = Some(error);
+            }
         }
     }
 
@@ -299,6 +333,13 @@ impl crate::ipc::Answer for Probe {
         use serde_json::json;
         match words.first().map(String::as_str) {
             Some("ping") => Ok(json!("pong")),
+            Some("reload") => {
+                self.apply(ui, crate::config::load(&crate::config::dir()));
+                match &self.config_error {
+                    Some(error) => Err(error.clone()),
+                    None => Ok(json!(null)),
+                }
+            }
             Some("move") => {
                 let seconds = match words.get(1) {
                     Some(text) => text.parse::<f64>().map_err(|_| format!("not seconds: {text}"))?,
@@ -322,6 +363,8 @@ impl crate::ipc::Answer for Probe {
             }
             Some("dump") => Ok(json!({
                 "typed": self.typed,
+                "config_error": self.config_error,
+                "accent": format!("{:?}", self.config.probe.accent.0),
                 "heard": self.heard,
                 "outputs": ui.outputs().iter().map(|o| json!({
                     "name": o.name, "description": o.description, "size": o.size,
