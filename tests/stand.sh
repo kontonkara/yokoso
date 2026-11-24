@@ -6,6 +6,9 @@
 #   pixel X Y       the color there in the last shot, as #rrggbb
 #   log             the shell's log so far
 #   own PID         a process the script started, stopped with the stand
+#
+# A <script>.before.sh beside it runs before the shell starts: it may set
+# shell_args (the words yokoso runs with, "shell" if unset).
 #   fail WHY        stops with an error
 #
 # Nothing here outlives it: every process it starts is stopped by its PID.
@@ -69,8 +72,13 @@ done
 [ -n "${NIRI_SOCKET:-}" ] || { cat "$work/niri.log" >&2; exit 1; }
 export NIRI_SOCKET WAYLAND_DISPLAY=$inner
 
+# What a script wants before the shell starts, as `shell_args`: <script>.before.sh.
+before=${script%.sh}.before.sh
+[ ! -f "$before" ] || . "$before"
+
 # yokoso finds Mesa by itself: none of the vendor list above for it.
-env -u __EGL_VENDOR_LIBRARY_FILENAMES YOKOSO_LOG=${YOKOSO_LOG:-info} "$binary" shell >"$out/shell.log" 2>&1 &
+# shellcheck disable=SC2086 # the words of shell_args are meant to split
+env -u __EGL_VENDOR_LIBRARY_FILENAMES YOKOSO_LOG=${YOKOSO_LOG:-info} "$binary" ${shell_args:-shell} >"$out/shell.log" 2>&1 &
 shell_pid=$!
 for _ in $(seq 100); do
 	grep -q 'first frame' "$out/shell.log" && break
@@ -105,5 +113,5 @@ kept_off
 . "$script"
 
 kept_off
-kill -0 "$shell_pid" 2>/dev/null || fail "the shell died"
+[ -n "${may_quit:-}" ] || kill -0 "$shell_pid" 2>/dev/null || fail "the shell died"
 grep 'drawing' "$out/shell.log"

@@ -18,6 +18,7 @@ for script in tests/stand/*.sh; do
 	[ -e "$script" ] || continue
 	name=${script##*/}
 	name=${name%.sh}
+	case $name in *.before) continue ;; esac
 	[ "$#" -eq 0 ] || echo " $* " | grep -q " $name " || continue
 	start=$(date +%s)
 	if tests/stand.sh target/release/yokoso "$out/$name" "$script" >"$out-$name.log" 2>&1; then
