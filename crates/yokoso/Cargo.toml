@@ -1,0 +1,14 @@
+[package]
+name = "yokoso"
+description = "A desktop shell for Wayland"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+yokoso-ui = { path = "../ui" }
