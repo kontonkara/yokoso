@@ -15,5 +15,5 @@ sleep 0.2
 [ "$(dump typed)" = "Hi, Γεια σο" ] || fail "after backspace: $(dump typed)"
 wlrctl pointer scroll 1 0
 sleep 0.2
-[ "$(dump heard)" = "continuous: 0.0 1.0 px" ] || fail "scrolled: $(dump heard)"
+[ "$(dump scrolled)" = "continuous: 0.0 1.0 px" ] || fail "scrolled: $(dump scrolled)"
 shot input
