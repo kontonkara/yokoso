@@ -20,7 +20,15 @@ shot calendar
 read -r px py <<EOT
 $(popup to | centre)
 EOT
+read -r bx by <<EOT
+$(popup to | jq -r '"\(.[0] + .[2] / 2 | floor) \(.[1] + .[3] - 5 | floor)"')
+EOT
+calm=$(pixel "$bx" "$by")
 move "$px" "$py"
+sleep 0.4
+# The pointer on it lights nothing: only what a click does something to.
+shot calendar-hovered
+[ "$(pixel "$bx" "$by")" = "$calm" ] || fail "the calendar lit up under the pointer: $calm, now $(pixel "$bx" "$by")"
 wlrctl pointer scroll 40 0
 sleep 0.2
 want=$(date -d "$(date +%Y-%m-15) +1 month" +%Y,%-m)
