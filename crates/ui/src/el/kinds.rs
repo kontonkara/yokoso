@@ -46,7 +46,9 @@ pub fn focusable<M>(kind: &Kind<M>) -> bool {
 
 /// Whether it waits on something, pulsing meanwhile.
 pub fn pending<M>(kind: &Kind<M>) -> bool {
-    matches!(kind, Kind::Toggle { pending: true, .. }) || matches!(kind, Kind::Tile(tile) if tile.pending)
+    matches!(kind, Kind::Toggle { pending: true, .. })
+        || matches!(kind, Kind::Tile(tile) if tile.pending)
+        || matches!(kind, Kind::Press(press) if press.pending)
 }
 
 /// Aims its springs at what the description says: a toggle's thumb at its
@@ -678,6 +680,11 @@ fn paint_press<M>(
     let radius = (rect.h / 2.0).min(theme.sizes.radius) * (1.0 - 0.25 * press_value);
     if press.selected {
         frame.fill(rect, radius, colors.secondary_container);
+    }
+    // Waiting on the system, a layer under what it holds pulses.
+    if press.pending {
+        let pulse = 0.5 + 0.5 * (state.phase * std::f32::consts::TAU * 1.2).cos();
+        frame.fill(rect, radius, colors.primary.alpha(0.06 + 0.12 * pulse));
     }
     let layer = state.hover.value * state::HOVER + press_value * state::PRESS;
     frame.fill(rect, radius, colors.on_surface.alpha(layer.clamp(0.0, 1.0)));

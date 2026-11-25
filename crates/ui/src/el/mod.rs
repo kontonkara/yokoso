@@ -193,6 +193,8 @@ pub struct PressEl<M> {
     pub on_scroll: Option<std::rc::Rc<dyn Fn(f32) -> M>>,
     /// Shown as chosen: the button of the panel open now.
     pub selected: bool,
+    /// Waiting on the system: it pulses meanwhile.
+    pub pending: bool,
 }
 
 pub struct SliderEl<M> {
@@ -506,6 +508,7 @@ impl<M> El<M> {
             on_secondary: None,
             on_scroll: None,
             selected: false,
+            pending: false,
         }))
         .with(children)
     }
@@ -530,6 +533,14 @@ impl<M> El<M> {
     pub fn on_scroll(mut self, message: impl Fn(f32) -> M + 'static) -> Self {
         if let Kind::Press(press) = &mut self.kind {
             press.on_scroll = Some(std::rc::Rc::new(message));
+        }
+        self
+    }
+
+    /// For a pressed group: waiting on the system, it pulses.
+    pub fn pending(mut self, pending: bool) -> Self {
+        if let Kind::Press(press) = &mut self.kind {
+            press.pending = pending;
         }
         self
     }
