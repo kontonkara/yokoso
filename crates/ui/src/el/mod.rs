@@ -100,6 +100,8 @@ pub struct TextEl {
     /// One line, cut with an ellipsis where it doesn't fit.
     pub ellipsis: bool,
     pub tabular: bool,
+    /// Changed, its changed characters roll in from below.
+    pub rolling: bool,
 }
 
 /// How a card stands out from what is under it.
@@ -275,6 +277,8 @@ pub struct El<M> {
     pub height: Size,
     pub padding: Edges,
     pub children: Vec<El<M>>,
+    /// Its children, as they first show, come in one after another.
+    pub stagger: bool,
 }
 
 impl<M> El<M> {
@@ -286,6 +290,7 @@ impl<M> El<M> {
             height: Size::Hug,
             padding: Edges::default(),
             children: Vec::new(),
+            stagger: false,
         }
     }
 
@@ -321,6 +326,7 @@ impl<M> El<M> {
             weight: 400.0,
             ellipsis: false,
             tabular: false,
+            rolling: false,
         }))
     }
 
@@ -542,6 +548,20 @@ impl<M> El<M> {
     pub fn ellipsis(mut self) -> Self {
         if let Kind::Text(text) = &mut self.kind {
             text.ellipsis = true;
+        }
+        self
+    }
+
+    /// Its children, as they first show, come in one after another.
+    pub fn stagger(mut self) -> Self {
+        self.stagger = true;
+        self
+    }
+
+    /// For text: changed, its changed characters roll in from below.
+    pub fn rolling(mut self) -> Self {
+        if let Kind::Text(text) = &mut self.kind {
+            text.rolling = true;
         }
         self
     }

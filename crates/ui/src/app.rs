@@ -169,6 +169,9 @@ pub struct Frame<'a> {
     text: &'a mut Text,
     icons: &'a mut Icons,
     view: View,
+    /// Added to everything painted, logical pixels: what comes in sliding.
+    offset: (f32, f32),
+    alpha: f32,
 }
 
 impl Frame<'_> {
@@ -177,7 +180,21 @@ impl Frame<'_> {
     }
 
     fn snap(&self, rect: Rect) -> Rect {
-        rect.snapped(self.view.scale)
+        Rect::new(rect.x + self.offset.0, rect.y + self.offset.1, rect.w, rect.h).snapped(self.view.scale)
+    }
+
+    /// Everything painted from here on moved by `dx`, `dy`, until set again.
+    pub fn set_offset(&mut self, dx: f32, dy: f32) {
+        self.offset = (dx, dy);
+    }
+
+    pub fn offset(&self) -> (f32, f32) {
+        self.offset
+    }
+
+    /// How much of what is painted shows now.
+    pub fn current_alpha(&self) -> f32 {
+        self.alpha
     }
 
     pub fn fill(&mut self, rect: Rect, radius: f32, color: Color) {
@@ -203,6 +220,7 @@ impl Frame<'_> {
     pub fn text(&mut self, paragraph: &Paragraph, x: f32, y: f32, color: Color) {
         if paragraph.scale() == self.view.scale {
             let scale = self.view.scale;
+            let (x, y) = (x + self.offset.0, y + self.offset.1);
             self.text.draw(self.painter, paragraph, x * scale, y * scale, color);
         }
     }
@@ -216,7 +234,8 @@ impl Frame<'_> {
     /// What is painted from here on shows `alpha` of itself: a part fading
     /// in or out as one.
     pub fn alpha(&mut self, alpha: f32) {
-        self.painter.set_alpha(alpha);
+        self.alpha = alpha.clamp(0.0, 1.0);
+        self.painter.set_alpha(self.alpha);
     }
 
     /// What is painted from here on shows only in `rect`, or everywhere.
@@ -667,6 +686,8 @@ impl<S: Shell> Ui<S> {
             text: &mut self.text,
             icons: &mut self.icons,
             view,
+            offset: (0.0, 0.0),
+            alpha: 1.0,
         };
         shell.render(key, &mut frame);
         self.painter.flush(&self.gpu.gl, width, height, region);

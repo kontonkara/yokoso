@@ -18,6 +18,9 @@ use crate::{
     theme::Theme,
 };
 
+/// Each child of a staggering parent comes in this long after the one before.
+const STAGGER: f32 = 0.035;
+
 /// How long the pointer rests before a tooltip shows.
 const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(600);
 
@@ -95,6 +98,15 @@ pub struct State {
     pub activity: f64,
     pub clicked: (f64, f32),
     pub caps: bool,
+    /// How far it has come in, when its parent staggers its children, and
+    /// how long it still waits before it starts.
+    pub appear: Spring,
+    pub wait: f32,
+    /// Rolling text: what it says, what it said before, and how far the
+    /// roll from the one to the other has come.
+    pub text: String,
+    pub was: Option<String>,
+    pub roll: Spring,
 }
 
 impl Default for State {
@@ -119,6 +131,11 @@ impl Default for State {
             activity: 0.0,
             clicked: (0.0, 0.0),
             caps: false,
+            appear: Spring::new(1.0),
+            wait: 0.0,
+            text: String::new(),
+            was: None,
+            roll: Spring::new(1.0),
         }
     }
 }
@@ -278,7 +295,21 @@ impl<M: Clone> Tree<M> {
     /// Moves every spring `dt` seconds on. True while one still moves.
     pub fn update(&mut self, dt: f32, now: f64, theme: &Theme) -> bool {
         let feel = theme.motion.feel(Part::Micro);
+        let content = theme.motion.feel(Part::Content);
         let mut moving = false;
+        // What waits its turn to come in, and what comes in or rolls.
+        for state in self.states.values_mut() {
+            if state.appear.target < 1.0 {
+                if state.wait > 0.0 {
+                    state.wait -= dt;
+                    moving = true;
+                } else {
+                    state.appear.to(1.0);
+                }
+            }
+            moving |= state.appear.step(dt, &content);
+            moving |= state.roll.step(dt, &feel);
+        }
         // A tooltip shows once the pointer has rested long enough.
         if let Some((id, since)) = self.tip
             && now - since >= TOOLTIP_DELAY.as_secs_f64() - 0.01
@@ -328,7 +359,7 @@ impl<M: Clone> Tree<M> {
             let mut all = Vec::new();
             walk(el, ROOT, None, &mut all);
             for ((el, id, _), node) in all.iter().zip(&self.nodes) {
-                let laid = kinds::paragraphs(el, node.rect, text, theme, scale);
+                let laid = kinds::paragraphs(el, node.rect, self.states.get(id), text, theme, scale);
                 if !laid.is_empty() {
                     self.paragraphs.insert(*id, laid);
                 }
@@ -351,7 +382,11 @@ impl<M: Clone> Tree<M> {
         self.pending.clear();
         // What each element lets its children show in.
         let mut clips: Vec<Option<Rect>> = Vec::with_capacity(rects.len());
+        // New children of a staggering parent, counted to give each its turn.
+        let mut turns: HashMap<usize, usize> = HashMap::new();
+        let staggers: Vec<bool> = all.iter().map(|(el, _, _)| el.stagger).collect();
         for ((el, id, parent), rect) in all.into_iter().zip(rects) {
+            let fresh = !self.states.contains_key(&id);
             let clip = parent.and_then(|parent| clips[parent]);
             clips.push(match &el.kind {
                 Kind::List(_) => Some(clip.map_or(rect, |clip| clip.intersect(&rect))),
@@ -359,6 +394,12 @@ impl<M: Clone> Tree<M> {
             });
             seen.insert(id);
             let state = self.states.entry(id).or_default();
+            if fresh && let Some(parent) = parent.filter(|parent| staggers[*parent]) {
+                let turn = turns.entry(parent).or_insert(0);
+                state.appear.snap(0.0);
+                state.wait = *turn as f32 * STAGGER;
+                *turn += 1;
+            }
             kinds::settle(&el.kind, state);
             if kinds::pending(&el.kind) {
                 self.pending.insert(id);
@@ -778,19 +819,31 @@ impl<M: Clone> Tree<M> {
         walk(el, ROOT, None, &mut all);
         let mut clip = None;
         let mut popups = Vec::new();
+        // How far each element has come in: its own way, times its parent's.
+        let base_alpha = frame.current_alpha();
+        let base_offset = frame.offset();
+        let mut shown: Vec<f32> = Vec::with_capacity(self.nodes.len());
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
             let focused = state.focus.value > 0.0;
             let laid = self.paragraphs.get(id).map_or(&[][..], Vec::as_slice);
+            let here = state.appear.value.clamp(0.0, 1.0) * node.parent.map_or(1.0, |parent| shown[parent]);
+            shown.push(here);
+            if here < 1.0 {
+                frame.alpha(base_alpha * here);
+                frame.set_offset(base_offset.0, base_offset.1 + (1.0 - here) * 14.0);
+            } else {
+                frame.alpha(base_alpha);
+                frame.set_offset(base_offset.0, base_offset.1);
+            }
             if node.clip != clip {
                 clip = node.clip;
                 frame.clip(clip);
             }
             kinds::paint(el, node.rect, state, laid, focused, frame, theme);
-            // A field clips its own text: its element's clip comes back after.
-            if node.role == Role::TextField {
-                frame.clip(clip);
-            }
+            // Fields and rolling text clip their own: the element's clip comes
+            // back after.
+            frame.clip(clip);
             if let Kind::Menu(menu) = &el.kind
                 && state.value.value > 0.0
             {
@@ -798,6 +851,8 @@ impl<M: Clone> Tree<M> {
             }
         }
         frame.clip(None);
+        frame.alpha(base_alpha);
+        frame.set_offset(base_offset.0, base_offset.1);
         // Open menus over everything but tooltips.
         let bounds = self.bounds();
         for (menu, rect, state, laid) in popups {
@@ -822,6 +877,7 @@ impl<M: Clone> Tree<M> {
 mod tests {
     use super::*;
     use crate::el::{Kind, Size, Type};
+    use crate::theme::Theme;
 
     fn measure(el: &El<()>, _: Option<f32>) -> (f32, f32) {
         match &el.kind {
@@ -1020,6 +1076,49 @@ mod tests {
         tree.input(&key(Keysym::Tab, false));
         assert_eq!(tree.input(&key(Keysym::Right, false)).messages, vec![21.0]);
         assert_eq!(tree.input(&key(Keysym::End, false)).messages, vec![100.0]);
+    }
+
+    #[test]
+    fn new_children_of_a_staggering_parent_come_in_one_after_another() {
+        let mut tree = Tree::<()>::default();
+        let space = Rect::new(0.0, 0.0, 300.0, 300.0);
+        let rows = |n: usize| El::column(0.0, (0..n).map(|at| El::text("x", Type::Body).key(at)).collect()).stagger();
+        tree.set(rows(3));
+        tree.layout_with(space, &mut measure);
+        let waits: Vec<f32> = tree.nodes()[1..]
+            .iter()
+            .map(|node| tree.state(node.id).unwrap().wait)
+            .collect();
+        assert_eq!(waits, vec![0.0, STAGGER, 2.0 * STAGGER]);
+        assert!(
+            tree.nodes()[1..]
+                .iter()
+                .all(|node| tree.state(node.id).unwrap().appear.value == 0.0)
+        );
+        // One more: only it comes in; the others are there already.
+        while tree.update(1.0 / 240.0, 0.0, &Theme::default()) {}
+        tree.set(rows(4));
+        tree.layout_with(space, &mut measure);
+        let appeared: Vec<f32> = tree.nodes()[1..]
+            .iter()
+            .map(|node| tree.state(node.id).unwrap().appear.value)
+            .collect();
+        assert_eq!(appeared, vec![1.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn rolling_text_remembers_what_it_said_and_rolls() {
+        let mut tree = Tree::<()>::default();
+        let space = Rect::new(0.0, 0.0, 300.0, 300.0);
+        tree.set(El::column(0.0, vec![El::text("12:30", Type::Body).rolling()]));
+        tree.layout_with(space, &mut measure);
+        let id = tree.nodes()[1].id;
+        assert_eq!(tree.state(id).unwrap().was, None);
+        tree.set(El::column(0.0, vec![El::text("12:31", Type::Body).rolling()]));
+        tree.layout_with(space, &mut measure);
+        let state = tree.state(id).unwrap();
+        assert_eq!(state.was.as_deref(), Some("12:30"));
+        assert!(state.roll.is_moving());
     }
 
     #[test]

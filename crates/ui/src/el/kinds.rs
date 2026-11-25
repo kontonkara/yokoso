@@ -64,6 +64,16 @@ pub fn settle<M>(kind: &Kind<M>, state: &mut State) {
             state.value.snap(target);
         }
     }
+    if let Kind::Text(t) = kind
+        && t.rolling
+    {
+        if state.known && state.text != t.text {
+            state.was = Some(std::mem::take(&mut state.text));
+            state.roll.snap(0.0);
+            state.roll.to(1.0);
+        }
+        state.text = t.text.clone();
+    }
     state.known = true;
 }
 
@@ -142,7 +152,32 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
 }
 
 /// Its text, laid out for the rect it got: a line or a few.
-pub fn paragraphs<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, scale: f32) -> Vec<Paragraph> {
+pub fn paragraphs<M>(
+    el: &El<M>,
+    rect: Rect,
+    state: Option<&State>,
+    text: &mut Text,
+    theme: &Theme,
+    scale: f32,
+) -> Vec<Paragraph> {
+    // Rolling text, mid-roll: the new line, then each new character and each
+    // old one where they are as many; else the old line whole.
+    if let (Kind::Text(t), Some(state)) = (&el.kind, state)
+        && t.rolling
+        && let Some(was) = state.was.as_ref().filter(|_| state.roll.is_moving())
+    {
+        let style = style(t, theme);
+        let mut all = vec![text.layout(&t.text, &style, scale, None, false)];
+        let (new, old): (Vec<char>, Vec<char>) = (t.text.chars().collect(), was.chars().collect());
+        if new.len() == old.len() {
+            for c in new.iter().chain(old.iter()) {
+                all.push(text.layout(&c.to_string(), &style, scale, None, false));
+            }
+        } else {
+            all.push(text.layout(was, &style, scale, None, false));
+        }
+        return all;
+    }
     if let Kind::Field(field) = &el.kind {
         return super::field::paragraphs(field, text, theme, scale);
     }
@@ -222,6 +257,7 @@ pub fn paint<M>(
     let colors = &theme.colors;
     let paragraph = paragraphs.first();
     match &el.kind {
+        Kind::Text(t) if t.rolling && paragraphs.len() > 1 => paint_rolling(t, rect, state, paragraphs, frame, theme),
         Kind::Text(t) => {
             if let Some(paragraph) = paragraph {
                 // Centered up and down: a line in a taller box.
@@ -612,6 +648,40 @@ pub fn paint_tooltip(rect: Rect, bounds: Rect, state: &State, paragraph: &Paragr
     let bubble = Rect::new(x, y, w, h);
     frame.fill(bubble, 4.0, colors.inverse_surface.alpha(shown));
     frame.text(paragraph, x + pad_x, y + pad_y, colors.inverse_on_surface.alpha(shown));
+}
+
+/// Text mid-roll: each changed character goes up and out as its new one
+/// comes up from below; the same ones stay. Where the count of characters
+/// changed, the whole line rolls.
+fn paint_rolling(t: &TextEl, rect: Rect, state: &State, paragraphs: &[Paragraph], frame: &mut Frame, theme: &Theme) {
+    let color = ink(t.ink, theme);
+    let roll = state.roll.value.clamp(0.0, 1.2);
+    let line = paragraphs[0].height();
+    let y = rect.y + ((rect.h - line) / 2.0).max(0.0);
+    frame.clip(Some(Rect::new(rect.x, y, rect.w.max(paragraphs[0].width()), line)));
+    let old_text = state.was.as_deref().unwrap_or_default();
+    let count = t.text.chars().count();
+    if paragraphs.len() == 1 + 2 * count {
+        let (new, old) = paragraphs[1..].split_at(count);
+        let mut x = rect.x;
+        for ((a, b), (now, before)) in t.text.chars().zip(old_text.chars()).zip(new.iter().zip(old)) {
+            if a == b {
+                frame.text(now, x, y, color);
+            } else {
+                frame.text(before, x, y - roll * line, color.alpha((1.0 - roll).clamp(0.0, 1.0)));
+                frame.text(now, x, y + (1.0 - roll) * line, color);
+            }
+            x += now.width();
+        }
+    } else if let [now, before] = paragraphs {
+        frame.text(
+            before,
+            rect.x,
+            y - roll * line,
+            color.alpha((1.0 - roll).clamp(0.0, 1.0)),
+        );
+        frame.text(now, rect.x, y + (1.0 - roll) * line, color);
+    }
 }
 
 /// The focus ring: outside the element, as far as its spring has come.
