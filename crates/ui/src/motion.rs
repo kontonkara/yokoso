@@ -105,7 +105,7 @@ pub struct Motion {
 }
 
 impl Default for Motion {
-    /// The values chosen on the mockup: Expressive at ×1.25, panel content,
+    /// The values chosen live: Expressive at ×1.15, panel content,
     /// lists and small things Snappy.
     fn default() -> Self {
         let snappy = PartMotion {
@@ -114,7 +114,7 @@ impl Default for Motion {
         };
         Self {
             global: Preset::Expressive.params(),
-            speed: 1.25,
+            speed: 1.15,
             mode: Mode::Normal,
             parts: HashMap::from([(Part::Content, snappy), (Part::Lists, snappy), (Part::Micro, snappy)]),
         }
@@ -330,7 +330,7 @@ mod tests {
         let motion = Motion::default();
         assert_eq!(motion.feel(Part::Panels).params, Preset::Expressive.params());
         assert_eq!(motion.feel(Part::Lists).params, Preset::Snappy.params());
-        assert_eq!(motion.feel(Part::Panels).speed, 1.25);
+        assert_eq!(motion.feel(Part::Panels).speed, 1.15);
     }
 
     #[test]
