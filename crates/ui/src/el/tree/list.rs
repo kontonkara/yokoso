@@ -191,7 +191,10 @@ impl<M: Clone> Tree<M> {
     /// Every list's scroll moved `dt` seconds on: its spring, and its fling.
     /// True while one still moves; marks the tree for layout when one did.
     pub(super) fn update_lists(&mut self, dt: f32, theme: &Theme) -> bool {
-        let feel = theme.motion.feel(Part::Lists);
+        // Scrolled, a list comes to where it was sent and no further: a
+        // bounce there reads as the content wobbling.
+        let mut feel = theme.motion.feel(Part::Lists);
+        feel.params.damping = feel.params.damping.max(1.0);
         let mut moving = false;
         let mut moved = false;
         for state in self.states.values_mut() {
@@ -288,6 +291,26 @@ mod tests {
         let list = tree.nodes()[1].id;
         assert_eq!(tree.state(list).unwrap().scroll.value, 120.0);
         assert_eq!(tree.nodes()[2].rect.y, 0.0, "row 6 at the top");
+    }
+
+    #[test]
+    fn the_wheel_never_scrolls_past_where_it_sends_the_list() {
+        let mut tree = tree(None);
+        let mut theme = Theme::default();
+        theme.motion.global = crate::motion::Preset::Bouncy.params();
+        tree.input(&Input::PointerMove { x: 10.0, y: 10.0 });
+        let wheel = Scroll {
+            steps_y: 2.0,
+            ..Default::default()
+        };
+        tree.input(&Input::Scroll(wheel));
+        let list = tree.nodes()[1].id;
+        let mut furthest = 0.0f32;
+        for _ in 0..240 {
+            tree.update(1.0 / 240.0, 0.0, &theme);
+            furthest = furthest.max(tree.state(list).unwrap().scroll.value);
+        }
+        assert!(furthest <= 120.0 + 0.01, "it went on to {furthest}");
     }
 
     #[test]
