@@ -8,7 +8,7 @@ use super::{El, kinds, layout};
 use crate::{
     app::{Frame, View},
     geometry::Rect,
-    input::Input,
+    input::{Input, KeyState, Keysym},
     motion::{Part, Spring},
     text::{Paragraph, Text},
     theme::Theme,
@@ -83,6 +83,8 @@ impl State {
 pub struct Response<M> {
     pub messages: Vec<M>,
     pub redraw: bool,
+    /// Escape went unused here: the shell unwinds a level.
+    pub escaped: bool,
 }
 
 pub struct Tree<M> {
@@ -96,6 +98,9 @@ pub struct Tree<M> {
     stale: bool,
     pub hovered: Option<Id>,
     pub pressed: Option<Id>,
+    pub focus: Option<Id>,
+    /// The focus ring shows: a key was pressed since the last click.
+    pub focus_visible: bool,
 }
 
 impl<M> Default for Tree<M> {
@@ -109,6 +114,8 @@ impl<M> Default for Tree<M> {
             stale: true,
             hovered: None,
             pressed: None,
+            focus: None,
+            focus_visible: false,
         }
     }
 }
@@ -212,6 +219,12 @@ impl<M: Clone> Tree<M> {
         if self.pressed.is_some_and(|id| !seen.contains(&id)) {
             self.pressed = None;
         }
+        if self
+            .focus
+            .is_some_and(|id| !self.nodes.iter().any(|node| node.id == id && node.interactive))
+        {
+            self.focus = None;
+        }
     }
 
     /// The topmost element that takes the pointer at `x`, `y`.
@@ -227,6 +240,7 @@ impl<M: Clone> Tree<M> {
     /// hears what the elements make of it.
     pub fn input(&mut self, input: &Input) -> Response<M> {
         let mut redraw = false;
+        let mut escaped = false;
         let mut messages = Vec::new();
         match input {
             Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
@@ -244,6 +258,10 @@ impl<M: Clone> Tree<M> {
                 redraw = true;
             }
             Input::Press { button: BTN_LEFT, .. } => {
+                // A click focuses without a ring.
+                self.focus_visible = false;
+                self.move_focus(self.hovered);
+                redraw = true;
                 if let Some(id) = self.hovered {
                     self.pressed = Some(id);
                     self.set_spring(Some(id), |s| s.press.to(1.0));
@@ -260,9 +278,84 @@ impl<M: Clone> Tree<M> {
                     }
                 }
             }
+            Input::Key(key) if key.state != KeyState::Released => {
+                redraw = true;
+                let was_visible = self.focus_visible;
+                self.focus_visible = true;
+                match key.keysym {
+                    Keysym::Tab if !key.mods.shift => self.step_focus(1, false),
+                    Keysym::Tab | Keysym::ISO_Left_Tab => self.step_focus(-1, false),
+                    Keysym::Right | Keysym::Down => self.step_focus(1, true),
+                    Keysym::Left | Keysym::Up => self.step_focus(-1, true),
+                    Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                        if let Some(id) = self.focus {
+                            messages.extend(self.activate(id));
+                        }
+                    }
+                    Keysym::Escape => escaped = true,
+                    _ => {}
+                }
+                if !was_visible {
+                    let focus = self.focus;
+                    self.set_spring(focus, |s| s.focus.to(1.0));
+                }
+            }
+            Input::KeyboardLeave => {
+                self.focus_visible = false;
+                let focus = self.focus;
+                self.set_spring(focus, |s| s.focus.to(0.0));
+                redraw = true;
+            }
             _ => {}
         }
-        Response { messages, redraw }
+        Response {
+            messages,
+            redraw,
+            escaped,
+        }
+    }
+
+    /// Focus to `id`: its ring fades in where rings show, the old one's out.
+    fn move_focus(&mut self, id: Option<Id>) {
+        let old = self.focus;
+        if old == id {
+            return;
+        }
+        self.set_spring(old, |s| s.focus.to(0.0));
+        let shown = if self.focus_visible { 1.0 } else { 0.0 };
+        self.set_spring(id, |s| s.focus.to(shown));
+        self.focus = id;
+    }
+
+    /// Focus to the next (`by` 1) or the previous (-1) element that takes
+    /// it; with `sibling`, only among the focused one's siblings, as arrows
+    /// move in a row or a column. Tab wraps around; arrows stop at the ends.
+    fn step_focus(&mut self, by: i32, sibling: bool) {
+        let at = self
+            .focus
+            .and_then(|id| self.nodes.iter().position(|node| node.id == id));
+        let parent = at.and_then(|at| self.nodes[at].parent);
+        let order: Vec<usize> = (0..self.nodes.len())
+            .filter(|&index| self.nodes[index].interactive)
+            .filter(|&index| !sibling || at.is_none() || self.nodes[index].parent == parent)
+            .collect();
+        if order.is_empty() {
+            return;
+        }
+        let here = at.and_then(|at| order.iter().position(|&index| index == at));
+        let next = match (here, sibling) {
+            (None, _) => {
+                if by > 0 {
+                    0
+                } else {
+                    order.len() - 1
+                }
+            }
+            (Some(here), false) => (here as i32 + by).rem_euclid(order.len() as i32) as usize,
+            (Some(here), true) => (here as i32 + by).clamp(0, order.len() as i32 - 1) as usize,
+        };
+        let id = self.nodes[order[next]].id;
+        self.move_focus(Some(id));
     }
 
     /// What the element `id` sends when it is used: a button's message.
@@ -290,7 +383,8 @@ impl<M: Clone> Tree<M> {
         walk(el, ROOT, None, &mut all);
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
-            kinds::paint(el, node.rect, state, self.paragraphs.get(id), false, frame, theme);
+            let focused = state.focus.value > 0.0;
+            kinds::paint(el, node.rect, state, self.paragraphs.get(id), focused, frame, theme);
         }
     }
 }
@@ -396,6 +490,61 @@ mod tests {
         assert!(done.messages.is_empty());
         // A disabled button takes no pointer at all.
         assert_eq!(tree.hit(80.0, 10.0), None);
+    }
+
+    fn key(keysym: Keysym, shift: bool) -> Input {
+        Input::Key(crate::input::Key {
+            keysym,
+            text: None,
+            state: KeyState::Pressed,
+            mods: crate::input::Mods {
+                shift,
+                ..Default::default()
+            },
+        })
+    }
+
+    #[test]
+    fn tab_walks_the_buttons_round_and_enter_presses_the_focused_one() {
+        use crate::el::ButtonStyle;
+        let mut tree = Tree::<u8>::default();
+        let button = |n: u8| {
+            El::button("b", ButtonStyle::Tonal, Some(n))
+                .width(Size::Fixed(40.0))
+                .height(Size::Fixed(20.0))
+        };
+        tree.set(El::column(
+            0.0,
+            vec![El::row(4.0, vec![button(1), button(2)]), button(3)],
+        ));
+        tree.layout_with(Rect::new(0.0, 0.0, 200.0, 100.0), &mut |_: &El<u8>, _| (0.0, 0.0));
+        let press = |tree: &mut Tree<u8>, keysym, shift| tree.input(&key(keysym, shift));
+        assert!(!tree.focus_visible);
+        press(&mut tree, Keysym::Tab, false);
+        assert!(tree.focus_visible);
+        assert_eq!(press(&mut tree, Keysym::Return, false).messages, vec![1]);
+        press(&mut tree, Keysym::Tab, false);
+        press(&mut tree, Keysym::Tab, false);
+        assert_eq!(press(&mut tree, Keysym::space, false).messages, vec![3]);
+        // Round to the first, and back.
+        press(&mut tree, Keysym::Tab, false);
+        assert_eq!(press(&mut tree, Keysym::Return, false).messages, vec![1]);
+        press(&mut tree, Keysym::ISO_Left_Tab, true);
+        assert_eq!(press(&mut tree, Keysym::Return, false).messages, vec![3]);
+        // Arrows stay among siblings and stop at the ends.
+        press(&mut tree, Keysym::Tab, false);
+        press(&mut tree, Keysym::Right, false);
+        press(&mut tree, Keysym::Right, false);
+        assert_eq!(press(&mut tree, Keysym::Return, false).messages, vec![2]);
+        // A click hides the ring; Escape goes to the shell.
+        tree.input(&Input::PointerMove { x: 5.0, y: 5.0 });
+        tree.input(&Input::Press {
+            button: BTN_LEFT,
+            x: 5.0,
+            y: 5.0,
+        });
+        assert!(!tree.focus_visible);
+        assert!(press(&mut tree, Keysym::Escape, false).escaped);
     }
 
     #[test]
