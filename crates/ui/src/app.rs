@@ -161,6 +161,13 @@ pub trait Shell: Sized + 'static {
     /// Render: paints `key`. The state is only read here.
     fn render(&self, key: Self::Key, frame: &mut Frame);
 
+    /// Where `key` takes the pointer, logical pixels, after its frame: None
+    /// for all of it. What is outside goes to what is beneath, as the gaps
+    /// between toasts.
+    fn input_region(&self, _key: Self::Key) -> Option<Vec<Rect>> {
+        None
+    }
+
     /// After a frame of `key`: how long until it wants another though nothing
     /// moves, as a caret that blinks. None for never.
     fn wake(&self, _key: Self::Key) -> Option<std::time::Duration> {
@@ -338,6 +345,8 @@ struct Surface<K> {
     frames: u64,
     /// CPU time of the last frame, seconds.
     cpu: f64,
+    /// Where it takes the pointer, as last set: None for all of it.
+    input: Option<Vec<Rect>>,
     /// What each of the last few frames drew, buffer pixels, newest last.
     history: Vec<Rect>,
     /// The buffer size the last frame was drawn at.
@@ -623,6 +632,7 @@ impl<S: Shell> Ui<S> {
             presented: None,
             refresh: None,
             fps: 0.0,
+            input: None,
             history: Vec::new(),
             drawn: (0, 0),
             wake_at: None,
@@ -740,6 +750,24 @@ impl<S: Shell> Ui<S> {
         };
         shell.render(key, &mut frame);
         self.painter.flush(&self.gpu.gl, width, height, region);
+        // Where it takes the pointer, if the shell says, set before the frame
+        // commits it.
+        let input = shell.input_region(key);
+        if input != surface.input && (input.is_some() || surface.input.is_some()) {
+            match &input {
+                Some(rects) => {
+                    if let Ok(region) = smithay_client_toolkit::compositor::Region::new(&self.compositor) {
+                        for rect in rects {
+                            let zoomed = |v: f32| (v * self.zoom).round() as i32;
+                            region.add(zoomed(rect.x), zoomed(rect.y), zoomed(rect.w), zoomed(rect.h));
+                        }
+                        surface.wl().set_input_region(Some(region.wl_region()));
+                    }
+                }
+                None => surface.wl().set_input_region(None),
+            }
+            surface.input = input;
+        }
         if let Some(scaled) = &surface.scaled {
             scaled
                 .viewport
