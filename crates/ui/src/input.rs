@@ -87,3 +87,36 @@ pub struct Mods {
     pub caps_lock: bool,
     pub num_lock: bool,
 }
+
+/// The keypad's keys that move, as the keys they stand for: with Num Lock
+/// off, its 7 is Home and its 1 End, and they work as those do.
+pub fn plain(keysym: Keysym) -> Keysym {
+    match keysym {
+        Keysym::KP_Home => Keysym::Home,
+        Keysym::KP_End => Keysym::End,
+        Keysym::KP_Up => Keysym::Up,
+        Keysym::KP_Down => Keysym::Down,
+        Keysym::KP_Left => Keysym::Left,
+        Keysym::KP_Right => Keysym::Right,
+        Keysym::KP_Page_Up => Keysym::Page_Up,
+        Keysym::KP_Page_Down => Keysym::Page_Down,
+        Keysym::KP_Insert => Keysym::Insert,
+        Keysym::KP_Delete => Keysym::Delete,
+        other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_keypad_moves_as_the_keys_it_stands_for() {
+        assert_eq!(plain(Keysym::KP_Home), Keysym::Home);
+        assert_eq!(plain(Keysym::KP_End), Keysym::End);
+        assert_eq!(plain(Keysym::KP_Page_Down), Keysym::Page_Down);
+        // Its digits, with Num Lock on, and every other key, stay as they are.
+        assert_eq!(plain(Keysym::KP_7), Keysym::KP_7);
+        assert_eq!(plain(Keysym::a), Keysym::a);
+    }
+}

@@ -1247,7 +1247,7 @@ impl<S: Shell> App<S> {
     fn key(&mut self, event: KeyEvent, state: KeyState) {
         let Some(key) = self.ui.focus else { return };
         let input = Input::Key(Key {
-            keysym: event.keysym,
+            keysym: crate::input::plain(event.keysym),
             code: event.raw_code,
             text: event
                 .utf8
