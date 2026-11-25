@@ -2,6 +2,7 @@
 //! its middle and at its end. Each part shows what the system says now and
 //! changes the frame it hears of a change; at rest it draws nothing.
 
+mod battery;
 pub mod clock;
 mod keyboard;
 mod workspaces;
@@ -25,13 +26,14 @@ use yokoso_ui::{
 
 use crate::{
     config::{Config, Edge, Module},
-    niri,
+    niri, upower,
 };
 
 /// What the bar's services send it.
 pub enum Message {
     Config(Result<Config, String>),
     Niri(niri::Event),
+    Power(upower::Power),
 }
 
 /// What its parts send when used.
@@ -43,6 +45,8 @@ pub enum Msg {
     WorkspaceStep(f32),
     /// The layout before (more) or the next.
     LayoutStep(f32),
+    /// What the config says a part opens on a click.
+    Open(Module),
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -76,6 +80,7 @@ pub struct Bar {
     time: String,
     date: Option<String>,
     niri: niri::State,
+    power: upower::Power,
     /// Each screen's connector and logical width, as the surfaces were asked
     /// for: what a bar there shows depends on it.
     screens: RefCell<HashMap<OutputId, (String, f32)>>,
@@ -98,6 +103,7 @@ impl Bar {
             time,
             date,
             niri: niri::State::default(),
+            power: upower::Power::default(),
             screens: RefCell::default(),
         }
     }
@@ -107,6 +113,8 @@ impl Bar {
     pub fn start(ui: &mut Ui<Self>, bar: &Self) {
         let sender = ui.sender();
         niri::listen(move |event| sender.send(Message::Niri(event)).is_ok());
+        let sender = ui.sender();
+        upower::listen(move |power| sender.send(Message::Power(power)).is_ok());
         let first = clock::next_change(&clock::now(), &bar.config.bar.clock);
         let _ = ui
             .handle()
@@ -205,11 +213,36 @@ impl Bar {
             .map(|workspace| workspace.id)
     }
 
+    /// The command a part runs on a click, as the config has it.
+    fn command(&self, module: Module) -> &[String] {
+        let bar = &self.config.bar;
+        match module {
+            Module::Battery => &bar.battery.on_click,
+            Module::Network => &bar.network.on_click,
+            Module::Sound => &bar.sound.on_click,
+            _ => &[],
+        }
+    }
+
+    /// What a click on `module` sends: None where the config gives it nothing
+    /// to open.
+    fn opens(&self, module: Module) -> Option<Msg> {
+        (!self.command(module).is_empty()).then_some(Msg::Open(module))
+    }
+
+    /// Runs what the config says `module` opens.
+    fn open(&self, module: Module) {
+        if let Some((program, args)) = self.command(module).split_first() {
+            run(program, args);
+        }
+    }
+
     /// Does what a part asks.
     fn act(&mut self, msg: &Msg) {
         match msg {
             Msg::Workspace(_) | Msg::Window(_) | Msg::WorkspaceStep(_) => workspaces::act(msg),
             Msg::LayoutStep(steps) => keyboard::act(*steps),
+            Msg::Open(module) => self.open(*module),
         }
     }
 
@@ -235,6 +268,7 @@ impl Bar {
                 )
             }
             Module::Layout => keyboard::view(&self.niri, pad),
+            Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
             Module::Workspaces => {
                 let (output, width) = self.screen(place)?;
                 workspaces::view(&self.niri, &output, width, &self.theme)
@@ -278,6 +312,23 @@ impl Bar {
     }
 }
 
+/// Starts `program` on its own: the bar never waits on it, and it is
+/// reaped when it ends.
+fn run(program: &str, args: &[String]) {
+    match std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(mut child) => {
+            let _ = std::thread::Builder::new()
+                .name("reaper".into())
+                .spawn(move || child.wait());
+        }
+        Err(error) => tracing::warn!(%error, program, "could not run"),
+    }
+}
+
 /// Timers fire this long after the change, never just before it.
 const SLACK: Duration = Duration::from_millis(5);
 
@@ -305,6 +356,12 @@ impl Shell for Bar {
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Power(power) => {
+                if power != self.power {
+                    self.power = power;
+                    self.changed(ui);
+                }
+            }
             Message::Niri(event) => {
                 if self.niri.apply(event) {
                     self.changed(ui);
@@ -489,6 +546,10 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "battery": match self.power {
+                    upower::Power::Battery(battery) => json!({ "percentage": battery.percentage, "charge": format!("{:?}", battery.charge) }),
+                    other => json!(format!("{other:?}")),
+                },
                 "layout": self.niri.layouts.names.get(self.niri.layouts.current_idx),
                 "bars": self.surfaces.iter().map(|(place, surface)| json!({
                     "place": format!("{place:?}"),
@@ -499,6 +560,7 @@ impl crate::ipc::Answer for Bar {
                     })).collect::<Vec<_>>(),
                     "clock": surface.tree.rect_of("clock").map(|r| [r.x, r.y, r.w, r.h]),
                     "layout": surface.tree.rect_of("layout").map(|r| [r.x, r.y, r.w, r.h]),
+                    "battery": surface.tree.rect_of("battery").map(|r| [r.x, r.y, r.w, r.h]),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()
                         .map(|ws| json!({

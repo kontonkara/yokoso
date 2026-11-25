@@ -7,6 +7,7 @@ mod ipc;
 mod niri;
 mod panel;
 mod probe;
+mod upower;
 
 use std::process::ExitCode;
 

@@ -19,3 +19,5 @@ inotify = "0.11.5"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.8"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+zbus = "6.5.0"
+futures-util = { version = "0.3.34", default-features = false }

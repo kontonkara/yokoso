@@ -36,6 +36,9 @@ pub struct Bar {
     /// With a panel open, the pointer on another part opens that one's.
     pub hover_switch: bool,
     pub clock: Clock,
+    pub battery: Part,
+    pub network: Part,
+    pub sound: Sound,
 }
 
 impl Default for Bar {
@@ -57,6 +60,9 @@ impl Default for Bar {
             ],
             hover_switch: true,
             clock: Clock::default(),
+            battery: Part::default(),
+            network: Part::default(),
+            sound: Sound::default(),
         }
     }
 }
@@ -94,6 +100,31 @@ pub struct Clock {
     pub date: bool,
     #[serde(deserialize_with = "strftime")]
     pub date_format: String,
+}
+
+/// A part that opens something elsewhere on a click, until it has a panel
+/// of its own: a command, as words.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Part {
+    pub on_click: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Sound {
+    pub on_click: Vec<String>,
+    /// Percent the wheel moves the volume by, a notch.
+    pub step: f32,
+}
+
+impl Default for Sound {
+    fn default() -> Self {
+        Self {
+            on_click: Vec::new(),
+            step: 5.0,
+        }
+    }
 }
 
 fn strftime<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
