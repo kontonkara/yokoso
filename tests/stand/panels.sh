@@ -113,3 +113,15 @@ after=$(rss)
 echo "memory: $before KiB, then $after KiB after 30 calendars"
 [ $((after - before)) -lt 4096 ] || fail "memory grew by $((after - before)) KiB"
 [ "$(popup)" = null ] || fail "a calendar was left open: $(popup)"
+# Told to, a panel drops from the bar's edge, as wide as itself from the
+# first frame on, rather than growing out of its part.
+printf '[bar]\npanels = "drop"\n' >"$XDG_CONFIG_HOME/yokoso/config.toml"
+sleep 0.5
+move "$x" "$y"
+click
+sleep 0.05
+shot dropping
+[ "$(popup shape | jq '.[0]')" = "$(popup to | jq '.[0]')" ] && [ "$(popup shape | jq '.[2]')" = "$(popup to | jq '.[2]')" ] ||
+	fail "the panel came as $(popup shape), not across $(popup to)"
+wtype -k Escape
+sleep 0.8

@@ -185,6 +185,17 @@ pub fn at(input: &Input) -> Option<(f32, f32)> {
     }
 }
 
+/// What a panel at `to` grows out of, and goes back into: its part at
+/// `button`, or a line along the bar's edge as wide as itself, at the top
+/// of it for a bar at the top.
+pub fn origin(panels: crate::config::Panels, button: Rect, to: Rect, top: bool) -> Rect {
+    match panels {
+        crate::config::Panels::Grow => button,
+        crate::config::Panels::Drop if top => Rect::new(to.x, to.y, to.w, 1.0),
+        crate::config::Panels::Drop => Rect::new(to.x, to.bottom() - 1.0, to.w, 1.0),
+    }
+}
+
 /// Where a panel `size` big goes for a part at `button`: under the bar at
 /// the top (over it at the bottom), its middle under the part's, kept
 /// `margin` in from the screen's sides.
@@ -208,6 +219,22 @@ mod tests {
             toggle: None,
             submenu: false,
         }
+    }
+
+    #[test]
+    fn a_dropping_panel_comes_from_the_bar_edge_as_wide_as_itself() {
+        use crate::config::Panels;
+        let button = Rect::new(680.0, 12.0, 40.0, 32.0);
+        let to = Rect::new(540.0, 54.0, 320.0, 300.0);
+        assert_eq!(origin(Panels::Grow, button, to, true), button);
+        assert_eq!(
+            origin(Panels::Drop, button, to, true),
+            Rect::new(540.0, 54.0, 320.0, 1.0)
+        );
+        assert_eq!(
+            origin(Panels::Drop, button, to, false),
+            Rect::new(540.0, 353.0, 320.0, 1.0)
+        );
     }
 
     #[test]

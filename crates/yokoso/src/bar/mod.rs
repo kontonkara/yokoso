@@ -404,6 +404,8 @@ impl Bar {
             top,
             self.config.bar.margin,
         );
+        // What it grows out of and goes back into, as the config has it.
+        let button = popup::origin(self.config.bar.panels, button, to, top);
         match &mut self.popup {
             Some(open)
                 if open.output == output && open.panel.open && open.shows.same(&shows) && open.shows == shows =>

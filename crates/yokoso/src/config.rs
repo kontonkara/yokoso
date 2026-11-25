@@ -35,6 +35,8 @@ pub struct Bar {
     pub right: Vec<Module>,
     /// With a panel open, the pointer on another part opens that one's.
     pub hover_switch: bool,
+    /// How a panel opens: out of its part, or down from the bar's edge.
+    pub panels: Panels,
     pub clock: Clock,
     pub battery: Part,
     pub network: Network,
@@ -60,6 +62,7 @@ impl Default for Bar {
                 Module::Battery,
             ],
             hover_switch: true,
+            panels: Panels::default(),
             clock: Clock::default(),
             battery: Part::default(),
             network: Network::default(),
@@ -67,6 +70,18 @@ impl Default for Bar {
             privacy: Part::default(),
         }
     }
+}
+
+/// How a panel opens from the bar.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Panels {
+    /// Out of its part: the part grows into it.
+    #[default]
+    Grow,
+    /// Down from the bar's edge under its part, as a list drops; the part
+    /// stays as it is.
+    Drop,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
