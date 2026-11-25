@@ -175,6 +175,9 @@ pub struct Tree<M> {
     swallow_release: bool,
     /// The theme of the last layout, for what input measures.
     theme: Theme,
+    /// Where its top left is laid out at: a panel's content sits where the
+    /// panel will be.
+    origin: (f32, f32),
 }
 
 impl<M> Default for Tree<M> {
@@ -198,6 +201,7 @@ impl<M> Default for Tree<M> {
             menu_open: None,
             swallow_release: false,
             theme: Theme::default(),
+            origin: (0.0, 0.0),
         }
     }
 }
@@ -234,6 +238,27 @@ impl<M: Clone> Tree<M> {
 
     pub fn state(&self, id: Id) -> Option<&State> {
         self.states.get(&id)
+    }
+
+    /// Lays out with its top left at `x`, `y` from now on.
+    pub fn set_origin(&mut self, x: f32, y: f32) {
+        if self.origin != (x, y) {
+            self.origin = (x, y);
+            self.stale = true;
+        }
+    }
+
+    /// The rect of the element keyed `key`, after layout.
+    pub fn rect_of(&self, key: impl std::hash::Hash) -> Option<Rect> {
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        key.hash(&mut hasher);
+        let wanted = Some(hasher.finish());
+        let el = self.el.as_ref()?;
+        let mut all = Vec::new();
+        walk(el, ROOT, None, &mut all);
+        let at = all.iter().position(|(el, _, _)| el.key == wanted)?;
+        self.nodes.get(at).map(|node| node.rect)
     }
 
     /// Whether layout has to run for `view`.
@@ -286,7 +311,7 @@ impl<M: Clone> Tree<M> {
     /// Lays the description out for `view`, text at its scale.
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme) {
         let scale = view.scale;
-        let space = Rect::new(0.0, 0.0, view.width, view.height);
+        let space = Rect::new(self.origin.0, self.origin.1, view.width, view.height);
         self.layout_with(space, &mut |el: &El<M>, max| {
             kinds::measure(el, max, text, theme, scale)
         });
