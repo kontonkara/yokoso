@@ -86,6 +86,9 @@ pub enum Place {
     Window,
     /// What opens from the bar on a screen: over all of it.
     Popup(OutputId),
+    /// A strip just past the bar on a screen, the pointer going through it:
+    /// where the bar's tooltips show, as the bar has no room for them.
+    Tip(OutputId),
 }
 
 /// Each bar's elements, and the description they were last built from.
@@ -124,6 +127,10 @@ pub struct Bar {
     media_asks: Option<async_channel::Sender<mpris::Ask>>,
     /// The panel open now, or closing.
     popup: Option<popup::Popup>,
+    /// The screen whose bar has a tooltip to show, and so a strip for it.
+    tip: Option<OutputId>,
+    /// Whether a timer looks after the strip, to take it away.
+    tip_watched: bool,
     /// A tray menu asked for, on this screen: it opens as it comes.
     menu_asked: Option<(OutputId, String)>,
     /// Each screen's connector and logical width, as the surfaces were asked
@@ -133,6 +140,9 @@ pub struct Bar {
 
 /// The window's size, to try the bar beside the session.
 const WINDOW_WIDTH: u32 = 1280;
+
+/// How tall the strip for tooltips is: a line of them, and room.
+const TIP_TALL: f32 = 32.0;
 
 impl Bar {
     pub fn new(window: bool, config: Config) -> Self {
@@ -157,6 +167,8 @@ impl Bar {
             media: None,
             media_asks: None,
             popup: None,
+            tip: None,
+            tip_watched: false,
             menu_asked: None,
             screens: RefCell::default(),
         }
@@ -236,7 +248,7 @@ impl Bar {
     /// a window's edges as it would float on a screen.
     fn rect(&self, place: Place, view: &View) -> Rect {
         match place {
-            Place::Screen(_) | Place::Popup(_) => Rect::new(0.0, 0.0, view.width, view.height),
+            Place::Screen(_) | Place::Popup(_) | Place::Tip(_) => Rect::new(0.0, 0.0, view.width, view.height),
             Place::Window => {
                 let margin = self.config.bar.margin;
                 Rect::new(margin, margin, view.width - 2.0 * margin, self.config.bar.height)
@@ -248,7 +260,7 @@ impl Bar {
     /// width: a window's, the one with the focused workspace.
     fn screen(&self, place: Place) -> Option<(String, f32)> {
         match place {
-            Place::Screen(id) | Place::Popup(id) => {
+            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) => {
                 self.screens.borrow().get(&id).map(|(name, w, _)| (name.clone(), *w))
             }
             Place::Window => {
@@ -425,6 +437,54 @@ impl Bar {
         );
     }
 
+    /// The tooltip strip as the bar on `output` wants it: there while a
+    /// tooltip is due or in sight, gone once it has faded.
+    fn follow_tip(&mut self, ui: &mut Ui<Self>, output: OutputId, wake: Option<Duration>) {
+        let seen = self
+            .surfaces
+            .get(&Place::Screen(output))
+            .is_some_and(|surface| surface.tree.tip_seen());
+        if !seen || self.window {
+            return;
+        }
+        if self.tip != Some(output) {
+            self.tip = Some(output);
+            ui.refresh_surfaces();
+        }
+        ui.dirty(Place::Tip(output));
+        // When the bar's tooltip is due, the strip looks too.
+        if let Some(wake) = wake {
+            ui.wake_after(Place::Tip(output), wake);
+        }
+        if self.tip_watched {
+            return;
+        }
+        self.tip_watched = true;
+        // Looked at now and then while it is there: it goes when nothing
+        // of a tooltip is left to see.
+        let _ = ui
+            .handle()
+            .insert_source(Timer::from_duration(Duration::from_millis(100)), |_, _, app| {
+                // The strip there is now, on whichever screen.
+                let Some(output) = app.shell.tip else {
+                    app.shell.tip_watched = false;
+                    return TimeoutAction::Drop;
+                };
+                let seen = app
+                    .shell
+                    .surfaces
+                    .get(&Place::Screen(output))
+                    .is_some_and(|surface| surface.tree.tip_seen());
+                if seen {
+                    return TimeoutAction::ToDuration(Duration::from_millis(100));
+                }
+                app.shell.tip_watched = false;
+                app.shell.tip = None;
+                app.ui.refresh_surfaces();
+                TimeoutAction::Drop
+            });
+    }
+
     /// The part whose panel is open now, by its key.
     fn open_part(&self) -> Option<String> {
         self.popup
@@ -451,7 +511,7 @@ impl Bar {
     /// Does what a part asks, on `place`.
     fn act(&mut self, ui: &mut Ui<Self>, place: Place, msg: &Msg) {
         let output = match place {
-            Place::Screen(id) | Place::Popup(id) => Some(id),
+            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) => Some(id),
             Place::Window => None,
         };
         match msg {
@@ -922,6 +982,7 @@ impl Shell for Bar {
                     exclusive_zone: bar.height.round() as i32,
                     keyboard: KeyboardInteractivity::None,
                     namespace: "yokoso-bar".into(),
+                    through: false,
                 };
                 (Place::Screen(output.id), Spec::Layer(spec))
             })
@@ -940,8 +1001,27 @@ impl Shell for Bar {
                 exclusive_zone: -1,
                 keyboard: KeyboardInteractivity::Exclusive,
                 namespace: "yokoso-panel".into(),
+                through: false,
             };
             all.push((Place::Popup(open.output), Spec::Layer(spec)));
+        }
+        // A tooltip's strip: just past the bar, the screen across, wherever
+        // the compositor put the bar, as it keeps clear of every bar there.
+        if let Some(output) = self.tip
+            && all.iter().any(|(place, _)| *place == Place::Screen(output))
+        {
+            let spec = LayerSpec {
+                output,
+                layer: Layer::Overlay,
+                anchor: edge | Anchor::LEFT | Anchor::RIGHT,
+                size: (0, TIP_TALL as u32),
+                margin: (0, 0, 0, 0),
+                exclusive_zone: 0,
+                keyboard: KeyboardInteractivity::None,
+                namespace: "yokoso-tip".into(),
+                through: true,
+            };
+            all.push((Place::Tip(output), Spec::Layer(spec)));
         }
         all
     }
@@ -964,9 +1044,23 @@ impl Shell for Bar {
         for message in &response.messages {
             self.act(ui, key, message);
         }
+        if let Place::Screen(output) = key {
+            self.follow_tip(ui, output, response.wake);
+        }
     }
 
     fn update(&mut self, key: Place, time: &FrameTime) -> bool {
+        if let Place::Tip(output) = key {
+            // The bar's own frames move the tooltip; this one only sees it
+            // is due, as it may wake first.
+            return match self.surfaces.get_mut(&Place::Screen(output)) {
+                Some(surface) => {
+                    surface.tree.show_due_tip(time.now);
+                    surface.tree.tip_moving()
+                }
+                None => false,
+            };
+        }
         if let Place::Popup(_) = key {
             return match &mut self.popup {
                 Some(open) => open.panel.update(time.dt as f32, time.now, &self.theme),
@@ -1008,6 +1102,9 @@ impl Shell for Bar {
             }
             return;
         }
+        if let Place::Tip(_) = key {
+            return;
+        }
         let rect = self.rect(key, view);
         let fresh = self
             .surfaces
@@ -1020,6 +1117,10 @@ impl Shell for Bar {
         if let Some(content) = content {
             surface.tree.set(content);
             surface.built = generation;
+        }
+        // On a screen, tooltips show in their strip past the bar.
+        if let Place::Screen(_) = key {
+            surface.tree.tips_apart();
         }
         surface.tree.set_origin(rect.x, rect.y);
         let inside = View {
@@ -1056,6 +1157,19 @@ impl Shell for Bar {
             }
             return;
         }
+        if let Place::Tip(output) = key {
+            // The bar's tooltips, from where the bar is to where the strip
+            // is: its side margin across, its edge along.
+            if let Some(surface) = self.surfaces.get(&Place::Screen(output)) {
+                let bar = &self.config.bar;
+                let dy = match bar.position {
+                    Edge::Top => -bar.height,
+                    Edge::Bottom => TIP_TALL,
+                };
+                surface.tree.paint_tips(frame, theme, bar.margin, dy);
+            }
+            return;
+        }
         let view = frame.view();
         let rect = self.rect(key, &view);
         frame.fill(rect, theme.sizes.radius, theme.colors.surface_container);
@@ -1073,6 +1187,15 @@ impl Shell for Bar {
     fn wake(&self, key: Place) -> Option<Duration> {
         if let Place::Popup(_) = key {
             return self.popup.as_ref().and_then(|open| open.panel.wake());
+        }
+        if let Place::Tip(output) = key {
+            // Frames while it fades, and one when it is due.
+            let tree = &self.surfaces.get(&Place::Screen(output))?.tree;
+            return if tree.tip_moving() {
+                Some(Duration::ZERO)
+            } else {
+                tree.wake()
+            };
         }
         let surface = self.surfaces.get(&key)?;
         // The frame was sent somewhere new at layout: it moves from the next
@@ -1123,6 +1246,7 @@ impl crate::ipc::Answer for Bar {
                 "layouts": self.niri.layouts.names,
                 "using": self.using.iter().map(|used| format!("{used:?}")).collect::<Vec<_>>(),
                 "media": self.media.as_ref().map(|p| json!({ "title": p.title, "playing": p.playing })),
+                "tips": self.surfaces.values().map(|s| s.tree.tooltips_shown()).sum::<usize>(),
                 "popup": self.popup.as_ref().map(|open| json!({
                     "open": open.panel.open,
                     "visible": open.panel.visible(),

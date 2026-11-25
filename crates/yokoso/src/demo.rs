@@ -809,6 +809,7 @@ impl Shell for Demo {
                     exclusive_zone: 0,
                     keyboard: KeyboardInteractivity::OnDemand,
                     namespace: "yokoso-demo".into(),
+                    through: false,
                 };
                 (Place::Layer(output.id), Spec::Layer(spec))
             })

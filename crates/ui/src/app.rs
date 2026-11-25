@@ -96,6 +96,8 @@ pub struct LayerSpec {
     pub exclusive_zone: i32,
     pub keyboard: KeyboardInteractivity,
     pub namespace: String,
+    /// The pointer goes through it to what is beneath: it shows, and that is all.
+    pub through: bool,
 }
 
 /// A surface's size and scale, for layout.
@@ -582,6 +584,12 @@ impl<S: Shell> Ui<S> {
                     Some(output),
                 );
                 apply_layer(&layer, layer_spec);
+                if layer_spec.through {
+                    // No input region at all; the protocol copies it, so it can go at once.
+                    let none = smithay_client_toolkit::compositor::Region::new(&self.compositor)
+                        .map_err(|error| error.to_string())?;
+                    layer.wl_surface().set_input_region(Some(none.wl_region()));
+                }
                 layer.commit();
                 (Role::Layer(layer), layer_spec.size)
             }

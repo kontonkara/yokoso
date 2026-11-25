@@ -217,6 +217,8 @@ pub struct Tree<M> {
     swallow_release: bool,
     /// The theme of the last layout, for what input measures.
     theme: Theme,
+    /// Its tooltips show on another surface: painting leaves them out.
+    tips_apart: bool,
     /// Where its top left is laid out at: a panel's content sits where the
     /// panel will be.
     origin: (f32, f32),
@@ -235,6 +237,7 @@ impl<M> Default for Tree<M> {
             pressed: None,
             press_x: 0.0,
             tip: None,
+            tips_apart: false,
             focus: None,
             focus_visible: false,
             pending: HashSet::new(),
@@ -309,6 +312,60 @@ impl<M: Clone> Tree<M> {
         self.stale || self.view.as_ref() != Some(view)
     }
 
+    /// Its tooltips show on another surface, as a bar's do below it: painting
+    /// leaves them out, and `paint_tips` draws them there.
+    pub fn tips_apart(&mut self) {
+        self.tips_apart = true;
+    }
+
+    fn tip_states(&self) -> impl Iterator<Item = &State> {
+        self.nodes
+            .iter()
+            .filter(|node| node.role == Role::Tooltip)
+            .filter_map(|node| self.states.get(&node.id))
+    }
+
+    /// Whether a tooltip is to be seen: the pointer rests on one, or one is
+    /// in sight or fading.
+    pub fn tip_seen(&self) -> bool {
+        self.tip.is_some()
+            || self
+                .tip_states()
+                .any(|state| state.value.value > 0.0 || state.value.is_moving())
+    }
+
+    /// A tooltip shows once the pointer has rested long enough: at `now`,
+    /// monotonic seconds. Update does it; so can the surface it shows on.
+    pub fn show_due_tip(&mut self, now: f64) {
+        if let Some((id, since)) = self.tip
+            && now - since >= TOOLTIP_DELAY.as_secs_f64() - 0.01
+            && let Some(state) = self.states.get_mut(&id)
+        {
+            state.value.to(1.0);
+        }
+    }
+
+    /// Whether a tooltip fades in or out now.
+    pub fn tip_moving(&self) -> bool {
+        self.tip_states().any(|state| state.value.is_moving())
+    }
+
+    /// The tooltips as painting would, `dx`, `dy` on: where the surface they
+    /// show on is, from this one.
+    pub fn paint_tips(&self, frame: &mut Frame, theme: &Theme, dx: f32, dy: f32) {
+        let view = frame.view();
+        let bounds = Rect::new(0.0, 0.0, view.width, view.height);
+        for node in self.nodes.iter().filter(|node| node.role == Role::Tooltip) {
+            if let (Some(state), Some([paragraph, ..])) = (
+                self.states.get(&node.id),
+                self.paragraphs.get(&node.id).map(Vec::as_slice),
+            ) {
+                let rect = Rect::new(node.rect.x + dx, node.rect.y + dy, node.rect.w, node.rect.h);
+                kinds::paint_tooltip(rect, bounds, state, paragraph, frame, theme);
+            }
+        }
+    }
+
     /// How many tooltips show now, more than half faded in.
     pub fn tooltips_shown(&self) -> usize {
         self.nodes
@@ -357,13 +414,7 @@ impl<M: Clone> Tree<M> {
                 moving |= spring.step(dt, &feel);
             }
         }
-        // A tooltip shows once the pointer has rested long enough.
-        if let Some((id, since)) = self.tip
-            && now - since >= TOOLTIP_DELAY.as_secs_f64() - 0.01
-            && let Some(state) = self.states.get_mut(&id)
-        {
-            state.value.to(1.0);
-        }
+        self.show_due_tip(now);
         // What waits pulses, and keeps frames coming while it does.
         for id in &self.pending {
             if let Some(state) = self.states.get_mut(id) {
@@ -1019,7 +1070,10 @@ impl<M: Clone> Tree<M> {
             super::menu::paint_popup(menu, rect, bounds, state, laid, frame, theme);
         }
         frame.clip(outer);
-        // Tooltips last, over everything.
+        // Tooltips last, over everything; unless they show elsewhere.
+        if self.tips_apart {
+            return;
+        }
         let view = frame.view();
         let bounds = Rect::new(0.0, 0.0, view.width, view.height);
         for node in self.nodes.iter().filter(|node| node.role == Role::Tooltip) {

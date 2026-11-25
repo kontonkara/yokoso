@@ -33,3 +33,20 @@ nm Vpn b false
 until_says .network.vpns '[]'
 nm Wifi b false
 until_says .network.link '"None"'
+# Its words on resting, below the bar: on a strip of their own, as the bar
+# has no room for them, and gone with the pointer.
+read -r x y <<EOT
+$(dump | jq -r '.bars[0].network | "\(8 + .[0] + .[2] / 2 | floor) \(8 + .[1] + .[3] / 2 | floor)"')
+EOT
+move "$x" "$y"
+sleep 0.2
+[ "$(dump | jq .tips)" = 0 ] || fail "the tooltip showed at once"
+sleep 1
+[ "$(dump | jq .tips)" = 1 ] || fail "no tooltip after resting"
+shot tooltip
+below=$((8 + 40 + 12))
+[ "$(pixel "$x" "$below")" != "$(pixel 4 "$below")" ] || fail "nothing below the bar where the tooltip is: $(pixel "$x" "$below")"
+move 700 600
+sleep 0.8
+[ "$(dump | jq .tips)" = 0 ] || fail "the tooltip stayed after the pointer left"
+[ "$(dump | jq '[.surfaces[] | select(.key | test("Tip"))] | length')" = 0 ] || fail "its strip stayed"

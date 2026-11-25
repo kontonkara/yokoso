@@ -93,6 +93,7 @@ impl Shell for Probe {
                     // The keyboard when clicked, for the field.
                     keyboard: KeyboardInteractivity::OnDemand,
                     namespace: "yokoso-probe".into(),
+                    through: false,
                 };
                 (Place::Output(output.id), Spec::Layer(spec))
             })
