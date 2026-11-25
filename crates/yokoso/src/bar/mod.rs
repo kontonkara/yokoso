@@ -5,6 +5,7 @@
 mod battery;
 pub mod clock;
 mod keyboard;
+mod network;
 mod workspaces;
 
 use std::{cell::RefCell, collections::HashMap, time::Duration};
@@ -26,7 +27,7 @@ use yokoso_ui::{
 
 use crate::{
     config::{Config, Edge, Module},
-    niri, upower,
+    niri, nm, upower,
 };
 
 /// What the bar's services send it.
@@ -34,6 +35,7 @@ pub enum Message {
     Config(Result<Config, String>),
     Niri(niri::Event),
     Power(upower::Power),
+    Net(nm::Net),
 }
 
 /// What its parts send when used.
@@ -81,6 +83,7 @@ pub struct Bar {
     date: Option<String>,
     niri: niri::State,
     power: upower::Power,
+    net: nm::Net,
     /// Each screen's connector and logical width, as the surfaces were asked
     /// for: what a bar there shows depends on it.
     screens: RefCell<HashMap<OutputId, (String, f32)>>,
@@ -104,6 +107,7 @@ impl Bar {
             date,
             niri: niri::State::default(),
             power: upower::Power::default(),
+            net: nm::Net::default(),
             screens: RefCell::default(),
         }
     }
@@ -115,6 +119,8 @@ impl Bar {
         niri::listen(move |event| sender.send(Message::Niri(event)).is_ok());
         let sender = ui.sender();
         upower::listen(move |power| sender.send(Message::Power(power)).is_ok());
+        let sender = ui.sender();
+        nm::listen(move |net| sender.send(Message::Net(net)).is_ok());
         let first = clock::next_change(&clock::now(), &bar.config.bar.clock);
         let _ = ui
             .handle()
@@ -269,6 +275,13 @@ impl Bar {
             }
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
+            Module::Network => Some(network::view(
+                &self.net,
+                &self.config.bar.network.vpn,
+                &self.theme,
+                pad,
+                self.opens(module),
+            )),
             Module::Workspaces => {
                 let (output, width) = self.screen(place)?;
                 workspaces::view(&self.niri, &output, width, &self.theme)
@@ -356,6 +369,12 @@ impl Shell for Bar {
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Net(net) => {
+                if net != self.net {
+                    self.net = net;
+                    self.changed(ui);
+                }
+            }
             Message::Power(power) => {
                 if power != self.power {
                     self.power = power;
@@ -546,6 +565,14 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "network": match &self.net {
+                    nm::Net::Up(network) => json!({
+                        "name": network.name,
+                        "link": format!("{:?}", network.link),
+                        "vpns": network::vpns(network, &self.config.bar.network.vpn),
+                    }),
+                    nm::Net::Unknown => json!(null),
+                },
                 "battery": match self.power {
                     upower::Power::Battery(battery) => json!({ "percentage": battery.percentage, "charge": format!("{:?}", battery.charge) }),
                     other => json!(format!("{other:?}")),
@@ -561,6 +588,7 @@ impl crate::ipc::Answer for Bar {
                     "clock": surface.tree.rect_of("clock").map(|r| [r.x, r.y, r.w, r.h]),
                     "layout": surface.tree.rect_of("layout").map(|r| [r.x, r.y, r.w, r.h]),
                     "battery": surface.tree.rect_of("battery").map(|r| [r.x, r.y, r.w, r.h]),
+                    "network": surface.tree.rect_of("network").map(|r| [r.x, r.y, r.w, r.h]),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()
                         .map(|ws| json!({

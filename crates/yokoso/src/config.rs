@@ -37,7 +37,7 @@ pub struct Bar {
     pub hover_switch: bool,
     pub clock: Clock,
     pub battery: Part,
-    pub network: Part,
+    pub network: Network,
     pub sound: Sound,
 }
 
@@ -61,7 +61,7 @@ impl Default for Bar {
             hover_switch: true,
             clock: Clock::default(),
             battery: Part::default(),
-            network: Part::default(),
+            network: Network::default(),
             sound: Sound::default(),
         }
     }
@@ -108,6 +108,15 @@ pub struct Clock {
 #[serde(default, deny_unknown_fields)]
 pub struct Part {
     pub on_click: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Network {
+    pub on_click: Vec<String>,
+    /// Connections that count as a VPN though NetworkManager doesn't call
+    /// them one, by name: a tunnel brought up by hand.
+    pub vpn: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]

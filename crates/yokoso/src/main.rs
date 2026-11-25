@@ -5,6 +5,7 @@ mod config;
 mod demo;
 mod ipc;
 mod niri;
+mod nm;
 mod panel;
 mod probe;
 mod upower;
