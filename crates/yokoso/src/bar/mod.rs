@@ -3,6 +3,7 @@
 //! changes the frame it hears of a change; at rest it draws nothing.
 
 pub mod clock;
+mod keyboard;
 mod workspaces;
 
 use std::{cell::RefCell, collections::HashMap, time::Duration};
@@ -40,6 +41,8 @@ pub enum Msg {
     Workspace(u64),
     Window(u64),
     WorkspaceStep(f32),
+    /// The layout before (more) or the next.
+    LayoutStep(f32),
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -206,6 +209,7 @@ impl Bar {
     fn act(&mut self, msg: &Msg) {
         match msg {
             Msg::Workspace(_) | Msg::Window(_) | Msg::WorkspaceStep(_) => workspaces::act(msg),
+            Msg::LayoutStep(steps) => keyboard::act(*steps),
         }
     }
 
@@ -230,6 +234,7 @@ impl Bar {
                         .height(Size::Fill(1.0)),
                 )
             }
+            Module::Layout => keyboard::view(&self.niri, pad),
             Module::Workspaces => {
                 let (output, width) = self.screen(place)?;
                 workspaces::view(&self.niri, &output, width, &self.theme)
@@ -483,6 +488,8 @@ impl crate::ipc::Answer for Bar {
                 "hidden": self.hidden,
                 "time": self.time,
                 "date": self.date,
+                "layouts": self.niri.layouts.names,
+                "layout": self.niri.layouts.names.get(self.niri.layouts.current_idx),
                 "bars": self.surfaces.iter().map(|(place, surface)| json!({
                     "place": format!("{place:?}"),
                     "nodes": surface.tree.nodes().iter().map(|node| json!({
@@ -491,6 +498,7 @@ impl crate::ipc::Answer for Bar {
                         "rect": [node.rect.x, node.rect.y, node.rect.w, node.rect.h],
                     })).collect::<Vec<_>>(),
                     "clock": surface.tree.rect_of("clock").map(|r| [r.x, r.y, r.w, r.h]),
+                    "layout": surface.tree.rect_of("layout").map(|r| [r.x, r.y, r.w, r.h]),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()
                         .map(|ws| json!({
