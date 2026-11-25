@@ -60,6 +60,46 @@ impl Paragraph {
         self.layout.height() / self.scale
     }
 
+    /// The caret before the byte `index`, logical pixels from the top left.
+    pub fn caret(&self, index: usize) -> Rect {
+        let cursor = parley::Cursor::from_byte_index(&self.layout, index, parley::Affinity::Downstream);
+        let found = cursor.geometry(&self.layout, 1.0);
+        let s = self.scale as f64;
+        Rect::new(
+            (found.x0 / s) as f32,
+            (found.y0 / s) as f32,
+            1.0,
+            ((found.y1 - found.y0) / s) as f32,
+        )
+    }
+
+    /// The byte index nearest `x`, `y` logical pixels from the top left.
+    pub fn index_at(&self, x: f32, y: f32) -> usize {
+        parley::Cursor::from_point(&self.layout, x * self.scale, y * self.scale).index()
+    }
+
+    /// Where `range` of bytes shows, as rects from the top left.
+    pub fn selection(&self, range: std::ops::Range<usize>) -> Vec<Rect> {
+        if range.is_empty() {
+            return Vec::new();
+        }
+        let from = parley::Cursor::from_byte_index(&self.layout, range.start, parley::Affinity::Downstream);
+        let to = parley::Cursor::from_byte_index(&self.layout, range.end, parley::Affinity::Upstream);
+        let s = self.scale as f64;
+        parley::Selection::new(from, to)
+            .geometry(&self.layout)
+            .into_iter()
+            .map(|(found, _)| {
+                Rect::new(
+                    (found.x0 / s) as f32,
+                    (found.y0 / s) as f32,
+                    ((found.x1 - found.x0) / s) as f32,
+                    ((found.y1 - found.y0) / s) as f32,
+                )
+            })
+            .collect()
+    }
+
     /// The scale it was laid out at: drawn at another, it is laid out again.
     pub fn scale(&self) -> f32 {
         self.scale
