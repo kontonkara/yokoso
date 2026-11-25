@@ -12,7 +12,7 @@ use yokoso_ui::{
         WindowSpec,
     },
     calloop::timer::{TimeoutAction, Timer},
-    el::{Align, ButtonStyle, Edges, El, Ink, Size, Type, tree::Tree},
+    el::{Align, ButtonStyle, CardStyle, Edges, El, Ink, Size, TileEl, Type, tree::Tree},
     input::Input,
     text::Text,
     theme::Theme,
@@ -30,16 +30,18 @@ pub enum Page {
     Buttons,
     Toggles,
     Sliders,
+    Cards,
 }
 
 impl Page {
-    const ALL: [Page; 3] = [Page::Buttons, Page::Toggles, Page::Sliders];
+    const ALL: [Page; 4] = [Page::Buttons, Page::Toggles, Page::Sliders, Page::Cards];
 
     fn name(self) -> &'static str {
         match self {
             Page::Buttons => "Buttons",
             Page::Toggles => "Toggles",
             Page::Sliders => "Sliders",
+            Page::Cards => "Cards and tiles",
         }
     }
 }
@@ -56,7 +58,19 @@ pub enum Msg {
     Volume(f32),
     Brightness(f32),
     Fine(f32),
+    /// A tile pressed, by its place in the grid.
+    Tile(usize),
+    /// A tile's way into its details.
+    More(usize),
 }
+
+/// The demo's tiles: icon, name, and whether they wait on a slow system.
+const TILES: [(&str, &str, bool); 4] = [
+    ("wifi", "Wi-Fi", true),
+    ("bluetooth", "Bluetooth", true),
+    ("bell", "Do not disturb", false),
+    ("moon", "Night light", false),
+];
 
 pub struct Demo {
     layer: bool,
@@ -75,6 +89,10 @@ pub struct Demo {
     volume: f32,
     brightness: f32,
     fine: f32,
+    tiles: [bool; 4],
+    tiles_pending: [bool; 4],
+    /// Whose details were asked for last.
+    details: Option<usize>,
 }
 
 const WIDTH: u32 = 960;
@@ -96,6 +114,9 @@ impl Demo {
             volume: 40.0,
             brightness: 70.0,
             fine: 0.5,
+            tiles: [true, false, false, true],
+            tiles_pending: [false; 4],
+            details: None,
         }
     }
 
@@ -111,6 +132,19 @@ impl Demo {
             Msg::Volume(value) => self.volume = value,
             Msg::Brightness(value) => self.brightness = value,
             Msg::Fine(value) => self.fine = value,
+            Msg::More(at) => self.details = Some(at),
+            Msg::Tile(at) if TILES[at].2 => {
+                self.tiles_pending[at] = true;
+                let answer = Timer::from_duration(Duration::from_millis(1200));
+                let _ = ui.handle().insert_source(answer, move |_, _, app| {
+                    app.shell.tiles[at] = !app.shell.tiles[at];
+                    app.shell.tiles_pending[at] = false;
+                    app.shell.stale = true;
+                    app.ui.dirty_all();
+                    TimeoutAction::Drop
+                });
+            }
+            Msg::Tile(at) => self.tiles[at] = !self.tiles[at],
             Msg::Slow => {
                 // As a slow system would: the answer comes a while later.
                 self.slow_pending = true;
@@ -125,6 +159,80 @@ impl Demo {
             }
         }
         self.stale = true;
+    }
+
+    /// The cards and tiles page: a card of each style, and a grid of tiles.
+    fn cards(&self) -> El<Msg> {
+        let sizes = &self.theme.sizes;
+        let card = |style, name: &str| {
+            El::card(
+                style,
+                Some(name),
+                6.0,
+                vec![El::text("Background, corners, a title.", Type::Small).ink(Ink::OnSurfaceVariant)],
+            )
+            .padding(Edges::all(sizes.pad))
+            .width(Size::Fill(1.0))
+        };
+        let tile = |at: usize| {
+            let (icon, title, slow) = TILES[at];
+            let subtitle = match (self.tiles_pending[at], self.tiles[at]) {
+                (true, true) => "Turning off",
+                (true, false) => "Turning on",
+                (false, true) => "On",
+                (false, false) => "Off",
+            };
+            El::tile(TileEl {
+                icon,
+                title: title.into(),
+                subtitle: subtitle.into(),
+                on: self.tiles[at],
+                pending: self.tiles_pending[at],
+                on_press: Some(Msg::Tile(at)),
+                on_more: slow.then_some(Msg::More(at)),
+            })
+            .width(Size::Fill(1.0))
+        };
+        let said = match self.details {
+            Some(at) => format!("Details of {} asked for", TILES[at].1),
+            None => "Click the arrow of Wi-Fi or Bluetooth, or Shift+Return on it".into(),
+        };
+        El::column(
+            sizes.gap,
+            vec![
+                El::text("Cards", Type::Title).weight(600.0),
+                El::row(
+                    sizes.gap,
+                    vec![
+                        card(CardStyle::Filled, "Filled"),
+                        card(CardStyle::Elevated, "Elevated"),
+                        card(CardStyle::Outlined, "Outlined"),
+                    ],
+                )
+                .align(Align::Stretch),
+                El::text("Tiles", Type::Title).weight(600.0),
+                El::row(sizes.gap, vec![tile(0), tile(1)]),
+                El::row(sizes.gap, vec![tile(2), tile(3)]),
+                El::row(
+                    sizes.gap,
+                    vec![
+                        El::tile(TileEl {
+                            icon: "power",
+                            title: "Disabled".into(),
+                            subtitle: "Takes nothing".into(),
+                            on: false,
+                            pending: false,
+                            on_press: None,
+                            on_more: None,
+                        })
+                        .width(Size::Fill(1.0)),
+                        El::spacer().width(Size::Fill(1.0)).height(Size::Fixed(1.0)),
+                    ],
+                ),
+                El::text(said, Type::Body).ink(Ink::OnSurfaceVariant),
+            ],
+        )
+        .width(Size::Fixed(560.0))
     }
 
     /// The sliders page: by whole numbers, by fives, fine, and disabled.
@@ -258,6 +366,7 @@ impl Demo {
             Page::Buttons => self.buttons(),
             Page::Toggles => self.toggles(),
             Page::Sliders => self.sliders(),
+            Page::Cards => self.cards(),
         };
         El::column(
             sizes.gap,
@@ -352,7 +461,7 @@ impl crate::ipc::Answer for Demo {
                 let name = words.get(1).ok_or("which page?")?;
                 let page = Page::ALL
                     .into_iter()
-                    .find(|page| page.name().eq_ignore_ascii_case(name))
+                    .find(|page| page.name().to_lowercase().starts_with(&name.to_lowercase()))
                     .ok_or_else(|| format!("no page {name}"))?;
                 self.apply(ui, Msg::Page(page));
                 ui.dirty_all();
@@ -377,6 +486,9 @@ impl crate::ipc::Answer for Demo {
                 "volume": self.volume,
                 "brightness": self.brightness,
                 "fine": self.fine,
+                "tiles": self.tiles,
+                "tiles_pending": self.tiles_pending,
+                "details": self.details,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
