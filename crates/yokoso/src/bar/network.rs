@@ -31,6 +31,19 @@ pub fn vpns(network: &Network, named: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The network as it shows, `bluetooth` beside it: Wi-Fi off and Bluetooth
+/// off is airplane mode, as it is turned on elsewhere; a switch that keeps
+/// the radios off is too.
+pub fn flying(net: &Net, bluetooth: crate::bluez::Bluetooth) -> Net {
+    match net {
+        Net::Up(network) if !network.wireless && bluetooth.off() => Net::Up(Network {
+            airplane: true,
+            ..network.clone()
+        }),
+        other => other.clone(),
+    }
+}
+
 /// What of the network shows, its words on resting aside: the icon, and
 /// whether a VPN is up. A change to the rest, as the strength from one
 /// percent to the next, draws nothing.
@@ -129,6 +142,23 @@ mod tests {
             ],
             ..Network::default()
         }
+    }
+
+    #[test]
+    fn wifi_and_bluetooth_off_is_airplane_mode() {
+        use crate::bluez::Bluetooth;
+        let off = Net::Up(Network::default());
+        let flying = |net: &Net, bluetooth| matches!(flying(net, bluetooth), Net::Up(n) if n.airplane);
+        assert!(flying(&off, Bluetooth::Known { adapters: 1, on: false }));
+        assert!(
+            !flying(&off, Bluetooth::Known { adapters: 1, on: true }),
+            "Bluetooth on"
+        );
+        assert!(!flying(&off, Bluetooth::Unknown), "no word of Bluetooth");
+        assert!(
+            !flying(&Net::Up(wifi(70)), Bluetooth::Known { adapters: 1, on: false }),
+            "Wi-Fi on"
+        );
     }
 
     #[test]

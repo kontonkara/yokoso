@@ -20,7 +20,16 @@ until_says .network.link '"Wifi { ssid: \"Stand\", strength: 72 }"'
 shot wifi
 nm Wifi b false
 until_says .network.link '"None"'
+until_says .network.airplane false
 shot off
+# Bluetooth off too: airplane mode, as it is turned on elsewhere; Bluetooth
+# back, Wi-Fi off alone.
+bluetooth() { busctl --user call org.bluez /stand stand.Bluetooth Power b "$1"; }
+bluetooth false
+until_says .network.airplane true
+shot airplane
+bluetooth true
+until_says .network.airplane false
 # On its way up, it pulses: frames keep coming while it does.
 nm Connecting b true
 nm Wifi b true

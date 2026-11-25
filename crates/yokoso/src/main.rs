@@ -1,6 +1,7 @@
 //! yokoso: a desktop shell for Wayland.
 
 mod bar;
+mod bluez;
 mod config;
 mod demo;
 mod icon_theme;
