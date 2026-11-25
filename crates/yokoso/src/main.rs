@@ -9,6 +9,7 @@ mod probe;
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: yokoso [shell [--window]]
+       yokoso probe [--window]         (a test card on every output, or in a window)
        yokoso demo [--layer]           (every element, in a window or as a layer)
        yokoso validate [file]          (the config and its overrides, or one file)
        yokoso msg <command> [args…]   (ping, stats, dump, reload, overlay [on|off], move [seconds])";
@@ -26,7 +27,8 @@ fn main() -> ExitCode {
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let done = match args.first().map(String::as_str) {
-        None | Some("shell") => shell(args.iter().any(|arg| arg == "--window")),
+        None | Some("shell") => probe(args.iter().any(|arg| arg == "--window")),
+        Some("probe") => probe(args.iter().any(|arg| arg == "--window")),
         Some("demo") => demo(args.iter().any(|arg| arg == "--layer")),
         Some("msg") if args.len() > 1 => ipc::send(&args[1..]),
         Some("validate") => validate(args.get(1)),
@@ -81,7 +83,8 @@ fn validate(file: Option<&String>) -> Result<(), String> {
     Ok(())
 }
 
-fn shell(window: bool) -> Result<(), String> {
+/// The probe of stage 0: a card on every output, or in a window.
+fn probe(window: bool) -> Result<(), String> {
     let dir = config::dir();
     let config = config::load(&dir).unwrap_or_else(|error| {
         tracing::warn!(%error, "config not read: the defaults are in force");

@@ -1,1 +1,1 @@
-shell_args="shell --window"
+shell_args="probe --window"

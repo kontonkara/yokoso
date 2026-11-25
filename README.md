@@ -24,6 +24,7 @@ run time from `libglvnd` or Mesa.
 ```sh
 yokoso shell            # on every output
 yokoso shell --window   # in a plain window, to try it without the session
+yokoso probe            # the test card of stage 0, on every output (--window too)
 yokoso msg ping         # talk to the running shell
 yokoso validate         # check the config
 ```
