@@ -68,6 +68,7 @@ pub fn natural<M>(el: &El<M>, max_width: Option<f32>, measure: &mut impl Measure
             .map(|child| natural(child, inner_max, measure))
             .fold((0.0f32, 0.0f32), |(w, h), (cw, ch)| (w.max(cw), h.max(ch))),
         Kind::Spacer | Kind::_Message(_) => (0.0, 0.0),
+        Kind::List(list) => (0.0, list.len as f32 * list.row_height),
         _ => measure.measure(el, inner_max),
     };
     let w = fixed_w.unwrap_or(w + pad.horizontal());
@@ -95,6 +96,14 @@ fn place<M>(el: &El<M>, rect: Rect, measure: &mut impl Measure<M>, out: &mut Vec
         Kind::Row { gap, align } => line(el, inner, *gap, *align, true, measure, out),
         Kind::Column { gap, align } => line(el, inner, *gap, *align, false, measure, out),
         Kind::Card { gap, .. } => line(el, inner, *gap, Align::Stretch, false, measure, out),
+        Kind::List(list) => {
+            // Its children are the rows in view, from the first: each at its
+            // place down the whole list, less how far it is scrolled.
+            for (at, child) in el.children.iter().enumerate() {
+                let y = inner.y + (list.first + at) as f32 * list.row_height - list.scroll;
+                place(child, Rect::new(inner.x, y, inner.w, list.row_height), measure, out);
+            }
+        }
         Kind::Stack | Kind::Tooltip { .. } => {
             for child in &el.children {
                 let (w, h) = natural(child, Some(inner.w), measure);

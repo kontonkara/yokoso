@@ -2,6 +2,8 @@
 //! element's id, rect and role after layout, and what it keeps between
 //! rebuilds — its springs and the like — by its id.
 
+mod list;
+
 use std::collections::{HashMap, HashSet};
 
 use super::{El, Kind, SliderEl, kinds, layout};
@@ -55,6 +57,8 @@ pub struct Node {
     pub interactive: bool,
     /// The keyboard reaches it.
     pub focusable: bool,
+    /// Where it shows, inside a list it scrolls in.
+    pub clip: Option<Rect>,
 }
 
 /// What an element keeps between rebuilds.
@@ -70,6 +74,15 @@ pub struct State {
     /// Its springs were set from a description once: after that they move
     /// to new values rather than jump.
     pub known: bool,
+    /// A list's: how far it is scrolled, its fling's speed and whether it
+    /// flings, when fingers last touched it, how far it can scroll, and the
+    /// row the pointer is on.
+    pub scroll: Spring,
+    pub fling: f32,
+    pub flinging: bool,
+    pub touched: f64,
+    pub max_scroll: f32,
+    pub hover_row: Option<usize>,
 }
 
 impl Default for State {
@@ -81,6 +94,12 @@ impl Default for State {
             value: Spring::new(0.0),
             phase: 0.0,
             known: false,
+            scroll: Spring::pixels(0.0),
+            fling: 0.0,
+            flinging: false,
+            touched: 0.0,
+            max_scroll: 0.0,
+            hover_row: None,
         }
     }
 }
@@ -216,15 +235,24 @@ impl<M: Clone> Tree<M> {
                 moving |= spring.step(dt, &feel);
             }
         }
+        moving |= self.update_lists(dt, theme);
         moving
     }
 
     /// Lays the description out for `view`, text at its scale.
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme) {
         let scale = view.scale;
-        self.layout_with(Rect::new(0.0, 0.0, view.width, view.height), &mut |el: &El<M>, max| {
+        let space = Rect::new(0.0, 0.0, view.width, view.height);
+        self.layout_with(space, &mut |el: &El<M>, max| {
             kinds::measure(el, max, text, theme, scale)
         });
+        // Lists build the rows now in view, and all is laid out again.
+        if self.has_lists() {
+            self.expand_lists();
+            self.layout_with(space, &mut |el: &El<M>, max| {
+                kinds::measure(el, max, text, theme, scale)
+            });
+        }
         // Text laid out once more, at the width it got.
         self.paragraphs.clear();
         if let Some(el) = &self.el {
@@ -250,7 +278,14 @@ impl<M: Clone> Tree<M> {
         walk(el, ROOT, None, &mut all);
         let mut seen = HashSet::new();
         self.pending.clear();
+        // What each element lets its children show in.
+        let mut clips: Vec<Option<Rect>> = Vec::with_capacity(rects.len());
         for ((el, id, parent), rect) in all.into_iter().zip(rects) {
+            let clip = parent.and_then(|parent| clips[parent]);
+            clips.push(match &el.kind {
+                Kind::List(_) => Some(clip.map_or(rect, |clip| clip.intersect(&rect))),
+                _ => clip,
+            });
             seen.insert(id);
             let state = self.states.entry(id).or_default();
             kinds::settle(&el.kind, state);
@@ -266,6 +301,7 @@ impl<M: Clone> Tree<M> {
                 parent,
                 interactive: kinds::interactive(&el.kind),
                 focusable: kinds::focusable(&el.kind),
+                clip,
             });
         }
         // What is gone forgets its state.
@@ -278,7 +314,7 @@ impl<M: Clone> Tree<M> {
         }
         if self
             .focus
-            .is_some_and(|id| !self.nodes.iter().any(|node| node.id == id && node.interactive))
+            .is_some_and(|id| !self.nodes.iter().any(|node| node.id == id && node.focusable))
         {
             self.focus = None;
         }
@@ -289,7 +325,9 @@ impl<M: Clone> Tree<M> {
         self.nodes
             .iter()
             .rev()
-            .find(|node| node.interactive && node.rect.contains(x, y))
+            .find(|node| {
+                node.interactive && node.rect.contains(x, y) && node.clip.is_none_or(|clip| clip.contains(x, y))
+            })
             .map(|node| node.id)
     }
 
@@ -307,7 +345,13 @@ impl<M: Clone> Tree<M> {
                     messages.push(change);
                 }
                 let now = self.hit(*x, *y);
+                if let Some(id) = now {
+                    redraw |= self.list_hover(id, Some(*y));
+                }
                 if now != self.hovered {
+                    if let Some(gone) = self.hovered {
+                        self.list_hover(gone, None);
+                    }
                     self.set_spring(self.hovered, |s| s.hover.to(0.0));
                     self.set_spring(now, |s| s.hover.to(1.0));
                     self.hovered = now;
@@ -346,11 +390,19 @@ impl<M: Clone> Tree<M> {
                     if self.hit(*x, *y) == Some(id) {
                         let more = self.more_at(id, self.press_x);
                         messages.extend(self.activate(id, more));
+                        messages.extend(self.list_click(id, *y));
                     }
                 }
             }
             Input::Scroll(scroll) => {
                 if let Some(id) = self.hovered
+                    && self.list(id).is_some()
+                {
+                    if self.list_scroll(id, scroll) {
+                        self.stale = true;
+                        redraw = true;
+                    }
+                } else if let Some(id) = self.hovered
                     && let Some((slider, track)) = self.slider(id)
                 {
                     // Up and right is more. A wheel goes by steps, fingers by
@@ -372,7 +424,12 @@ impl<M: Clone> Tree<M> {
                 redraw = true;
                 let was_visible = self.focus_visible;
                 self.focus_visible = true;
-                if let Some(change) = self.focus.and_then(|id| self.slider_key(id, key.keysym)) {
+                let on_list = self.focus.filter(|id| self.list(*id).is_some());
+                if let Some(id) = on_list
+                    && let Some(change) = self.list_key(id, key.keysym)
+                {
+                    messages.push(change);
+                } else if let Some(change) = self.focus.and_then(|id| self.slider_key(id, key.keysym)) {
                     messages.push(change);
                 } else {
                     match key.keysym {
@@ -481,6 +538,20 @@ impl<M: Clone> Tree<M> {
         self.move_focus(Some(id));
     }
 
+    /// Whether any list is in the description.
+    fn has_lists(&self) -> bool {
+        self.nodes.iter().any(|node| node.role == Role::List) || self.nodes.is_empty()
+    }
+
+    /// The element `id`, and its rect.
+    fn element(&self, id: Id) -> Option<(&El<M>, Rect)> {
+        let el = self.el.as_ref()?;
+        let mut all = Vec::new();
+        walk(el, ROOT, None, &mut all);
+        let at = all.iter().position(|(_, found, _)| *found == id)?;
+        Some((all[at].0, self.nodes.get(at)?.rect))
+    }
+
     /// The slider `id`, and where its handle runs.
     fn slider(&self, id: Id) -> Option<(&SliderEl<M>, Rect)> {
         let el = self.el.as_ref()?;
@@ -568,12 +639,18 @@ impl<M: Clone> Tree<M> {
         let Some(el) = &self.el else { return };
         let mut all = Vec::new();
         walk(el, ROOT, None, &mut all);
+        let mut clip = None;
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
             let focused = state.focus.value > 0.0;
             let laid = self.paragraphs.get(id).map_or(&[][..], Vec::as_slice);
+            if node.clip != clip {
+                clip = node.clip;
+                frame.clip(clip);
+            }
             kinds::paint(el, node.rect, state, laid, focused, frame, theme);
         }
+        frame.clip(None);
         // Tooltips last, over everything.
         let view = frame.view();
         let bounds = Rect::new(0.0, 0.0, view.width, view.height);

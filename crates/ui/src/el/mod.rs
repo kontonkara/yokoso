@@ -120,6 +120,24 @@ pub enum ButtonStyle {
     Text,
 }
 
+pub struct ListEl<M> {
+    pub len: usize,
+    pub row_height: f32,
+    /// Builds the row at an index.
+    pub row: std::rc::Rc<dyn Fn(usize) -> El<M>>,
+    pub selected: Option<usize>,
+    /// A row chosen: by a click, or by the arrows.
+    pub on_select: Option<std::rc::Rc<dyn Fn(usize) -> M>>,
+    /// The chosen row used: Return.
+    pub on_activate: Option<std::rc::Rc<dyn Fn(usize) -> M>>,
+    /// What it says when it has no rows.
+    pub empty: String,
+    /// Set by the tree before layout: the first row among its children, and
+    /// how far it is scrolled, pixels.
+    pub first: usize,
+    pub scroll: f32,
+}
+
 pub struct TileEl<M> {
     pub icon: &'static str,
     pub title: String,
@@ -192,6 +210,9 @@ pub enum Kind<M> {
     Tooltip {
         text: String,
     },
+    /// Rows of one height, as many as there are, of which only those in view
+    /// are ever built.
+    List(ListEl<M>),
     /// Room and nothing else.
     Spacer,
     Text(TextEl),
@@ -321,6 +342,45 @@ impl<M> El<M> {
             name,
             ink: Ink::OnSurfaceVariant,
         })
+    }
+
+    /// A list of `len` rows `row_height` high, `row` building each one.
+    pub fn list(len: usize, row_height: f32, row: impl Fn(usize) -> El<M> + 'static) -> Self {
+        Self::new(Kind::List(ListEl {
+            len,
+            row_height,
+            row: std::rc::Rc::new(row),
+            selected: None,
+            on_select: None,
+            on_activate: None,
+            empty: String::new(),
+            first: 0,
+            scroll: 0.0,
+        }))
+    }
+
+    /// For a list: which row is chosen, and what it sends as rows are
+    /// chosen and used.
+    pub fn choosing(
+        mut self,
+        selected: Option<usize>,
+        on_select: impl Fn(usize) -> M + 'static,
+        on_activate: impl Fn(usize) -> M + 'static,
+    ) -> Self {
+        if let Kind::List(list) = &mut self.kind {
+            list.selected = selected;
+            list.on_select = Some(std::rc::Rc::new(on_select));
+            list.on_activate = Some(std::rc::Rc::new(on_activate));
+        }
+        self
+    }
+
+    /// For a list: what it says with no rows.
+    pub fn empty(mut self, text: impl Into<String>) -> Self {
+        if let Kind::List(list) = &mut self.kind {
+            list.empty = text.into();
+        }
+        self
     }
 
     pub fn tile(tile: TileEl<M>) -> Self {

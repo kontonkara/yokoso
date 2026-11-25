@@ -1,7 +1,7 @@
 //! What each kind of element is: its role, its size, its text, and how it
 //! paints in its state. The tree calls these; they never change state.
 
-use super::{ButtonStyle, CardStyle, El, Ink, Kind, SliderEl, TextEl, TileEl, Type, tree::Role, tree::State};
+use super::{ButtonStyle, CardStyle, El, Ink, Kind, ListEl, SliderEl, TextEl, TileEl, Type, tree::Role, tree::State};
 use crate::{
     app::Frame,
     geometry::{Color, Rect},
@@ -18,6 +18,7 @@ pub fn role<M>(kind: &Kind<M>) -> Role {
         Kind::Card { .. } => Role::Card,
         Kind::Tile(_) => Role::Tile,
         Kind::Tooltip { .. } => Role::Tooltip,
+        Kind::List(_) => Role::List,
         _ => Role::Group,
     }
 }
@@ -29,7 +30,7 @@ pub fn interactive<M>(kind: &Kind<M>) -> bool {
         Kind::Button { on_press: Some(_), .. } | Kind::Toggle { on_toggle: Some(_), .. }
     ) || matches!(kind, Kind::Slider(slider) if slider.on_change.is_some())
         || matches!(kind, Kind::Tile(tile) if tile.on_press.is_some())
-        || matches!(kind, Kind::Tooltip { .. })
+        || matches!(kind, Kind::Tooltip { .. } | Kind::List(_))
 }
 
 /// Whether the keyboard reaches it: what takes the pointer but a tooltip,
@@ -150,6 +151,18 @@ pub fn paragraphs<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, sca
         ];
     }
     let one = match &el.kind {
+        Kind::List(list) if list.len == 0 && !list.empty.is_empty() => Some(text.layout(
+            &list.empty,
+            &Style {
+                size: theme.sizes.body,
+                weight: 400.0,
+                family: None,
+                tabular: false,
+            },
+            scale,
+            Some(rect.w),
+            false,
+        )),
         Kind::Tooltip { text: words } => Some(text.layout(
             words,
             &Style {
@@ -266,6 +279,7 @@ pub fn paint<M>(
         }
         Kind::Icon { name, ink: color } => frame.icon(name, rect, ink(*color, theme)),
         Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
+        Kind::List(list) => paint_list(list, rect, state, paragraph, focused, frame, theme),
         _ => {}
     }
 }
@@ -509,6 +523,55 @@ fn paint_toggle(
     );
     if focused {
         ring(frame, track, radius, state, theme);
+    }
+}
+
+/// A list's own part, under its rows: the chosen row and the hovered one,
+/// its scrollbar, and what it says when empty.
+fn paint_list<M>(
+    list: &ListEl<M>,
+    rect: Rect,
+    state: &State,
+    paragraph: Option<&Paragraph>,
+    focused: bool,
+    frame: &mut Frame,
+    theme: &Theme,
+) {
+    let colors = &theme.colors;
+    let radius = theme.sizes.radius_inner * 2.0;
+    let row_rect = |row: usize| {
+        Rect::new(
+            rect.x,
+            rect.y + row as f32 * list.row_height - list.scroll,
+            rect.w,
+            list.row_height,
+        )
+    };
+    if let Some(row) = list.selected.filter(|row| *row < list.len) {
+        frame.fill(row_rect(row), radius, colors.secondary_container);
+    }
+    if let Some(row) = state.hover_row {
+        frame.fill(row_rect(row), radius, colors.on_surface.alpha(state::HOVER));
+    }
+    // A thin bar at the right, where there is more than fits.
+    if state.max_scroll > 0.0 {
+        let whole = state.max_scroll + rect.h;
+        let height = (rect.h * rect.h / whole).max(24.0);
+        let y = rect.y + (rect.h - height) * (list.scroll / state.max_scroll).clamp(0.0, 1.0);
+        let shown = 0.35 + 0.35 * state.hover.value;
+        frame.fill(
+            Rect::new(rect.right() - 6.0, y, 4.0, height),
+            2.0,
+            colors.on_surface_variant.alpha(shown),
+        );
+    }
+    if let Some(paragraph) = paragraph {
+        let x = rect.x + (rect.w - paragraph.width()) / 2.0;
+        let y = rect.y + (rect.h - paragraph.height()) / 2.0;
+        frame.text(paragraph, x, y, colors.on_surface_variant);
+    }
+    if focused {
+        ring(frame, rect, radius, state, theme);
     }
 }
 
