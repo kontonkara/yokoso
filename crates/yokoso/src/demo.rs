@@ -2,6 +2,8 @@
 //! palette, motion and scale, to try them by hand before anything is built
 //! of them. In a window, or as a layer over the desktop.
 
+use std::time::Duration;
+
 use serde_json::{Value, json};
 use yokoso_ui::{
     Rect,
@@ -9,7 +11,8 @@ use yokoso_ui::{
         Anchor, Frame, FrameTime, KeyboardInteractivity, Layer, LayerSpec, Output, OutputId, Shell, Spec, Ui, View,
         WindowSpec,
     },
-    el::{Align, ButtonStyle, Edges, El, Ink, Type, tree::Tree},
+    calloop::timer::{TimeoutAction, Timer},
+    el::{Align, ButtonStyle, Edges, El, Ink, Size, Type, tree::Tree},
     input::Input,
     text::Text,
     theme::Theme,
@@ -22,10 +25,32 @@ pub enum Place {
     Layer(OutputId),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Buttons,
+    Toggles,
+}
+
+impl Page {
+    const ALL: [Page; 2] = [Page::Buttons, Page::Toggles];
+
+    fn name(self) -> &'static str {
+        match self {
+            Page::Buttons => "Buttons",
+            Page::Toggles => "Toggles",
+        }
+    }
+}
+
 /// What its elements tell it.
 #[derive(Clone, Debug)]
 pub enum Msg {
+    Page(Page),
     Pressed(ButtonStyle),
+    /// The quick switch: it changes at once.
+    Quick,
+    /// The slow one: as a system setting, it waits for an answer.
+    Slow,
 }
 
 pub struct Demo {
@@ -34,9 +59,14 @@ pub struct Demo {
     tree: Tree<Msg>,
     /// The description is to be built anew before the next layout.
     stale: bool,
+    page: Page,
     /// Presses on the buttons page, and of which style the last one was.
     presses: u32,
     last: Option<ButtonStyle>,
+    quick: bool,
+    slow: bool,
+    /// The slow switch was asked to change and waits for its answer.
+    slow_pending: bool,
 }
 
 const WIDTH: u32 = 960;
@@ -49,20 +79,78 @@ impl Demo {
             theme: Theme::default(),
             tree: Tree::default(),
             stale: true,
+            page: Page::Buttons,
             presses: 0,
             last: None,
+            quick: true,
+            slow: false,
+            slow_pending: false,
         }
     }
 
     /// What the elements said, done.
-    fn apply(&mut self, message: Msg) {
+    fn apply(&mut self, ui: &mut Ui<Self>, message: Msg) {
         match message {
+            Msg::Page(page) => self.page = page,
             Msg::Pressed(style) => {
                 self.presses += 1;
                 self.last = Some(style);
             }
+            Msg::Quick => self.quick = !self.quick,
+            Msg::Slow => {
+                // As a slow system would: the answer comes a while later.
+                self.slow_pending = true;
+                let answer = Timer::from_duration(Duration::from_millis(1200));
+                let _ = ui.handle().insert_source(answer, |_, _, app| {
+                    app.shell.slow = !app.shell.slow;
+                    app.shell.slow_pending = false;
+                    app.shell.stale = true;
+                    app.ui.dirty_all();
+                    TimeoutAction::Drop
+                });
+            }
         }
         self.stale = true;
+    }
+
+    /// The toggles page: quick, slow and disabled.
+    fn toggles(&self) -> El<Msg> {
+        let gap = self.theme.sizes.gap;
+        let line = |name: &str, about: &str, toggle: El<Msg>| {
+            El::row(
+                gap,
+                vec![
+                    El::column(
+                        2.0,
+                        vec![
+                            El::text(name, Type::Body),
+                            El::text(about, Type::Small).ink(Ink::OnSurfaceVariant),
+                        ],
+                    )
+                    .width(Size::Fill(1.0)),
+                    toggle,
+                ],
+            )
+            .width(Size::Fixed(420.0))
+        };
+        El::column(
+            gap * 1.5,
+            vec![
+                El::text("Toggles", Type::Title).weight(600.0),
+                line(
+                    "Quick",
+                    "Changes at once",
+                    El::toggle(self.quick, false, Some(Msg::Quick)),
+                ),
+                line(
+                    "Slow",
+                    "Waits on the system, pulsing meanwhile",
+                    El::toggle(self.slow, self.slow_pending, Some(Msg::Slow)),
+                ),
+                line("Disabled", "Takes nothing", El::toggle(true, false, None)),
+            ],
+        )
+        .align(Align::Start)
     }
 
     /// The buttons page: each style, enabled and not.
@@ -99,15 +187,37 @@ impl Demo {
         .align(Align::Start)
     }
 
-    /// The description of everything shown, from the state.
+    /// The description of everything shown, from the state: the pages on
+    /// the left, the one chosen on the right.
     fn view(&self) -> El<Msg> {
         let sizes = &self.theme.sizes;
+        let nav = El::column(
+            4.0,
+            Page::ALL
+                .iter()
+                .map(|page| {
+                    let style = if *page == self.page {
+                        ButtonStyle::Tonal
+                    } else {
+                        ButtonStyle::Text
+                    };
+                    El::button(page.name(), style, Some(Msg::Page(*page))).width(Size::Fill(1.0))
+                })
+                .collect(),
+        )
+        .width(Size::Fixed(180.0));
+        let page = match self.page {
+            Page::Buttons => self.buttons(),
+            Page::Toggles => self.toggles(),
+        };
         El::column(
             sizes.gap,
             vec![
                 El::text("yokoso elements", Type::Headline).weight(600.0),
                 El::text("Every element of the shell on a page of its own.", Type::Body).ink(Ink::OnSurfaceVariant),
-                self.buttons(),
+                El::row(sizes.pad * 2.0, vec![nav, page.width(Size::Fill(1.0))])
+                    .align(Align::Start)
+                    .fill(),
             ],
         )
         .padding(Edges::all(sizes.pad * 1.5))
@@ -151,7 +261,7 @@ impl Shell for Demo {
     fn input(&mut self, ui: &mut Ui<Self>, key: Place, input: &Input) {
         let response = self.tree.input(input);
         for message in response.messages {
-            self.apply(message);
+            self.apply(ui, message);
         }
         if response.redraw || self.stale {
             ui.dirty(key);
@@ -189,6 +299,16 @@ impl crate::ipc::Answer for Demo {
     fn answer(&mut self, ui: &mut Ui<Self>, words: &[String]) -> Result<Value, String> {
         match words.first().map(String::as_str) {
             Some("ping") => Ok(json!("pong")),
+            Some("page") => {
+                let name = words.get(1).ok_or("which page?")?;
+                let page = Page::ALL
+                    .into_iter()
+                    .find(|page| page.name().eq_ignore_ascii_case(name))
+                    .ok_or_else(|| format!("no page {name}"))?;
+                self.apply(ui, Msg::Page(page));
+                ui.dirty_all();
+                Ok(json!(null))
+            }
             Some("stats") => {
                 let stats = ui.stats();
                 Ok(json!({ "wakeups": stats.wakeups, "frames": stats.frames }))
@@ -201,6 +321,10 @@ impl crate::ipc::Answer for Demo {
                 })).collect::<Vec<_>>(),
                 "hovered": self.tree.hovered.map(|id| format!("{id:016x}")),
                 "presses": self.presses,
+                "page": self.page.name(),
+                "quick": self.quick,
+                "slow": self.slow,
+                "slow_pending": self.slow_pending,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
