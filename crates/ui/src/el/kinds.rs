@@ -58,6 +58,11 @@ pub fn settle<M>(kind: &Kind<M>, state: &mut State) {
         _ => None,
     };
     if let Some(target) = target {
+        // A tile switched on or off: its icon bounces.
+        if state.known && matches!(kind, Kind::Tile(_)) && (state.value.target - target).abs() > 0.5 {
+            state.pop.snap(0.7);
+            state.pop.to(1.0);
+        }
         if state.known {
             state.value.to(target);
         } else {
@@ -325,7 +330,7 @@ pub fn paint<M>(
                 }
             }
         }
-        Kind::Icon { name, ink: color } => frame.icon(name, rect, ink(*color, theme)),
+        Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
         Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
         Kind::List(list) => paint_list(list, rect, state, paragraph, focused, frame, theme),
         Kind::Field(field) => super::field::paint(field, rect, state, paragraphs, focused, state.caps, frame, theme),
@@ -399,7 +404,7 @@ fn paint_tile<M>(
     };
     let size = theme.sizes.icon;
     let icon = Rect::new(rect.x + TILE_PAD, rect.y + (rect.h - size) / 2.0, size, size);
-    frame.icon(tile.icon, icon, content.alpha(pulse));
+    frame.icon_scaled(tile.icon, icon, content.alpha(pulse), state.pop.value);
     let x = icon.right() + TILE_PAD * 0.75;
     if let [title, subtitle] = paragraphs {
         let total = title.height() + subtitle.height();

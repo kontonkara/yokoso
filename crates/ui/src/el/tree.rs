@@ -21,6 +21,9 @@ use crate::{
 /// Each child of a staggering parent comes in this long after the one before.
 const STAGGER: f32 = 0.035;
 
+/// An icon pops in this long after the row it comes in with.
+const POP_AFTER: f32 = 0.07;
+
 /// How long the pointer rests before a tooltip shows.
 const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(600);
 
@@ -107,6 +110,10 @@ pub struct State {
     pub text: String,
     pub was: Option<String>,
     pub roll: Spring,
+    /// An icon's size as it pops in or bounces, and how long it still waits
+    /// to pop.
+    pub pop: Spring,
+    pub pop_wait: f32,
 }
 
 impl Default for State {
@@ -136,6 +143,8 @@ impl Default for State {
             text: String::new(),
             was: None,
             roll: Spring::new(1.0),
+            pop: Spring::new(1.0),
+            pop_wait: 0.0,
         }
     }
 }
@@ -296,6 +305,12 @@ impl<M: Clone> Tree<M> {
     pub fn update(&mut self, dt: f32, now: f64, theme: &Theme) -> bool {
         let feel = theme.motion.feel(Part::Micro);
         let content = theme.motion.feel(Part::Content);
+        // Icons pop on a bouncy spring, but for reduced and off motion.
+        let mut pop = feel;
+        pop.params = crate::motion::Preset::Bouncy.params();
+        if theme.motion.mode == crate::motion::Mode::Reduced {
+            pop.params.damping = 1.0;
+        }
         let mut moving = false;
         // What waits its turn to come in, and what comes in or rolls.
         for state in self.states.values_mut() {
@@ -309,6 +324,15 @@ impl<M: Clone> Tree<M> {
             }
             moving |= state.appear.step(dt, &content);
             moving |= state.roll.step(dt, &feel);
+            if state.pop.target < 1.0 {
+                if state.pop_wait > 0.0 {
+                    state.pop_wait -= dt;
+                    moving = true;
+                } else {
+                    state.pop.to(1.0);
+                }
+            }
+            moving |= state.pop.step(dt, &pop);
         }
         // A tooltip shows once the pointer has rested long enough.
         if let Some((id, since)) = self.tip
@@ -385,6 +409,9 @@ impl<M: Clone> Tree<M> {
         // New children of a staggering parent, counted to give each its turn.
         let mut turns: HashMap<usize, usize> = HashMap::new();
         let staggers: Vec<bool> = all.iter().map(|(el, _, _)| el.stagger).collect();
+        // What is coming in now, and after how long: a staggered child, and
+        // all that is new inside it.
+        let mut entering: Vec<Option<f32>> = Vec::with_capacity(staggers.len());
         for ((el, id, parent), rect) in all.into_iter().zip(rects) {
             let fresh = !self.states.contains_key(&id);
             let clip = parent.and_then(|parent| clips[parent]);
@@ -394,11 +421,23 @@ impl<M: Clone> Tree<M> {
             });
             seen.insert(id);
             let state = self.states.entry(id).or_default();
+            let mut comes = None;
             if fresh && let Some(parent) = parent.filter(|parent| staggers[*parent]) {
                 let turn = turns.entry(parent).or_insert(0);
                 state.appear.snap(0.0);
                 state.wait = *turn as f32 * STAGGER;
                 *turn += 1;
+                comes = Some(state.wait);
+            } else if fresh {
+                comes = parent.and_then(|parent| entering[parent]);
+            }
+            entering.push(comes);
+            // Icons pop in a little after what holds them.
+            if let Some(wait) = comes
+                && matches!(el.kind, Kind::Icon { .. } | Kind::Tile(_))
+            {
+                state.pop.snap(0.35);
+                state.pop_wait = wait + POP_AFTER;
             }
             kinds::settle(&el.kind, state);
             if kinds::pending(&el.kind) {
@@ -1111,6 +1150,38 @@ mod tests {
             .map(|node| tree.state(node.id).unwrap().appear.value)
             .collect();
         assert_eq!(appeared, vec![1.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn icons_pop_in_after_the_row_they_come_in_with_and_bounce_when_switched() {
+        use crate::el::TileEl;
+        let tile = |on: bool| {
+            El::<()>::tile(TileEl {
+                icon: "bell",
+                title: "t".into(),
+                subtitle: String::new(),
+                on,
+                pending: false,
+                on_press: Some(()),
+                on_more: None,
+            })
+        };
+        let view =
+            |on: bool| El::column(0.0, vec![El::text("title", Type::Body), El::row(0.0, vec![tile(on)])]).stagger();
+        let mut tree = Tree::<()>::default();
+        let space = Rect::new(0.0, 0.0, 300.0, 300.0);
+        tree.set(view(false));
+        tree.layout_with(space, &mut |_: &El<()>, _| (10.0, 10.0));
+        // The tile, third in order, comes in with the row, the second child.
+        let state = tree.state(tree.nodes()[3].id).unwrap();
+        assert_eq!(state.pop.value, 0.35);
+        assert_eq!(state.pop_wait, STAGGER + POP_AFTER);
+        while tree.update(1.0 / 240.0, 0.0, &Theme::default()) {}
+        assert_eq!(tree.state(tree.nodes()[3].id).unwrap().pop.value, 1.0);
+        // Switched on: it bounces.
+        tree.set(view(true));
+        tree.layout_with(space, &mut |_: &El<()>, _| (10.0, 10.0));
+        assert!(tree.state(tree.nodes()[3].id).unwrap().pop.value < 1.0);
     }
 
     #[test]
