@@ -90,6 +90,24 @@ const SET: &[(&str, &str)] = &[
         r#"<rect x="2.5" y="7" width="16.5" height="10" rx="2.5"/><path d="M21.5 10.5v3"/>"#,
     ),
     ("bolt", r#"<path d="M13.5 3L6 13h5.5l-1 8L18 11h-5.5z"/>"#),
+    (
+        "music",
+        r#"<path d="M9 18V5.5l11-2V16"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>"#,
+    ),
+    ("pause", r#"<path d="M8.5 5.5v13M15.5 5.5v13"/>"#),
+    ("play", r#"<path d="M7.5 5v14l11-7z"/>"#),
+    (
+        "mic",
+        r#"<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>"#,
+    ),
+    (
+        "camera",
+        r#"<rect x="3" y="7" width="12.5" height="10" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3z"/>"#,
+    ),
+    (
+        "screen",
+        r#"<rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/>"#,
+    ),
 ];
 
 /// The names of every icon there is.
