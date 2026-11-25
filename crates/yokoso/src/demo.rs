@@ -364,6 +364,7 @@ impl Demo {
         )
         .padding(Edges::all(sizes.pad))
         .fill()
+        .stagger()
     }
 
     /// The theme made anew with `change` to its palette, density or motion.

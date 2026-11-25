@@ -146,7 +146,11 @@ impl<M: Clone> Panel<M> {
         }
         moving |= self.shape.step(dt, &content);
         moving |= self.content.step(dt, &content);
-        moving | self.tree.update(dt, now, theme)
+        // Its content's own entrances start as it shows, not before, unseen.
+        if self.content.target > 0.0 {
+            moving |= self.tree.update(dt, now, theme);
+        }
+        moving
     }
 
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme) {
