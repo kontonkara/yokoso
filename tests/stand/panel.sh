@@ -27,6 +27,9 @@ sleep 1.5
 after=$(rss)
 echo "memory: $before KiB, then $after KiB after 100 openings and closings"
 [ $((after - before)) -lt 4096 ] || fail "memory grew by $((after - before)) KiB"
+# The clock ticks on this page, a frame a second: elsewhere, nothing moves.
+"$binary" msg page buttons
+sleep 1.2
 frames=$("$binary" msg stats | jq .frames)
-sleep 1
+sleep 1.2
 [ "$("$binary" msg stats | jq .frames)" = "$frames" ] || fail "frames go on after the panel rests"
