@@ -11,6 +11,18 @@ use crate::sni::Item;
 /// The part; None with nothing in the tray.
 /// The item whose menu is open now is shown chosen: `open` is the bar part
 /// with a panel open, as "tray:<address>".
+/// What of the tray shows, the words on resting aside: an app that says
+/// something new in its tooltip every second or two draws nothing.
+pub fn looks(items: &[Item]) -> Vec<Item> {
+    items
+        .iter()
+        .map(|item| Item {
+            tooltip: String::new(),
+            ..item.clone()
+        })
+        .collect()
+}
+
 pub fn view(items: &[Item], icon: f32, open: Option<&str>) -> Option<El<Msg>> {
     let shown: Vec<El<Msg>> = items
         .iter()

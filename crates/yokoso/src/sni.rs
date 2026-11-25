@@ -476,7 +476,14 @@ async fn run(send: &impl Fn(Said) -> bool, asks: async_channel::Receiver<Ask>) -
         }
         match wakes.next().await {
             Some(Wake::Item(address)) => {
-                if let Ok(item) = read(&bus, &address, &mut icons).await {
+                if let Ok(mut item) = read(&bus, &address, &mut icons).await {
+                    // The same pixels keep the picture they had: drawn once, not
+                    // again at each new tooltip.
+                    if let Some(old) = items.get(&address)
+                        && old.icon == item.icon
+                    {
+                        item.icon.clone_from(&old.icon);
+                    }
                     items.insert(address, item);
                 }
             }

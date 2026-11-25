@@ -23,3 +23,17 @@ click middle
 wlrctl pointer scroll -40 0
 sleep 0.5
 [ "$(grep -v registered "$log" | tr '\n' ' ')" = "activate secondary scroll 1 vertical " ] || fail "the item heard: $(cat "$log")"
+# An item saying something new in its tooltip five times a second, as one
+# showing a sensor does: the bar draws nothing for it.
+FAKE_TRAY_TIPS=1 "$fake_tray" "$out/tips.log" >"$out/fake_tray_tips.log" 2>&1 &
+own $!
+for _ in $(seq 50); do
+	[ "$(dump | jq '.tray | length')" = 2 ] && break
+	sleep 0.1
+done
+[ "$(dump | jq '.tray | length')" = 2 ] || fail "the second item did not come"
+move 700 600
+sleep 0.8
+frames=$("$binary" msg stats | jq .frames)
+sleep 1
+[ $(($("$binary" msg stats | jq .frames) - frames)) -le 1 ] || fail "$(($("$binary" msg stats | jq .frames) - frames)) frames in 1 s for tooltips no one sees"

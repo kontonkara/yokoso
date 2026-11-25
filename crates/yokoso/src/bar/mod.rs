@@ -933,8 +933,9 @@ impl Shell for Bar {
             }
             Message::Tray(sni::Said::Items(items)) => {
                 if items != self.tray {
+                    let seen = tray::looks(&items) != tray::looks(&self.tray);
                     self.tray = items;
-                    self.changed(ui);
+                    self.changed_if(ui, seen);
                 }
             }
             Message::Tray(sni::Said::Menu {

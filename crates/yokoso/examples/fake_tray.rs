@@ -2,6 +2,9 @@
 //! down every call it gets, a line each, to the file it is given.
 //!
 //!   fake_tray LOG
+//!
+//! With FAKE_TRAY_TIPS set, it says something new in its tooltip five times a
+//! second, as an app showing a sensor does.
 
 use std::{collections::HashMap, io::Write};
 
@@ -16,6 +19,12 @@ fn note(log: &str, line: &str) {
         let _ = writeln!(file, "{line}");
     }
 }
+
+/// A tooltip as items send it: an icon name, pixmaps, a title, words.
+type ToolTip = (String, Vec<(i32, i32, Vec<u8>)>, String, String);
+
+/// How often it has said something new in its tooltip.
+static TIPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// A square of `side` pixels in one color, ARGB in network order.
 fn square(side: i32, argb: [u8; 4]) -> (i32, i32, Vec<u8>) {
@@ -60,6 +69,12 @@ impl Item {
     fn icon_pixmap(&self) -> Vec<(i32, i32, Vec<u8>)> {
         // Teal, at two sizes.
         vec![square(16, [255, 0, 160, 160]), square(48, [255, 0, 160, 160])]
+    }
+
+    #[zbus(property)]
+    fn tool_tip(&self) -> ToolTip {
+        let said = TIPS.load(std::sync::atomic::Ordering::Relaxed);
+        (String::new(), Vec::new(), "Fake".into(), format!("said {said} times"))
     }
 
     #[zbus(property)]
@@ -159,6 +174,27 @@ fn main() -> zbus::Result<()> {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        // On a thread of its own: a sleep here would keep the item from
+        // answering.
+        if std::env::var_os("FAKE_TRAY_TIPS").is_some() {
+            let bus = bus.clone();
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    TIPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let said = zbus::block_on(bus.emit_signal(
+                        None::<&str>,
+                        "/StatusNotifierItem",
+                        "org.kde.StatusNotifierItem",
+                        "NewToolTip",
+                        &(),
+                    ));
+                    if said.is_err() {
+                        return;
+                    }
+                }
+            });
         }
         std::future::pending::<()>().await;
         Ok(())
