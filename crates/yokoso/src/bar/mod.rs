@@ -136,6 +136,10 @@ pub struct Bar {
     tip: Option<OutputId>,
     /// Whether a timer looks after the strip, to take it away.
     tip_watched: bool,
+    /// Which service last changed it, and how often each had the bar redrawn:
+    /// what draws at rest, when something does.
+    cause: &'static str,
+    redrawn: std::collections::BTreeMap<&'static str, u64>,
     /// A tray menu asked for, on this screen: it opens as it comes.
     menu_asked: Option<(OutputId, String)>,
     /// Each screen's connector and logical width, as the surfaces were asked
@@ -175,6 +179,8 @@ impl Bar {
             popup: None,
             tip: None,
             tip_watched: false,
+            cause: "start",
+            redrawn: std::collections::BTreeMap::new(),
             menu_asked: None,
             screens: RefCell::default(),
         }
@@ -208,6 +214,7 @@ impl Bar {
 
     /// The clock's tick: what it says now, and how long until it changes.
     fn tick(&mut self, ui: &mut Ui<Self>) -> Duration {
+        self.cause = "clock";
         let now = clock::now();
         let (time, date) = clock::says(&now, &self.config.bar.clock);
         if (&time, &date) != (&self.time, &self.date) {
@@ -221,6 +228,7 @@ impl Bar {
     /// What it says has changed: every bar is built anew and drawn.
     fn changed(&mut self, ui: &mut Ui<Self>) {
         self.generation += 1;
+        *self.redrawn.entry(self.cause).or_default() += 1;
         ui.dirty_all();
     }
 
@@ -906,6 +914,15 @@ impl Shell for Bar {
     type Message = Message;
 
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
+        self.cause = match &message {
+            Message::Config(_) => "config",
+            Message::Niri(_) => "niri",
+            Message::Power(_) => "battery",
+            Message::Net(_) => "network",
+            Message::Sound(_) => "sound",
+            Message::Tray(_) => "tray",
+            Message::Media(_) => "media",
+        };
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
             Message::Media(playing) => {
@@ -1067,6 +1084,7 @@ impl Shell for Bar {
     }
 
     fn input(&mut self, ui: &mut Ui<Self>, key: Place, input: &Input) {
+        self.cause = "input";
         if let Place::Popup(output) = key {
             self.popup_input(ui, output, input);
             return;
@@ -1286,6 +1304,7 @@ impl crate::ipc::Answer for Bar {
                 "layouts": self.niri.layouts.names,
                 "using": self.using.iter().map(|used| format!("{used:?}")).collect::<Vec<_>>(),
                 "media": self.media.as_ref().map(|p| json!({ "title": p.title, "playing": p.playing })),
+                "redrawn": self.redrawn,
                 "tips": self.surfaces.values().map(|s| s.tree.tooltips_shown()).sum::<usize>(),
                 "popup": self.popup.as_ref().map(|open| json!({
                     "open": open.panel.open,
