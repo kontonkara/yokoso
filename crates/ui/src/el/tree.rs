@@ -99,12 +99,14 @@ pub struct Tree<M> {
     nodes: Vec<Node>,
     states: HashMap<Id, State>,
     /// Text laid out, by element.
-    paragraphs: HashMap<Id, Paragraph>,
+    paragraphs: HashMap<Id, Vec<Paragraph>>,
     /// The last view laid out for, and whether the description changed since.
     view: Option<View>,
     stale: bool,
     pub hovered: Option<Id>,
     pub pressed: Option<Id>,
+    /// Where the last press was, across: which part of a tile it hit.
+    press_x: f32,
     /// Elements waiting on something, which pulse meanwhile.
     pending: HashSet<Id>,
     pub focus: Option<Id>,
@@ -123,6 +125,7 @@ impl<M> Default for Tree<M> {
             stale: true,
             hovered: None,
             pressed: None,
+            press_x: 0.0,
             focus: None,
             focus_visible: false,
             pending: HashSet::new(),
@@ -200,8 +203,9 @@ impl<M: Clone> Tree<M> {
             let mut all = Vec::new();
             walk(el, ROOT, None, &mut all);
             for ((el, id, _), node) in all.iter().zip(&self.nodes) {
-                if let Some(paragraph) = kinds::paragraph(el, node.rect, text, theme, scale) {
-                    self.paragraphs.insert(*id, paragraph);
+                let laid = kinds::paragraphs(el, node.rect, text, theme, scale);
+                if !laid.is_empty() {
+                    self.paragraphs.insert(*id, laid);
                 }
             }
         }
@@ -291,6 +295,7 @@ impl<M: Clone> Tree<M> {
                 // A click focuses without a ring.
                 self.focus_visible = false;
                 self.move_focus(self.hovered);
+                self.press_x = *x;
                 redraw = true;
                 if let Some(id) = self.hovered {
                     self.pressed = Some(id);
@@ -305,7 +310,8 @@ impl<M: Clone> Tree<M> {
                     redraw = true;
                     // A click is a press and a release on the same element.
                     if self.hit(*x, *y) == Some(id) {
-                        messages.extend(self.activate(id));
+                        let more = self.more_at(id, self.press_x);
+                        messages.extend(self.activate(id, more));
                     }
                 }
             }
@@ -341,8 +347,9 @@ impl<M: Clone> Tree<M> {
                         Keysym::Right | Keysym::Down => self.step_focus(1, true),
                         Keysym::Left | Keysym::Up => self.step_focus(-1, true),
                         Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                            // Shift+Return goes into a tile's details.
                             if let Some(id) = self.focus {
-                                messages.extend(self.activate(id));
+                                messages.extend(self.activate(id, key.mods.shift));
                             }
                         }
                         Keysym::Escape => escaped = true,
@@ -454,13 +461,30 @@ impl<M: Clone> Tree<M> {
         Some((slider.on_change.as_ref()?)(value))
     }
 
-    /// What the element `id` sends when it is used: a button's message.
-    fn activate(&self, id: Id) -> Option<M> {
+    /// Whether `x` is on the arrow into a tile's details.
+    fn more_at(&self, id: Id, x: f32) -> bool {
+        let Some(el) = &self.el else { return false };
+        let mut all = Vec::new();
+        walk(el, ROOT, None, &mut all);
+        let Some(at) = all.iter().position(|(_, found, _)| *found == id) else {
+            return false;
+        };
+        match (&all[at].0.kind, self.nodes.get(at)) {
+            (Kind::Tile(tile), Some(node)) => kinds::tile_more_at(tile, node.rect, x),
+            _ => false,
+        }
+    }
+
+    /// What the element `id` sends when it is used: a button's message, a
+    /// tile's, or with `more` its way into details.
+    fn activate(&self, id: Id, more: bool) -> Option<M> {
         let el = self.el.as_ref()?;
         let mut all = Vec::new();
         walk(el, ROOT, None, &mut all);
         let (el, _, _) = all.into_iter().find(|(_, found, _)| *found == id)?;
         match &el.kind {
+            Kind::Tile(tile) if more && tile.on_more.is_some() => tile.on_more.clone(),
+            Kind::Tile(tile) if !tile.pending => tile.on_press.clone(),
             super::Kind::Button { on_press, .. } => on_press.clone(),
             super::Kind::Toggle {
                 on_toggle,
@@ -485,7 +509,8 @@ impl<M: Clone> Tree<M> {
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
             let focused = state.focus.value > 0.0;
-            kinds::paint(el, node.rect, state, self.paragraphs.get(id), focused, frame, theme);
+            let laid = self.paragraphs.get(id).map_or(&[][..], Vec::as_slice);
+            kinds::paint(el, node.rect, state, laid, focused, frame, theme);
         }
     }
 }

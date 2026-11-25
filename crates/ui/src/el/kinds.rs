@@ -1,7 +1,7 @@
 //! What each kind of element is: its role, its size, its text, and how it
 //! paints in its state. The tree calls these; they never change state.
 
-use super::{ButtonStyle, El, Ink, Kind, SliderEl, TextEl, Type, tree::Role, tree::State};
+use super::{ButtonStyle, CardStyle, El, Ink, Kind, SliderEl, TextEl, TileEl, Type, tree::Role, tree::State};
 use crate::{
     app::Frame,
     geometry::{Color, Rect},
@@ -15,6 +15,8 @@ pub fn role<M>(kind: &Kind<M>) -> Role {
         Kind::Button { .. } => Role::Button,
         Kind::Toggle { .. } => Role::Toggle,
         Kind::Slider(_) => Role::Slider,
+        Kind::Card { .. } => Role::Card,
+        Kind::Tile(_) => Role::Tile,
         _ => Role::Group,
     }
 }
@@ -25,11 +27,12 @@ pub fn interactive<M>(kind: &Kind<M>) -> bool {
         kind,
         Kind::Button { on_press: Some(_), .. } | Kind::Toggle { on_toggle: Some(_), .. }
     ) || matches!(kind, Kind::Slider(slider) if slider.on_change.is_some())
+        || matches!(kind, Kind::Tile(tile) if tile.on_press.is_some())
 }
 
 /// Whether it waits on something, pulsing meanwhile.
 pub fn pending<M>(kind: &Kind<M>) -> bool {
-    matches!(kind, Kind::Toggle { pending: true, .. })
+    matches!(kind, Kind::Toggle { pending: true, .. }) || matches!(kind, Kind::Tile(tile) if tile.pending)
 }
 
 /// Aims its springs at what the description says: a toggle's thumb at its
@@ -38,6 +41,7 @@ pub fn settle<M>(kind: &Kind<M>, state: &mut State) {
     let target = match kind {
         Kind::Toggle { on, .. } => Some(if *on { 1.0 } else { 0.0 }),
         Kind::Slider(slider) => Some(slider.fraction(slider.value)),
+        Kind::Tile(tile) => Some(if tile.on { 1.0 } else { 0.0 }),
         _ => None,
     };
     if let Some(target) = target {
@@ -102,6 +106,13 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
             (laid.width().ceil().min(max.unwrap_or(f32::MAX)), laid.height().ceil())
         }
         Kind::Toggle { .. } => (TRACK.0.min(max.unwrap_or(f32::MAX)), TRACK.1),
+        Kind::Icon { .. } => (theme.sizes.icon, theme.sizes.icon),
+        Kind::Tile(tile) => {
+            let title = text.layout(&tile.title, &tile_title(theme), scale, None, false);
+            let width =
+                TILE_PAD + theme.sizes.icon + TILE_PAD * 0.75 + title.width().ceil() + tile_more(tile) + TILE_PAD;
+            (width.max(160.0).min(max.unwrap_or(f32::MAX)), TILE_HEIGHT)
+        }
         Kind::Slider(slider) => {
             let label = if slider.show_value { VALUE_ROOM } else { 0.0 };
             ((240.0 + label).min(max.unwrap_or(f32::MAX)), HANDLE.1)
@@ -115,9 +126,22 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
     }
 }
 
-/// Its text, laid out for the rect it got.
-pub fn paragraph<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, scale: f32) -> Option<Paragraph> {
-    match &el.kind {
+/// Its text, laid out for the rect it got: a line or a few.
+pub fn paragraphs<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, scale: f32) -> Vec<Paragraph> {
+    if let Kind::Tile(tile) = &el.kind {
+        let room = tile_text_room(tile, rect, theme) + 0.5;
+        let small = Style {
+            size: theme.sizes.small,
+            weight: 400.0,
+            family: None,
+            tabular: false,
+        };
+        return vec![
+            text.layout(&tile.title, &tile_title(theme), scale, Some(room), true),
+            text.layout(&tile.subtitle, &small, scale, Some(room), true),
+        ];
+    }
+    let one = match &el.kind {
         Kind::Text(t) => Some(text.layout(&t.text, &style(t, theme), scale, Some(rect.w + 0.5), t.ellipsis)),
         Kind::Slider(slider) if slider.show_value => Some(text.layout(
             &value_text(slider),
@@ -136,7 +160,8 @@ pub fn paragraph<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, scal
             Some(text.layout(label, &label_style(theme), scale, Some(room), true))
         }
         _ => None,
-    }
+    };
+    one.into_iter().collect()
 }
 
 /// Paints `el` in `rect`, as `state` and `focus_visible` have it.
@@ -144,12 +169,13 @@ pub fn paint<M>(
     el: &El<M>,
     rect: Rect,
     state: &State,
-    paragraph: Option<&Paragraph>,
+    paragraphs: &[Paragraph],
     focused: bool,
     frame: &mut Frame,
     theme: &Theme,
 ) {
     let colors = &theme.colors;
+    let paragraph = paragraphs.first();
     match &el.kind {
         Kind::Text(t) => {
             if let Some(paragraph) = paragraph {
@@ -204,7 +230,116 @@ pub fn paint<M>(
             paint_toggle(*on, *pending, on_toggle.is_some(), rect, state, focused, frame, theme);
         }
         Kind::Slider(slider) => paint_slider(slider, rect, state, paragraph, focused, frame, theme),
+        Kind::Card { style, .. } => {
+            let radius = theme.sizes.radius;
+            match style {
+                CardStyle::Filled => frame.fill(rect, radius, colors.surface_container_highest),
+                CardStyle::Elevated => {
+                    frame.shadow(rect.grow(-1.0), radius, 10.0, colors.shadow.alpha(0.35));
+                    frame.fill(rect, radius, colors.surface_container_low);
+                }
+                CardStyle::Outlined => {
+                    frame.fill(rect, radius, colors.surface);
+                    frame.ring(rect, radius, 1.0, colors.outline_variant);
+                }
+            }
+        }
+        Kind::Icon { name, ink: color } => frame.icon(name, rect, ink(*color, theme)),
+        Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
         _ => {}
+    }
+}
+
+const TILE_HEIGHT: f32 = 64.0;
+const TILE_PAD: f32 = 16.0;
+/// The arrow into a tile's details takes this much at its end.
+const TILE_MORE: f32 = 44.0;
+
+fn tile_title(theme: &Theme) -> Style {
+    Style {
+        size: theme.sizes.body,
+        weight: 600.0,
+        family: None,
+        tabular: false,
+    }
+}
+
+fn tile_more<M>(tile: &TileEl<M>) -> f32 {
+    if tile.on_more.is_some() { TILE_MORE } else { 0.0 }
+}
+
+fn tile_text_room<M>(tile: &TileEl<M>, rect: Rect, theme: &Theme) -> f32 {
+    (rect.w - TILE_PAD - theme.sizes.icon - TILE_PAD * 0.75 - tile_more(tile).max(TILE_PAD)).max(0.0)
+}
+
+/// Whether `x` is on a tile's arrow into its details.
+pub fn tile_more_at<M>(tile: &TileEl<M>, rect: Rect, x: f32) -> bool {
+    tile.on_more.is_some() && x >= rect.right() - TILE_MORE
+}
+
+fn paint_tile<M>(
+    tile: &TileEl<M>,
+    rect: Rect,
+    state: &State,
+    paragraphs: &[Paragraph],
+    focused: bool,
+    frame: &mut Frame,
+    theme: &Theme,
+) {
+    let colors = &theme.colors;
+    let enabled = tile.on_press.is_some();
+    let t = state.value.value.clamp(0.0, 1.0);
+    let container = colors.surface_container_highest.mix(colors.primary, t);
+    let content = colors.on_surface.mix(colors.on_primary, t);
+    let (container, content) = if enabled {
+        (container, content)
+    } else {
+        (
+            colors.on_surface.alpha(state::DISABLED_CONTAINER),
+            colors.on_surface.alpha(state::DISABLED_CONTENT),
+        )
+    };
+    // Pressed, a tile rounds a little more.
+    let press = state.press.value.clamp(0.0, 1.2);
+    let radius = theme.sizes.radius * 1.5 + 8.0 * press;
+    frame.fill(rect, radius, container);
+    if enabled {
+        let layer = state.hover.value * state::HOVER + press * state::PRESS;
+        frame.fill(rect, radius, content.alpha(layer.clamp(0.0, 1.0)));
+    }
+    // Waiting on the system, its icon pulses.
+    let pulse = if tile.pending {
+        0.45 + 0.55 * (state.phase * std::f32::consts::TAU * 1.2).cos().abs()
+    } else {
+        1.0
+    };
+    let size = theme.sizes.icon;
+    let icon = Rect::new(rect.x + TILE_PAD, rect.y + (rect.h - size) / 2.0, size, size);
+    frame.icon(tile.icon, icon, content.alpha(pulse));
+    let x = icon.right() + TILE_PAD * 0.75;
+    if let [title, subtitle] = paragraphs {
+        let total = title.height() + subtitle.height();
+        let y = rect.y + (rect.h - total) / 2.0;
+        frame.text(title, x, y, content);
+        frame.text(subtitle, x, y + title.height(), content.alpha(0.8));
+    }
+    if tile.on_more.is_some() {
+        let more = Rect::new(rect.right() - TILE_MORE, rect.y, TILE_MORE, rect.h);
+        frame.fill(
+            Rect::new(more.x, more.y + 14.0, 1.0, more.h - 28.0),
+            0.0,
+            content.alpha(0.25),
+        );
+        let arrow = Rect::new(
+            more.x + (more.w - size) / 2.0,
+            more.y + (more.h - size) / 2.0,
+            size,
+            size,
+        );
+        frame.icon("chevron-right", arrow, content);
+    }
+    if focused {
+        ring(frame, rect, radius, state, theme);
     }
 }
 

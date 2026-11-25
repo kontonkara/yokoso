@@ -99,6 +99,16 @@ pub struct TextEl {
     pub tabular: bool,
 }
 
+/// How a card stands out from what is under it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CardStyle {
+    #[default]
+    Filled,
+    /// Raised on a shadow.
+    Elevated,
+    Outlined,
+}
+
 /// How a button looks, from most to least weight.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ButtonStyle {
@@ -108,6 +118,20 @@ pub enum ButtonStyle {
     Tonal,
     Outlined,
     Text,
+}
+
+pub struct TileEl<M> {
+    pub icon: &'static str,
+    pub title: String,
+    /// Its state in words: "On", a network's name.
+    pub subtitle: String,
+    pub on: bool,
+    /// Asked to change, not yet confirmed.
+    pub pending: bool,
+    /// Its main action, on a click or Return; disabled without one.
+    pub on_press: Option<M>,
+    /// Into its details, by the arrow at its end or Shift+Return.
+    pub on_more: Option<M>,
 }
 
 pub struct SliderEl<M> {
@@ -153,6 +177,16 @@ pub enum Kind<M> {
     },
     /// Children over each other, the last on top.
     Stack,
+    /// A column on a background of its own.
+    Card {
+        style: CardStyle,
+        gap: f32,
+    },
+    /// An icon of the shell's own set, by name.
+    Icon {
+        name: &'static str,
+        ink: Ink,
+    },
     /// Room and nothing else.
     Spacer,
     Text(TextEl),
@@ -172,6 +206,9 @@ pub enum Kind<M> {
     /// A value between `min` and `max`, in `step`s. Disabled without a
     /// message to send.
     Slider(SliderEl<M>),
+    /// A control center's tile: a setting with its state, and a way into
+    /// its details.
+    Tile(TileEl<M>),
     #[doc(hidden)]
     _Message(std::marker::PhantomData<M>),
 }
@@ -264,6 +301,27 @@ impl<M> El<M> {
         self
     }
 
+    /// A card of `children` in a column, under a title where there is one.
+    pub fn card(style: CardStyle, title: Option<&str>, gap: f32, children: Vec<El<M>>) -> Self {
+        let mut all = Vec::with_capacity(children.len() + 1);
+        if let Some(title) = title {
+            all.push(Self::text(title, Type::Title).weight(600.0));
+        }
+        all.extend(children);
+        Self::new(Kind::Card { style, gap }).with(all)
+    }
+
+    pub fn icon(name: &'static str) -> Self {
+        Self::new(Kind::Icon {
+            name,
+            ink: Ink::OnSurfaceVariant,
+        })
+    }
+
+    pub fn tile(tile: TileEl<M>) -> Self {
+        Self::new(Kind::Tile(tile))
+    }
+
     /// Its key: what names it among its siblings, for ones that come and go.
     pub fn key(mut self, key: impl std::hash::Hash) -> Self {
         use std::hash::Hasher;
@@ -305,10 +363,12 @@ impl<M> El<M> {
         self
     }
 
-    /// For text: its color.
+    /// For text and icons: their color.
     pub fn ink(mut self, ink: Ink) -> Self {
-        if let Kind::Text(text) = &mut self.kind {
-            text.ink = ink;
+        match &mut self.kind {
+            Kind::Text(text) => text.ink = ink,
+            Kind::Icon { ink: own, .. } => *own = ink,
+            _ => {}
         }
         self
     }
