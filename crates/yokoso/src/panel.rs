@@ -153,6 +153,12 @@ impl<M: Clone> Panel<M> {
         moving
     }
 
+    /// When its content wants a frame though nothing moves: only once it
+    /// shows, as its content moves only then.
+    pub fn wake(&self) -> Option<std::time::Duration> {
+        (self.content.target > 0.0).then(|| self.tree.wake()).flatten()
+    }
+
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme) {
         self.tree.set_origin(self.to.x, self.to.y);
         let inside = View {

@@ -195,6 +195,9 @@ pub struct Tree<M> {
     mods: crate::input::Mods,
     /// The focused field's next blink.
     blink_in: Option<std::time::Duration>,
+    /// Something new came in at the last layout and waits its turn: it
+    /// wants frames even where nothing else moves.
+    arrived: bool,
     /// The menu open now, and whether the release of the press that closed
     /// one is still to come, to be swallowed.
     menu_open: Option<Id>,
@@ -224,6 +227,7 @@ impl<M> Default for Tree<M> {
             pending: HashSet::new(),
             mods: crate::input::Mods::default(),
             blink_in: None,
+            arrived: false,
             menu_open: None,
             swallow_release: false,
             theme: Theme::default(),
@@ -303,6 +307,9 @@ impl<M: Clone> Tree<M> {
 
     /// Moves every spring `dt` seconds on. True while one still moves.
     pub fn update(&mut self, dt: f32, now: f64, theme: &Theme) -> bool {
+        self.arrived = false;
+        // Without motion, nothing waits its turn either.
+        let off = theme.motion.mode == crate::motion::Mode::Off;
         let feel = theme.motion.feel(Part::Micro);
         let content = theme.motion.feel(Part::Content);
         // Icons pop on a bouncy spring, but for reduced and off motion.
@@ -315,7 +322,7 @@ impl<M: Clone> Tree<M> {
         // What waits its turn to come in, and what comes in or rolls.
         for state in self.states.values_mut() {
             if state.appear.target < 1.0 {
-                if state.wait > 0.0 {
+                if state.wait > 0.0 && !off {
                     state.wait -= dt;
                     moving = true;
                 } else {
@@ -325,7 +332,7 @@ impl<M: Clone> Tree<M> {
             moving |= state.appear.step(dt, &content);
             moving |= state.roll.step(dt, &feel);
             if state.pop.target < 1.0 {
-                if state.pop_wait > 0.0 {
+                if state.pop_wait > 0.0 && !off {
                     state.pop_wait -= dt;
                     moving = true;
                 } else {
@@ -358,8 +365,12 @@ impl<M: Clone> Tree<M> {
         moving
     }
 
-    /// How long until a frame is wanted though nothing moves: a blink.
+    /// How long until a frame is wanted though nothing moves: at once for
+    /// what has just come in, else a blink.
     pub fn wake(&self) -> Option<std::time::Duration> {
+        if self.arrived {
+            return Some(std::time::Duration::ZERO);
+        }
         self.blink_in
     }
 
@@ -432,6 +443,7 @@ impl<M: Clone> Tree<M> {
                 comes = parent.and_then(|parent| entering[parent]);
             }
             entering.push(comes);
+            self.arrived |= comes.is_some();
             // Icons pop in a little after what holds them.
             if let Some(wait) = comes
                 && matches!(el.kind, Kind::Icon { .. } | Kind::Tile(_))
@@ -1150,6 +1162,26 @@ mod tests {
             .map(|node| tree.state(node.id).unwrap().appear.value)
             .collect();
         assert_eq!(appeared, vec![1.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn what_comes_in_asks_for_frames_and_without_motion_comes_at_once() {
+        let mut tree = Tree::<()>::default();
+        let space = Rect::new(0.0, 0.0, 300.0, 300.0);
+        tree.set(El::column(0.0, (0..3).map(|at| El::text("x", Type::Body).key(at)).collect()).stagger());
+        // Nothing moved before it came: still it wants a frame, at once.
+        tree.layout_with(space, &mut measure);
+        assert_eq!(tree.wake(), Some(std::time::Duration::ZERO));
+        // Without motion, all of it is there after the first frame.
+        let mut off = Theme::default();
+        off.motion.mode = crate::motion::Mode::Off;
+        tree.update(1.0 / 60.0, 0.0, &off);
+        assert_eq!(tree.wake(), None);
+        assert!(
+            tree.nodes()[1..]
+                .iter()
+                .all(|node| tree.state(node.id).unwrap().appear.value == 1.0)
+        );
     }
 
     #[test]
