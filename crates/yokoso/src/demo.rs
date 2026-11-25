@@ -313,17 +313,20 @@ impl Demo {
     fn buttons(&self) -> El<Msg> {
         let gap = self.theme.sizes.gap;
         let styles = [
-            (ButtonStyle::Filled, "Filled"),
-            (ButtonStyle::Tonal, "Tonal"),
-            (ButtonStyle::Outlined, "Outlined"),
-            (ButtonStyle::Text, "Text"),
+            (ButtonStyle::Filled, "Filled", "The one main action"),
+            (ButtonStyle::Tonal, "Tonal", "An action of weight, not the main one"),
+            (ButtonStyle::Outlined, "Outlined", "One of a few alike"),
+            (ButtonStyle::Text, "Text", "The least of them"),
         ];
         let row = |enabled: bool| {
             El::row(
                 gap,
                 styles
                     .iter()
-                    .map(|(style, name)| El::button(*name, *style, enabled.then_some(Msg::Pressed(*style))))
+                    .map(|(style, name, about)| {
+                        let button = El::button(*name, *style, enabled.then_some(Msg::Pressed(*style)));
+                        if enabled { button.tooltip(*about) } else { button }
+                    })
                     .collect(),
             )
         };
@@ -424,10 +427,13 @@ impl Shell for Demo {
         if response.redraw || self.stale {
             ui.dirty(key);
         }
+        if let Some(wake) = response.wake {
+            ui.wake_after(key, wake);
+        }
     }
 
     fn update(&mut self, _: Place, time: &FrameTime) -> bool {
-        self.tree.update(time.dt as f32, &self.theme)
+        self.tree.update(time.dt as f32, time.now, &self.theme)
     }
 
     fn layout(&mut self, _: Place, view: &View, text: &mut Text) {
@@ -479,6 +485,7 @@ impl crate::ipc::Answer for Demo {
                 })).collect::<Vec<_>>(),
                 "hovered": self.tree.hovered.map(|id| format!("{id:016x}")),
                 "presses": self.presses,
+                "tooltips": self.tree.tooltips_shown(),
                 "page": self.page.name(),
                 "quick": self.quick,
                 "slow": self.slow,
