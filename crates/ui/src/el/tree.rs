@@ -4,6 +4,7 @@
 
 mod field;
 mod list;
+mod menu;
 
 use std::collections::{HashMap, HashSet};
 
@@ -168,6 +169,12 @@ pub struct Tree<M> {
     mods: crate::input::Mods,
     /// The focused field's next blink.
     blink_in: Option<std::time::Duration>,
+    /// The menu open now, and whether the release of the press that closed
+    /// one is still to come, to be swallowed.
+    menu_open: Option<Id>,
+    swallow_release: bool,
+    /// The theme of the last layout, for what input measures.
+    theme: Theme,
 }
 
 impl<M> Default for Tree<M> {
@@ -188,6 +195,9 @@ impl<M> Default for Tree<M> {
             pending: HashSet::new(),
             mods: crate::input::Mods::default(),
             blink_in: None,
+            menu_open: None,
+            swallow_release: false,
+            theme: Theme::default(),
         }
     }
 }
@@ -299,6 +309,7 @@ impl<M: Clone> Tree<M> {
                 }
             }
         }
+        self.theme = theme.clone();
         self.settle_fields();
         self.view = Some(*view);
         self.stale = false;
@@ -375,155 +386,181 @@ impl<M: Clone> Tree<M> {
         let mut copy = None;
         let mut paste = false;
         let mut messages = Vec::new();
-        match input {
-            Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
-                // Dragging a slider: its value follows the pointer. In a field,
-                // the selection does.
-                if let Some(change) = self.pressed.and_then(|id| self.slide_to(id, *x)) {
-                    messages.push(change);
-                }
-                if let Some(id) = self.pressed.filter(|id| self.field(*id).is_some()) {
-                    self.field_drag(id, *x);
-                    redraw = true;
-                }
-                let now = self.hit(*x, *y);
-                if let Some(id) = now {
-                    redraw |= self.list_hover(id, Some(*y));
-                }
-                if now != self.hovered {
-                    if let Some(gone) = self.hovered {
-                        self.list_hover(gone, None);
+        // An open menu takes all input; the release of the press that
+        // closed one is swallowed.
+        let theme = self.theme.clone();
+        if let Some((menu_messages, menu_redraw)) = self.menu_input(input, &theme) {
+            messages = menu_messages;
+            redraw = menu_redraw;
+        } else if self.swallow_release && matches!(input, Input::Release { .. }) {
+            self.swallow_release = false;
+            let pressed = self.pressed.take();
+            self.set_spring(pressed, |s| s.press.to(0.0));
+            redraw = true;
+        } else {
+            match input {
+                Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
+                    // Dragging a slider: its value follows the pointer. In a field,
+                    // the selection does.
+                    if let Some(change) = self.pressed.and_then(|id| self.slide_to(id, *x)) {
+                        messages.push(change);
                     }
-                    self.set_spring(self.hovered, |s| s.hover.to(0.0));
-                    self.set_spring(now, |s| s.hover.to(1.0));
-                    self.hovered = now;
-                    redraw = true;
-                    wake = self.rest_on(now);
-                }
-            }
-            Input::PointerLeave => {
-                let gone = self.hovered.take();
-                self.set_spring(gone, |s| s.hover.to(0.0));
-                self.rest_on(None);
-                redraw = true;
-            }
-            Input::Press {
-                button: BTN_LEFT, x, ..
-            } => {
-                // A click focuses without a ring.
-                self.focus_visible = false;
-                self.move_focus(self.hovered);
-                self.press_x = *x;
-                // A click puts a tooltip away until the pointer rests again.
-                self.rest_on(None);
-                redraw = true;
-                if let Some(id) = self.hovered {
-                    self.pressed = Some(id);
-                    self.set_spring(Some(id), |s| s.press.to(1.0));
-                    redraw = true;
-                    messages.extend(self.slide_to(id, *x));
-                    if self.field(id).is_some() {
-                        let shift = self.mods.shift;
-                        self.field_press(id, *x, shift);
-                    }
-                }
-            }
-            Input::Release { button: BTN_LEFT, x, y } => {
-                if let Some(id) = self.pressed.take() {
-                    self.set_spring(Some(id), |s| s.press.to(0.0));
-                    redraw = true;
-                    // A click is a press and a release on the same element.
-                    if self.hit(*x, *y) == Some(id) {
-                        let more = self.more_at(id, self.press_x);
-                        messages.extend(self.activate(id, more));
-                        messages.extend(self.list_click(id, *y));
-                    }
-                }
-            }
-            Input::Scroll(scroll) => {
-                if let Some(id) = self.hovered
-                    && self.list(id).is_some()
-                {
-                    if self.list_scroll(id, scroll) {
-                        self.stale = true;
+                    if let Some(id) = self.pressed.filter(|id| self.field(*id).is_some()) {
+                        self.field_drag(id, *x);
                         redraw = true;
                     }
-                } else if let Some(id) = self.hovered
-                    && let Some((slider, track)) = self.slider(id)
-                {
-                    // Up and right is more. A wheel goes by steps, fingers by
-                    // the pixel along the track.
-                    let by = if scroll.steps_y != 0.0 || scroll.steps_x != 0.0 {
-                        (scroll.steps_x - scroll.steps_y) * slider.step.max((slider.max - slider.min) / 100.0)
-                    } else {
-                        (scroll.x - scroll.y) / track.w.max(1.0) * (slider.max - slider.min)
-                    };
-                    let value = slider.fit(slider.value + by);
-                    if value != slider.value
-                        && let Some(change) = &slider.on_change
-                    {
-                        messages.push(change(value));
+                    let now = self.hit(*x, *y);
+                    if let Some(id) = now {
+                        redraw |= self.list_hover(id, Some(*y));
+                    }
+                    if now != self.hovered {
+                        if let Some(gone) = self.hovered {
+                            self.list_hover(gone, None);
+                        }
+                        self.set_spring(self.hovered, |s| s.hover.to(0.0));
+                        self.set_spring(now, |s| s.hover.to(1.0));
+                        self.hovered = now;
+                        redraw = true;
+                        wake = self.rest_on(now);
                     }
                 }
-            }
-            Input::Paste(text) => {
-                if let Some(id) = self.focus.filter(|id| self.field(*id).is_some()) {
-                    messages.extend(self.field_paste(id, text));
+                Input::PointerLeave => {
+                    let gone = self.hovered.take();
+                    self.set_spring(gone, |s| s.hover.to(0.0));
+                    self.rest_on(None);
                     redraw = true;
                 }
-            }
-            Input::Key(key)
-                if key.state != KeyState::Released && self.focus.is_some_and(|id| self.field(id).is_some()) && {
-                    // A field takes its keys first; what it passes on goes on below.
-                    let id = self.focus.expect("checked");
-                    self.mods = key.mods;
-                    let out = self.field_key(id, key);
-                    messages.extend(out.message);
-                    copy = out.copy;
-                    paste = out.paste;
+                Input::Press {
+                    button: BTN_LEFT, x, ..
+                } => {
+                    // A click focuses without a ring.
+                    self.focus_visible = false;
+                    self.move_focus(self.hovered);
+                    self.press_x = *x;
+                    // A click puts a tooltip away until the pointer rests again.
+                    self.rest_on(None);
                     redraw = true;
-                    !out.passed
-                } => {}
-            Input::Key(key) if key.state != KeyState::Released => {
-                redraw = true;
-                self.mods = key.mods;
-                let was_visible = self.focus_visible;
-                self.focus_visible = true;
-                let on_list = self.focus.filter(|id| self.list(*id).is_some());
-                if let Some(id) = on_list
-                    && let Some(change) = self.list_key(id, key.keysym)
-                {
-                    messages.push(change);
-                } else if let Some(change) = self.focus.and_then(|id| self.slider_key(id, key.keysym)) {
-                    messages.push(change);
-                } else {
-                    match key.keysym {
-                        Keysym::Tab if !key.mods.shift => self.step_focus(1, false),
-                        Keysym::Tab | Keysym::ISO_Left_Tab => self.step_focus(-1, false),
-                        Keysym::Right | Keysym::Down => self.step_focus(1, true),
-                        Keysym::Left | Keysym::Up => self.step_focus(-1, true),
-                        Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                            // Shift+Return goes into a tile's details.
-                            if let Some(id) = self.focus {
-                                messages.extend(self.activate(id, key.mods.shift));
+                    if let Some(id) = self.hovered {
+                        self.pressed = Some(id);
+                        self.set_spring(Some(id), |s| s.press.to(1.0));
+                        redraw = true;
+                        messages.extend(self.slide_to(id, *x));
+                        if self.field(id).is_some() {
+                            let shift = self.mods.shift;
+                            self.field_press(id, *x, shift);
+                        }
+                    }
+                }
+                Input::Release { button: BTN_LEFT, x, y } => {
+                    if let Some(id) = self.pressed.take() {
+                        self.set_spring(Some(id), |s| s.press.to(0.0));
+                        redraw = true;
+                        // A click is a press and a release on the same element.
+                        if self.hit(*x, *y) == Some(id) {
+                            let more = self.more_at(id, self.press_x);
+                            messages.extend(self.activate(id, more));
+                            messages.extend(self.list_click(id, *y));
+                            if self.menu(id).is_some() {
+                                self.open_menu(id);
                             }
                         }
-                        Keysym::Escape => escaped = true,
-                        _ => {}
                     }
                 }
-                if !was_visible {
-                    let focus = self.focus;
-                    self.set_spring(focus, |s| s.focus.to(1.0));
+                Input::Scroll(scroll) => {
+                    if let Some(id) = self.hovered
+                        && self.list(id).is_some()
+                    {
+                        if self.list_scroll(id, scroll) {
+                            self.stale = true;
+                            redraw = true;
+                        }
+                    } else if let Some(id) = self.hovered
+                        && let Some((slider, track)) = self.slider(id)
+                    {
+                        // Up and right is more. A wheel goes by steps, fingers by
+                        // the pixel along the track.
+                        let by = if scroll.steps_y != 0.0 || scroll.steps_x != 0.0 {
+                            (scroll.steps_x - scroll.steps_y) * slider.step.max((slider.max - slider.min) / 100.0)
+                        } else {
+                            (scroll.x - scroll.y) / track.w.max(1.0) * (slider.max - slider.min)
+                        };
+                        let value = slider.fit(slider.value + by);
+                        if value != slider.value
+                            && let Some(change) = &slider.on_change
+                        {
+                            messages.push(change(value));
+                        }
+                    }
                 }
+                Input::Paste(text) => {
+                    if let Some(id) = self.focus.filter(|id| self.field(*id).is_some()) {
+                        messages.extend(self.field_paste(id, text));
+                        redraw = true;
+                    }
+                }
+                Input::Key(key)
+                    if key.state != KeyState::Released
+                        && self.focus.is_some_and(|id| self.field(id).is_some())
+                        && {
+                            // A field takes its keys first; what it passes on goes on below.
+                            let id = self.focus.expect("checked");
+                            self.mods = key.mods;
+                            let out = self.field_key(id, key);
+                            messages.extend(out.message);
+                            copy = out.copy;
+                            paste = out.paste;
+                            redraw = true;
+                            !out.passed
+                        } => {}
+                Input::Key(key) if key.state != KeyState::Released => {
+                    redraw = true;
+                    self.mods = key.mods;
+                    let was_visible = self.focus_visible;
+                    self.focus_visible = true;
+                    let on_menu = self.focus.filter(|id| self.menu(*id).is_some());
+                    let on_list = self.focus.filter(|id| self.list(*id).is_some());
+                    if let Some(id) = on_menu
+                        && matches!(
+                            key.keysym,
+                            Keysym::Down | Keysym::Return | Keysym::KP_Enter | Keysym::space
+                        )
+                    {
+                        self.open_menu(id);
+                    } else if let Some(id) = on_list
+                        && let Some(change) = self.list_key(id, key.keysym)
+                    {
+                        messages.push(change);
+                    } else if let Some(change) = self.focus.and_then(|id| self.slider_key(id, key.keysym)) {
+                        messages.push(change);
+                    } else {
+                        match key.keysym {
+                            Keysym::Tab if !key.mods.shift => self.step_focus(1, false),
+                            Keysym::Tab | Keysym::ISO_Left_Tab => self.step_focus(-1, false),
+                            Keysym::Right | Keysym::Down => self.step_focus(1, true),
+                            Keysym::Left | Keysym::Up => self.step_focus(-1, true),
+                            Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                                // Shift+Return goes into a tile's details.
+                                if let Some(id) = self.focus {
+                                    messages.extend(self.activate(id, key.mods.shift));
+                                }
+                            }
+                            Keysym::Escape => escaped = true,
+                            _ => {}
+                        }
+                    }
+                    if !was_visible {
+                        let focus = self.focus;
+                        self.set_spring(focus, |s| s.focus.to(1.0));
+                    }
+                }
+                Input::KeyboardLeave => {
+                    self.focus_visible = false;
+                    let focus = self.focus;
+                    self.set_spring(focus, |s| s.focus.to(0.0));
+                    redraw = true;
+                }
+                _ => {}
             }
-            Input::KeyboardLeave => {
-                self.focus_visible = false;
-                let focus = self.focus;
-                self.set_spring(focus, |s| s.focus.to(0.0));
-                redraw = true;
-            }
-            _ => {}
         }
         Response {
             messages,
@@ -715,6 +752,7 @@ impl<M: Clone> Tree<M> {
         let mut all = Vec::new();
         walk(el, ROOT, None, &mut all);
         let mut clip = None;
+        let mut popups = Vec::new();
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
             let focused = state.focus.value > 0.0;
@@ -728,6 +766,17 @@ impl<M: Clone> Tree<M> {
             if node.role == Role::TextField {
                 frame.clip(clip);
             }
+            if let Kind::Menu(menu) = &el.kind
+                && state.value.value > 0.0
+            {
+                popups.push((menu, node.rect, state, laid));
+            }
+        }
+        frame.clip(None);
+        // Open menus over everything but tooltips.
+        let bounds = self.bounds();
+        for (menu, rect, state, laid) in popups {
+            super::menu::paint_popup(menu, rect, bounds, state, laid, frame, theme);
         }
         frame.clip(None);
         // Tooltips last, over everything.

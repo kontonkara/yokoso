@@ -6,6 +6,7 @@ pub mod edit;
 pub mod field;
 pub mod kinds;
 pub mod layout;
+pub mod menu;
 pub mod tree;
 
 use crate::geometry::Color;
@@ -122,6 +123,14 @@ pub enum ButtonStyle {
     Text,
 }
 
+pub struct MenuEl<M> {
+    pub items: Vec<String>,
+    pub selected: Option<usize>,
+    /// What it says with nothing chosen.
+    pub placeholder: String,
+    pub on_pick: Option<std::rc::Rc<dyn Fn(usize) -> M>>,
+}
+
 pub struct FieldEl<M> {
     pub text: String,
     /// What it says while empty.
@@ -229,6 +238,9 @@ pub enum Kind<M> {
     List(ListEl<M>),
     /// A line of text to edit. Disabled without a message to send.
     Field(FieldEl<M>),
+    /// A choice of a few, shown as its current one, the rest in a list that
+    /// opens over everything. Disabled without a message to send.
+    Menu(MenuEl<M>),
     /// Room and nothing else.
     Spacer,
     Text(TextEl),
@@ -358,6 +370,21 @@ impl<M> El<M> {
             name,
             ink: Ink::OnSurfaceVariant,
         })
+    }
+
+    /// A choice among `items`, `selected` the current one.
+    pub fn menu(
+        items: Vec<String>,
+        selected: Option<usize>,
+        placeholder: impl Into<String>,
+        on_pick: Option<impl Fn(usize) -> M + 'static>,
+    ) -> Self {
+        Self::new(Kind::Menu(MenuEl {
+            items,
+            selected,
+            placeholder: placeholder.into(),
+            on_pick: on_pick.map(|pick| std::rc::Rc::new(pick) as std::rc::Rc<dyn Fn(usize) -> M>),
+        }))
     }
 
     /// A line of `text` to edit, `placeholder` while it is empty.
