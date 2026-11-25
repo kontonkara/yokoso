@@ -61,6 +61,7 @@ impl Default for Bar {
                 Module::Network,
                 Module::Sound,
                 Module::Battery,
+                Module::Notifications,
             ],
             hover_switch: true,
             panels: Panels::default(),
@@ -106,6 +107,8 @@ pub enum Module {
     Network,
     Sound,
     Battery,
+    /// The bell: how many are new, quiet or not; the history opens from it.
+    Notifications,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]

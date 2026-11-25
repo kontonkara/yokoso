@@ -5,6 +5,7 @@
 mod battery;
 mod calendar;
 pub mod clock;
+mod history;
 mod keyboard;
 mod media;
 mod network;
@@ -85,6 +86,14 @@ pub enum Msg {
     NextTrack,
     /// A toast: its default action, one of its buttons, closed, a reply being
     /// typed, the reply sent.
+    /// The history: opened; quiet on or off; cleared, of an app's or all; an
+    /// app folded or unfolded; one taken out; one's default action.
+    History,
+    Quiet,
+    HistoryClear(Option<String>),
+    HistoryFold(String),
+    HistoryRemove(u32),
+    HistoryOpen(u32),
     ToastOpen(u32),
     ToastAction(u32, String),
     ToastClose(u32),
@@ -157,6 +166,8 @@ pub struct Bar {
     toast_notes: HashMap<u32, notify::Notification>,
     /// The toast last pressed: where keys go, as to its reply field.
     toast_keys: Option<u32>,
+    /// The apps folded away in the history.
+    folded: std::collections::HashSet<String>,
     drafts: HashMap<u32, String>,
     due: HashMap<u32, f64>,
     left: HashMap<u32, f64>,
@@ -214,6 +225,7 @@ impl Bar {
             toasts_on: None,
             toast_notes: HashMap::new(),
             toast_keys: None,
+            folded: std::collections::HashSet::new(),
             drafts: HashMap::new(),
             due: HashMap::new(),
             left: HashMap::new(),
@@ -421,6 +433,7 @@ impl Bar {
         match shows {
             popup::Shows::Calendar { .. } => (calendar::WIDTH, calendar::HEIGHT),
             popup::Shows::Menu { entries, trail, .. } => popup::menu_size(entries, !trail.is_empty()),
+            popup::Shows::History { rows } => history::size(*rows),
         }
     }
 
@@ -605,6 +618,7 @@ impl Bar {
             }
             notify::Said::Serving(serving) => self.serving = serving,
         }
+        self.refresh_history(ui);
         self.changed(ui);
     }
 
@@ -828,6 +842,24 @@ impl Bar {
         }
     }
 
+    /// The history, if open, as the notifications are now: grown or shrunk to
+    /// its rows, its content built anew; nothing new while it is looked at.
+    fn refresh_history(&mut self, ui: &mut Ui<Self>) {
+        let Some(open) = &mut self.popup else { return };
+        if !open.panel.open || !matches!(open.shows, popup::Shows::History { .. }) {
+            return;
+        }
+        self.notes.unread = 0;
+        let rows = history::rows(&self.notes.list, &self.folded).len();
+        let output = open.output;
+        if open.shows == (popup::Shows::History { rows }) {
+            open.stale = true;
+            ui.dirty(Place::Popup(output));
+        } else {
+            self.show(ui, output, popup::Shows::History { rows });
+        }
+    }
+
     /// Tells an app what became of its notification.
     fn tell(&self, ask: notify::Ask) {
         if let Some(asks) = &self.notes_asks {
@@ -953,6 +985,54 @@ impl Bar {
                     self.ask_tray(ask);
                 }
                 self.close(ui);
+            }
+            Msg::History => {
+                if let Some(output) = output {
+                    self.notes.unread = 0;
+                    let rows = history::rows(&self.notes.list, &self.folded).len();
+                    self.show(ui, output, popup::Shows::History { rows });
+                    self.changed(ui);
+                }
+            }
+            Msg::Quiet => {
+                self.notes.set_quiet(!self.notes.quiet);
+                self.refresh_history(ui);
+                self.changed(ui);
+            }
+            Msg::HistoryClear(app) => {
+                for id in self.notes.clear(app.as_deref()) {
+                    self.tell(notify::Ask::Closed(id, notify::Reason::Dismissed));
+                    if self.toasts.has(id) {
+                        self.leave_toast(ui, id);
+                    }
+                }
+                self.refresh_history(ui);
+                self.changed(ui);
+            }
+            Msg::HistoryFold(app) => {
+                if !self.folded.remove(app) {
+                    self.folded.insert(app.clone());
+                }
+                self.refresh_history(ui);
+            }
+            Msg::HistoryRemove(id) => {
+                if self.notes.remove(*id).is_some() {
+                    self.tell(notify::Ask::Closed(*id, notify::Reason::Dismissed));
+                }
+                if self.toasts.has(*id) {
+                    self.leave_toast(ui, *id);
+                }
+                self.refresh_history(ui);
+                self.changed(ui);
+            }
+            Msg::HistoryOpen(id) => {
+                self.tell(notify::Ask::Invoke(*id, "default".into(), None));
+                let resident = self.notes.list.iter().any(|n| n.id == *id && n.resident);
+                if !resident && self.notes.remove(*id).is_some() {
+                    self.tell(notify::Ask::Closed(*id, notify::Reason::Dismissed));
+                }
+                self.close(ui);
+                self.changed(ui);
             }
             Msg::ToastOpen(id) => self.toast_action(ui, *id, "default"),
             Msg::ToastAction(id, key) => self.toast_action(ui, *id, key),
@@ -1154,6 +1234,15 @@ impl Bar {
             }
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
+            Module::Notifications => Some(history::bell(
+                self.notes.unread,
+                self.notes.list.len(),
+                self.notes.quiet,
+                self.serving,
+                self.open_part().as_deref() == Some("notifications"),
+                &self.theme,
+                round,
+            )),
             Module::Media => media::view(self.media.as_ref(), &self.theme, pad),
             Module::Privacy => privacy::view(
                 &self.using,
@@ -1530,6 +1619,10 @@ impl Shell for Bar {
                     popup::Shows::Menu { entries, trail, .. } => {
                         popup::menu_view(entries, !trail.is_empty(), &self.theme)
                     }
+                    popup::Shows::History { .. } => {
+                        let rows = history::rows(&self.notes.list, &self.folded);
+                        history::view(&self.notes.list, &rows, self.notes.quiet, &self.theme)
+                    }
                 });
             if let Some(open) = &mut self.popup {
                 if let Some(content) = content {
@@ -1721,6 +1814,7 @@ impl crate::ipc::Answer for Bar {
                     }
                     None => {}
                 }
+                self.refresh_history(ui);
                 self.changed(ui);
                 Ok(json!({ "quiet": self.notes.quiet, "count": self.notes.list.len() }))
             }
@@ -1763,6 +1857,10 @@ impl crate::ipc::Answer for Bar {
                     "shape": [open.panel.shape().x, open.panel.shape().y, open.panel.shape().w, open.panel.shape().h],
                     "to": [open.panel.content_rect().x, open.panel.content_rect().y, open.panel.content_rect().w, open.panel.content_rect().h],
                     "shows": match &open.shows {
+                        popup::Shows::History { rows } => json!({
+                            "history": rows,
+                            "quiet": open.panel.tree.rect_of("quiet").map(|r| [r.x, r.y, r.w, r.h]),
+                        }),
                         popup::Shows::Calendar { shown } => {
                             // The arrows' icons, and the Saturday and Sunday of the first week below them.
                             let tree = &open.panel.tree;
@@ -1819,6 +1917,7 @@ impl crate::ipc::Answer for Bar {
                     "layout": surface.tree.rect_of("layout").map(|r| [r.x, r.y, r.w, r.h]),
                     "battery": surface.tree.rect_of("battery").map(|r| [r.x, r.y, r.w, r.h]),
                     "network": surface.tree.rect_of("network").map(|r| [r.x, r.y, r.w, r.h]),
+                    "notifications": surface.tree.rect_of("notifications").map(|r| [r.x, r.y, r.w, r.h]),
                     "sound": surface.tree.rect_of("sound").map(|r| [r.x, r.y, r.w, r.h]),
                     "media": surface.tree.rect_of("media").map(|r| [r.x, r.y, r.w, r.h]),
                     "privacy": surface.tree.rect_of("privacy").map(|r| [r.x, r.y, r.w, r.h]),

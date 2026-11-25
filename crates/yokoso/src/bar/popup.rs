@@ -27,6 +27,8 @@ pub enum Shows {
         entries: Vec<Entry>,
         trail: Vec<i32>,
     },
+    /// The history, `rows` rows of it.
+    History { rows: usize },
 }
 
 impl Shows {
@@ -35,13 +37,14 @@ impl Shows {
         match self {
             Self::Calendar { .. } => "clock".into(),
             Self::Menu { address, .. } => format!("tray:{address}"),
+            Self::History { .. } => "notifications".into(),
         }
     }
 
     /// Whether `other` is the same panel, whatever it shows inside.
     pub fn same(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Calendar { .. }, Self::Calendar { .. }) => true,
+            (Self::Calendar { .. }, Self::Calendar { .. }) | (Self::History { .. }, Self::History { .. }) => true,
             (Self::Menu { address: a, .. }, Self::Menu { address: b, .. }) => a == b,
             _ => false,
         }
