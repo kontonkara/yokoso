@@ -37,13 +37,20 @@ pub fn natural<M>(el: &El<M>, max_width: Option<f32>, measure: &mut impl Measure
     let (w, h) = match &el.kind {
         Kind::Row { gap, .. } => {
             let mut w = 0.0f32;
-            let mut h = 0.0f32;
             for child in &el.children {
-                let (cw, ch) = natural(child, inner_max, measure);
-                w += cw;
-                h = h.max(ch);
+                w += natural(child, None, measure).0;
             }
-            (w + gaps(*gap, el.children.len()), h)
+            let w = w + gaps(*gap, el.children.len());
+            // Its height with the widths its children will get: text in a
+            // narrow one wraps, and the row grows to hold it.
+            let widths = shares(el, *gap, inner_max.unwrap_or(w), measure);
+            let h = el
+                .children
+                .iter()
+                .zip(widths)
+                .map(|(child, width)| natural(child, Some(width), measure).1)
+                .fold(0.0f32, f32::max);
+            (w, h)
         }
         Kind::Column { gap, .. } | Kind::Card { gap, .. } => {
             let mut w = 0.0f32;
@@ -109,6 +116,63 @@ fn along(size: Size, natural: f32, room: f32) -> f32 {
     }
 }
 
+/// A row's children's widths in `room`: fixed and hugging ones first, then
+/// what is left shared among the filling ones by weight.
+fn shares<M>(el: &El<M>, gap: f32, room: f32, measure: &mut impl Measure<M>) -> Vec<f32> {
+    let mut sizes = Vec::with_capacity(el.children.len());
+    let mut taken = gaps(gap, el.children.len());
+    let mut weights = 0.0;
+    for child in &el.children {
+        let size = match child.width {
+            Size::Fixed(fixed) => fixed,
+            Size::Fill(weight) => {
+                weights += weight.max(0.0);
+                0.0
+            }
+            Size::Hug => natural(child, None, measure).0,
+        };
+        taken += size;
+        sizes.push(size);
+    }
+    fill(el, &mut sizes, (room - taken).max(0.0), weights, |child| child.width);
+    sizes
+}
+
+/// A column's children's heights in `room`, each hugging one at the width
+/// it will have.
+fn shares_down<M>(el: &El<M>, gap: f32, inner: Rect, room: f32, measure: &mut impl Measure<M>) -> Vec<f32> {
+    let mut sizes = Vec::with_capacity(el.children.len());
+    let mut taken = gaps(gap, el.children.len());
+    let mut weights = 0.0;
+    for child in &el.children {
+        let size = match child.height {
+            Size::Fixed(fixed) => fixed,
+            Size::Fill(weight) => {
+                weights += weight.max(0.0);
+                0.0
+            }
+            Size::Hug => natural(child, Some(inner.w), measure).1,
+        };
+        taken += size;
+        sizes.push(size);
+    }
+    fill(el, &mut sizes, (room - taken).max(0.0), weights, |child| child.height);
+    sizes
+}
+
+/// Shares `left` among the filling children, by weight.
+fn fill<M>(el: &El<M>, sizes: &mut [f32], left: f32, weights: f32, size_of: impl Fn(&El<M>) -> Size) {
+    for (child, size) in el.children.iter().zip(sizes.iter_mut()) {
+        if let Size::Fill(weight) = size_of(child) {
+            *size = if weights > 0.0 {
+                left * weight.max(0.0) / weights
+            } else {
+                0.0
+            };
+        }
+    }
+}
+
 /// Lays out a row (`across` true) or a column.
 fn line<M>(
     el: &El<M>,
@@ -121,38 +185,12 @@ fn line<M>(
 ) {
     let main_room = if across { inner.w } else { inner.h };
     let cross_room = if across { inner.h } else { inner.w };
-    let main_of = |child: &El<M>| if across { child.width } else { child.height };
     let cross_of = |child: &El<M>| if across { child.height } else { child.width };
-    // Along the main axis: fixed and hugging children first, then what's
-    // left shared among the filling ones by weight.
-    let mut sizes = Vec::with_capacity(el.children.len());
-    let mut taken = gaps(gap, el.children.len());
-    let mut weights = 0.0;
-    for child in &el.children {
-        let size = match main_of(child) {
-            Size::Fixed(fixed) => fixed,
-            Size::Fill(weight) => {
-                weights += weight.max(0.0);
-                0.0
-            }
-            Size::Hug => {
-                let (w, h) = natural(child, if across { None } else { Some(inner.w) }, measure);
-                if across { w } else { h }
-            }
-        };
-        taken += size;
-        sizes.push(size);
-    }
-    let left = (main_room - taken).max(0.0);
-    for (child, size) in el.children.iter().zip(sizes.iter_mut()) {
-        if let Size::Fill(weight) = main_of(child) {
-            *size = if weights > 0.0 {
-                left * weight.max(0.0) / weights
-            } else {
-                0.0
-            };
-        }
-    }
+    let sizes = if across {
+        shares(el, gap, main_room, measure)
+    } else {
+        shares_down(el, gap, inner, main_room, measure)
+    };
     let mut at = if across { inner.x } else { inner.y };
     for (child, size) in el.children.iter().zip(sizes) {
         let cross = match cross_of(child) {
@@ -245,6 +283,15 @@ mod tests {
         let column = E::column(0.0, vec![El::text("a".repeat(20), Type::Body)]);
         let rects = layout(&column, Rect::new(0.0, 0.0, 70.0, 500.0), &mut measure);
         assert_eq!(rects[1].h, 34.0);
+    }
+
+    #[test]
+    fn a_row_is_as_tall_as_its_text_wraps_in_the_width_it_shares() {
+        // Two halves of 70: 20 characters, 140 pixels, are 4 lines in 35.
+        let half = || El::text("a".repeat(20), Type::Body).width(Size::Fill(1.0));
+        let column = E::column(0.0, vec![E::row(0.0, vec![half(), half()])]);
+        let rects = layout(&column, Rect::new(0.0, 0.0, 70.0, 500.0), &mut measure);
+        assert_eq!(rects[1].h, 4.0 * 17.0);
     }
 
     #[test]
