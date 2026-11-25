@@ -39,6 +39,16 @@ pub fn about(battery: &Battery) -> String {
     said
 }
 
+/// What of the battery shows, its words on resting aside: the percentage
+/// as written, and how it charges. A change to the rest, as the power it
+/// draws, draws nothing.
+pub fn looks(power: &Power) -> Option<(String, Charge)> {
+    match power {
+        Power::Battery(battery) => Some((format!("{:.0}", battery.percentage), battery.charge)),
+        _ => None,
+    }
+}
+
 /// Its color: the accent while it is plugged in, else by how low it is.
 pub fn ink(battery: &Battery, theme: &Theme) -> Ink {
     match battery.charge {

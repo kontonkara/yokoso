@@ -4,6 +4,7 @@
 //!
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Wifi b false
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Vpn b true
+//!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Strength y 40
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Burst u 500
 
 use std::{
@@ -169,6 +170,12 @@ impl Stand {
     async fn vpn(&self, up: bool, #[zbus(connection)] bus: &Connection) {
         self.0.lock().unwrap().vpn = up;
         changed(bus, ROOT, "org.freedesktop.NetworkManager").await;
+    }
+
+    /// The Wi-Fi's strength, in percent.
+    async fn strength(&self, value: u8, #[zbus(connection)] bus: &Connection) {
+        self.0.lock().unwrap().strength = value;
+        changed(bus, POINT, "org.freedesktop.NetworkManager.AccessPoint").await;
     }
 
     /// `count` signals at once, as a scan sends about the points it sees.

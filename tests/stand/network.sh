@@ -23,6 +23,18 @@ until_says .network.link '"None"'
 shot off
 nm Wifi b true
 until_says .network.name '"Stand"'
+# The strength from one percent to the next draws nothing: it shows only
+# in words, on resting. To fewer arcs, the bar draws.
+sleep 0.5
+frames=$("$binary" msg stats | jq .frames)
+nm Strength y 75
+until_says .network.link '"Wifi { ssid: \"Stand\", strength: 75 }"'
+sleep 0.3
+[ "$("$binary" msg stats | jq .frames)" = "$frames" ] || fail "a new strength, the same arcs, and the bar drew"
+nm Strength y 40
+until_says .network.link '"Wifi { ssid: \"Stand\", strength: 40 }"'
+sleep 0.3
+[ "$("$binary" msg stats | jq .frames)" != "$frames" ] || fail "fewer arcs, and the bar did not draw"
 nm Vpn b true
 until_says .network.vpns '["myvpn"]'
 shot vpn

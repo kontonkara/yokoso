@@ -218,6 +218,16 @@ impl Bar {
         ui.dirty_all();
     }
 
+    /// A change that shows only in words on resting, unless `seen`: the bar is
+    /// built anew at its next frame, and draws now only for a tooltip in sight.
+    fn changed_if(&mut self, ui: &mut Ui<Self>, seen: bool) {
+        if seen || self.tip.is_some() {
+            self.changed(ui);
+        } else {
+            self.generation += 1;
+        }
+    }
+
     fn apply(&mut self, ui: &mut Ui<Self>, loaded: Result<Config, String>) {
         match loaded {
             Ok(config) => {
@@ -925,14 +935,17 @@ impl Shell for Bar {
             }
             Message::Net(net) => {
                 if net != self.net {
+                    let named = &self.config.bar.network.vpn;
+                    let seen = network::looks(&net, named) != network::looks(&self.net, named);
                     self.net = net;
-                    self.changed(ui);
+                    self.changed_if(ui, seen);
                 }
             }
             Message::Power(power) => {
                 if power != self.power {
+                    let seen = battery::looks(&power) != battery::looks(&self.power);
                     self.power = power;
-                    self.changed(ui);
+                    self.changed_if(ui, seen);
                 }
             }
             Message::Niri(event) => {

@@ -31,6 +31,24 @@ pub fn vpns(network: &Network, named: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// What of the network shows, its words on resting aside: the icon, and
+/// whether a VPN is up. A change to the rest, as the strength from one
+/// percent to the next, draws nothing.
+pub fn looks(net: &Net, named: &[String]) -> (&'static str, bool) {
+    let icon = match net {
+        Net::Unknown => "unknown",
+        Net::Up(network) if network.airplane => "airplane",
+        Net::Up(network) => match &network.link {
+            Link::Wifi { strength, .. } => level(*strength),
+            Link::Wired | Link::Other(_) => "ethernet",
+            Link::None if network.connecting.is_some() => "connecting",
+            Link::None => "wifi-off",
+        },
+    };
+    let vpn = matches!(net, Net::Up(network) if !vpns(network, named).is_empty());
+    (icon, vpn)
+}
+
 /// What it says on resting.
 pub fn about(net: &Net, named: &[String]) -> String {
     let Net::Up(network) = net else {
