@@ -454,6 +454,8 @@ impl<M: Clone> Tree<M> {
                 for (spring, to) in state.place.iter_mut().zip([rect.x, rect.y, rect.w, rect.h]) {
                     if placed {
                         spring.to(to);
+                        // Sent somewhere new: it moves from the next frame.
+                        self.arrived |= spring.is_moving();
                     } else {
                         spring.snap(to);
                     }
@@ -1197,6 +1199,11 @@ mod tests {
         tree.set(column(30.0));
         tree.layout_with(space, &mut measure);
         assert_eq!(width(&tree, 1), 10.0, "still where it was");
+        assert_eq!(
+            tree.wake(),
+            Some(std::time::Duration::ZERO),
+            "and it asks for a frame to move"
+        );
         assert!(tree.update(1.0 / 60.0, 0.0, &Theme::default()));
         let between = width(&tree, 1);
         assert!(between > 10.0 && between < 30.0, "{between}");
