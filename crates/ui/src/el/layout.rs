@@ -62,7 +62,7 @@ pub fn natural<M>(el: &El<M>, max_width: Option<f32>, measure: &mut impl Measure
             }
             (w, h + gaps(*gap, el.children.len()))
         }
-        Kind::Stack => el
+        Kind::Stack | Kind::Tooltip { .. } => el
             .children
             .iter()
             .map(|child| natural(child, inner_max, measure))
@@ -95,7 +95,7 @@ fn place<M>(el: &El<M>, rect: Rect, measure: &mut impl Measure<M>, out: &mut Vec
         Kind::Row { gap, align } => line(el, inner, *gap, *align, true, measure, out),
         Kind::Column { gap, align } => line(el, inner, *gap, *align, false, measure, out),
         Kind::Card { gap, .. } => line(el, inner, *gap, Align::Stretch, false, measure, out),
-        Kind::Stack => {
+        Kind::Stack | Kind::Tooltip { .. } => {
             for child in &el.children {
                 let (w, h) = natural(child, Some(inner.w), measure);
                 let w = along(child.width, w, inner.w);

@@ -17,6 +17,7 @@ pub fn role<M>(kind: &Kind<M>) -> Role {
         Kind::Slider(_) => Role::Slider,
         Kind::Card { .. } => Role::Card,
         Kind::Tile(_) => Role::Tile,
+        Kind::Tooltip { .. } => Role::Tooltip,
         _ => Role::Group,
     }
 }
@@ -28,6 +29,13 @@ pub fn interactive<M>(kind: &Kind<M>) -> bool {
         Kind::Button { on_press: Some(_), .. } | Kind::Toggle { on_toggle: Some(_), .. }
     ) || matches!(kind, Kind::Slider(slider) if slider.on_change.is_some())
         || matches!(kind, Kind::Tile(tile) if tile.on_press.is_some())
+        || matches!(kind, Kind::Tooltip { .. })
+}
+
+/// Whether the keyboard reaches it: what takes the pointer but a tooltip,
+/// which only listens for it resting.
+pub fn focusable<M>(kind: &Kind<M>) -> bool {
+    interactive(kind) && !matches!(kind, Kind::Tooltip { .. })
 }
 
 /// Whether it waits on something, pulsing meanwhile.
@@ -142,6 +150,18 @@ pub fn paragraphs<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, sca
         ];
     }
     let one = match &el.kind {
+        Kind::Tooltip { text: words } => Some(text.layout(
+            words,
+            &Style {
+                size: theme.sizes.small,
+                weight: 400.0,
+                family: None,
+                tabular: false,
+            },
+            scale,
+            Some(320.0),
+            false,
+        )),
         Kind::Text(t) => Some(text.layout(&t.text, &style(t, theme), scale, Some(rect.w + 0.5), t.ellipsis)),
         Kind::Slider(slider) if slider.show_value => Some(text.layout(
             &value_text(slider),
@@ -490,6 +510,31 @@ fn paint_toggle(
     if focused {
         ring(frame, track, radius, state, theme);
     }
+}
+
+/// A tooltip's bubble, under the element it belongs to, or over it where
+/// there is no room below; kept inside `bounds`.
+pub fn paint_tooltip(rect: Rect, bounds: Rect, state: &State, paragraph: &Paragraph, frame: &mut Frame, theme: &Theme) {
+    let shown = state.value.value.clamp(0.0, 1.0);
+    if shown <= 0.0 {
+        return;
+    }
+    let colors = &theme.colors;
+    let (pad_x, pad_y, gap) = (8.0, 4.0, 6.0);
+    let w = paragraph.width() + 2.0 * pad_x;
+    let h = paragraph.height() + 2.0 * pad_y;
+    let x = (rect.x + (rect.w - w) / 2.0).clamp(bounds.x + 4.0, (bounds.right() - w - 4.0).max(bounds.x));
+    let below = rect.bottom() + gap + h <= bounds.bottom();
+    // It comes a few pixels toward its place as it fades in.
+    let lift = (1.0 - shown) * 4.0;
+    let y = if below {
+        rect.bottom() + gap - lift
+    } else {
+        rect.y - gap - h + lift
+    };
+    let bubble = Rect::new(x, y, w, h);
+    frame.fill(bubble, 4.0, colors.inverse_surface.alpha(shown));
+    frame.text(paragraph, x + pad_x, y + pad_y, colors.inverse_on_surface.alpha(shown));
 }
 
 /// The focus ring: outside the element, as far as its spring has come.

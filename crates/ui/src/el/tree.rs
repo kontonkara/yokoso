@@ -14,6 +14,9 @@ use crate::{
     theme::Theme,
 };
 
+/// How long the pointer rests before a tooltip shows.
+const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(600);
+
 /// The evdev code of the left button.
 const BTN_LEFT: u32 = 0x110;
 
@@ -38,6 +41,7 @@ pub enum Role {
     Tile,
     Menu,
     MenuItem,
+    Tooltip,
 }
 
 /// An element after layout.
@@ -49,6 +53,8 @@ pub struct Node {
     pub parent: Option<usize>,
     /// It takes the pointer: buttons and the like.
     pub interactive: bool,
+    /// The keyboard reaches it.
+    pub focusable: bool,
 }
 
 /// What an element keeps between rebuilds.
@@ -90,6 +96,9 @@ impl State {
 pub struct Response<M> {
     pub messages: Vec<M>,
     pub redraw: bool,
+    /// Ask for a frame this long from now, with none before: a tooltip
+    /// waiting to show.
+    pub wake: Option<std::time::Duration>,
     /// Escape went unused here: the shell unwinds a level.
     pub escaped: bool,
 }
@@ -109,6 +118,8 @@ pub struct Tree<M> {
     press_x: f32,
     /// Elements waiting on something, which pulse meanwhile.
     pending: HashSet<Id>,
+    /// The tooltip the pointer rests on, and since when (monotonic seconds).
+    tip: Option<(Id, f64)>,
     pub focus: Option<Id>,
     /// The focus ring shows: a key was pressed since the last click.
     pub focus_visible: bool,
@@ -126,6 +137,7 @@ impl<M> Default for Tree<M> {
             hovered: None,
             pressed: None,
             press_x: 0.0,
+            tip: None,
             focus: None,
             focus_visible: false,
             pending: HashSet::new(),
@@ -172,10 +184,26 @@ impl<M: Clone> Tree<M> {
         self.stale || self.view.as_ref() != Some(view)
     }
 
+    /// How many tooltips show now, more than half faded in.
+    pub fn tooltips_shown(&self) -> usize {
+        self.nodes
+            .iter()
+            .filter(|node| node.role == Role::Tooltip)
+            .filter(|node| self.states.get(&node.id).is_some_and(|s| s.value.value > 0.5))
+            .count()
+    }
+
     /// Moves every spring `dt` seconds on. True while one still moves.
-    pub fn update(&mut self, dt: f32, theme: &Theme) -> bool {
+    pub fn update(&mut self, dt: f32, now: f64, theme: &Theme) -> bool {
         let feel = theme.motion.feel(Part::Micro);
         let mut moving = false;
+        // A tooltip shows once the pointer has rested long enough.
+        if let Some((id, since)) = self.tip
+            && now - since >= TOOLTIP_DELAY.as_secs_f64() - 0.01
+            && let Some(state) = self.states.get_mut(&id)
+        {
+            state.value.to(1.0);
+        }
         // What waits pulses, and keeps frames coming while it does.
         for id in &self.pending {
             if let Some(state) = self.states.get_mut(id) {
@@ -237,6 +265,7 @@ impl<M: Clone> Tree<M> {
                 role: kinds::role(&el.kind),
                 parent,
                 interactive: kinds::interactive(&el.kind),
+                focusable: kinds::focusable(&el.kind),
             });
         }
         // What is gone forgets its state.
@@ -269,6 +298,7 @@ impl<M: Clone> Tree<M> {
     pub fn input(&mut self, input: &Input) -> Response<M> {
         let mut redraw = false;
         let mut escaped = false;
+        let mut wake = None;
         let mut messages = Vec::new();
         match input {
             Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
@@ -282,11 +312,13 @@ impl<M: Clone> Tree<M> {
                     self.set_spring(now, |s| s.hover.to(1.0));
                     self.hovered = now;
                     redraw = true;
+                    wake = self.rest_on(now);
                 }
             }
             Input::PointerLeave => {
                 let gone = self.hovered.take();
                 self.set_spring(gone, |s| s.hover.to(0.0));
+                self.rest_on(None);
                 redraw = true;
             }
             Input::Press {
@@ -296,6 +328,8 @@ impl<M: Clone> Tree<M> {
                 self.focus_visible = false;
                 self.move_focus(self.hovered);
                 self.press_x = *x;
+                // A click puts a tooltip away until the pointer rests again.
+                self.rest_on(None);
                 redraw = true;
                 if let Some(id) = self.hovered {
                     self.pressed = Some(id);
@@ -372,8 +406,36 @@ impl<M: Clone> Tree<M> {
         Response {
             messages,
             redraw,
+            wake,
             escaped,
         }
+    }
+
+    /// The pointer now on `hovered`: the tooltip it is in, if any, starts its
+    /// wait, and the one it left goes. The wait, where one starts.
+    fn rest_on(&mut self, hovered: Option<Id>) -> Option<std::time::Duration> {
+        let tip = hovered.and_then(|id| self.tooltip_of(id));
+        if tip == self.tip.map(|(id, _)| id) {
+            return None;
+        }
+        if let Some((old, _)) = self.tip.take() {
+            self.set_spring(Some(old), |s| s.value.to(0.0));
+        }
+        let tip = tip?;
+        self.tip = Some((tip, crate::app::monotonic()));
+        Some(TOOLTIP_DELAY)
+    }
+
+    /// The tooltip `id` is in: itself, or the nearest one above it.
+    fn tooltip_of(&self, id: Id) -> Option<Id> {
+        let mut at = self.nodes.iter().position(|node| node.id == id);
+        while let Some(index) = at {
+            if self.nodes[index].role == Role::Tooltip {
+                return Some(self.nodes[index].id);
+            }
+            at = self.nodes[index].parent;
+        }
+        None
     }
 
     /// Focus to `id`: its ring fades in where rings show, the old one's out.
@@ -397,7 +459,7 @@ impl<M: Clone> Tree<M> {
             .and_then(|id| self.nodes.iter().position(|node| node.id == id));
         let parent = at.and_then(|at| self.nodes[at].parent);
         let order: Vec<usize> = (0..self.nodes.len())
-            .filter(|&index| self.nodes[index].interactive)
+            .filter(|&index| self.nodes[index].focusable)
             .filter(|&index| !sibling || at.is_none() || self.nodes[index].parent == parent)
             .collect();
         if order.is_empty() {
@@ -511,6 +573,17 @@ impl<M: Clone> Tree<M> {
             let focused = state.focus.value > 0.0;
             let laid = self.paragraphs.get(id).map_or(&[][..], Vec::as_slice);
             kinds::paint(el, node.rect, state, laid, focused, frame, theme);
+        }
+        // Tooltips last, over everything.
+        let view = frame.view();
+        let bounds = Rect::new(0.0, 0.0, view.width, view.height);
+        for node in self.nodes.iter().filter(|node| node.role == Role::Tooltip) {
+            if let (Some(state), Some([paragraph, ..])) = (
+                self.states.get(&node.id),
+                self.paragraphs.get(&node.id).map(Vec::as_slice),
+            ) {
+                kinds::paint_tooltip(node.rect, bounds, state, paragraph, frame, theme);
+            }
         }
     }
 }

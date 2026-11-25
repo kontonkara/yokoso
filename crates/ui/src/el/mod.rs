@@ -187,6 +187,11 @@ pub enum Kind<M> {
         name: &'static str,
         ink: Ink,
     },
+    /// Its one child, with a few words that show when the pointer rests on
+    /// it a while.
+    Tooltip {
+        text: String,
+    },
     /// Room and nothing else.
     Spacer,
     Text(TextEl),
@@ -353,6 +358,24 @@ impl<M> El<M> {
     pub fn with(mut self, children: Vec<El<M>>) -> Self {
         self.children = children;
         self
+    }
+
+    /// This element with `text` shown when the pointer rests on it a while.
+    pub fn tooltip(self, text: impl Into<String>) -> Self {
+        let (width, height) = (self.width, self.height);
+        let child = self
+            .width(match width {
+                Size::Hug => Size::Hug,
+                _ => Size::Fill(1.0),
+            })
+            .height(match height {
+                Size::Hug => Size::Hug,
+                _ => Size::Fill(1.0),
+            });
+        Self::new(Kind::Tooltip { text: text.into() })
+            .width(width)
+            .height(height)
+            .with(vec![child])
     }
 
     /// For a row or a column: where its children sit across it.
