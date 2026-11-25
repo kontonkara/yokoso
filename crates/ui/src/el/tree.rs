@@ -628,13 +628,8 @@ impl<M: Clone> Tree<M> {
                         messages.extend(sent);
                     }
                 }
-                Input::Scroll(scroll)
-                    if self
-                        .hovered
-                        .and_then(|id| self.press_el(id))
-                        .is_some_and(|p| p.on_scroll.is_some()) =>
-                {
-                    let id = self.hovered.expect("checked");
+                Input::Scroll(scroll) if self.wheel_target().is_some() => {
+                    let id = self.wheel_target().expect("checked");
                     messages.extend(self.press_scroll(id, scroll));
                 }
                 Input::Scroll(scroll) => {
@@ -923,6 +918,19 @@ impl<M: Clone> Tree<M> {
         })
     }
 
+    /// Where the wheel goes: the pressed group under the pointer that hears
+    /// it, or the nearest one holding it that does.
+    fn wheel_target(&self) -> Option<Id> {
+        let mut at = self.nodes.iter().position(|node| Some(node.id) == self.hovered)?;
+        loop {
+            let id = self.nodes[at].id;
+            if self.press_el(id).is_some_and(|press| press.on_scroll.is_some()) {
+                return Some(id);
+            }
+            at = self.nodes[at].parent?;
+        }
+    }
+
     /// The wheel over the pressed group `id`: what it sends for the steps,
     /// up and right more. A notch is a step; fingers make one of every few
     /// pixels, what is left kept for the next.
@@ -1026,7 +1034,7 @@ impl<M: Clone> Tree<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::el::{Ink, Kind, Size, Type};
+    use crate::el::{Edges, Ink, Kind, Size, Type};
     use crate::theme::Theme;
 
     fn measure(el: &El<()>, _: Option<f32>) -> (f32, f32) {
@@ -1134,6 +1142,34 @@ mod tests {
         };
         assert!(tree.input(&Input::Scroll(fingers.clone())).messages.is_empty());
         assert_eq!(tree.input(&Input::Scroll(fingers)).messages, vec![Msg::Wheel(-1.0)]);
+    }
+
+    #[test]
+    fn the_wheel_over_a_group_in_a_group_goes_to_the_one_that_hears_it() {
+        use crate::input::Scroll;
+        let mut tree = Tree::<i32>::default();
+        let inner = El::press(0.0, vec![El::block(Ink::Primary, 2.0)], Some(1))
+            .width(Size::Fixed(20.0))
+            .height(Size::Fixed(20.0));
+        tree.set(El::row(
+            0.0,
+            vec![
+                El::press(0.0, vec![inner], Some(2))
+                    .on_scroll(|steps| steps as i32 * 10)
+                    .padding(Edges::all(10.0)),
+            ],
+        ));
+        tree.layout_with(Rect::new(0.0, 0.0, 200.0, 100.0), &mut |_: &El<i32>, _| (0.0, 0.0));
+        let inner = tree.nodes()[2].rect;
+        tree.input(&Input::PointerMove {
+            x: inner.x + 10.0,
+            y: inner.y + 10.0,
+        });
+        let notch = Scroll {
+            steps_y: 1.0,
+            ..Default::default()
+        };
+        assert_eq!(tree.input(&Input::Scroll(notch)).messages, vec![-10]);
     }
 
     #[test]
