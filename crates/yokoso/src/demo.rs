@@ -934,6 +934,7 @@ impl crate::ipc::Answer for Demo {
                 "zoom": ui.zoom(),
                 "mode": format!("{:?}", self.theme.motion.mode),
                 "speed": self.theme.motion.speed,
+                "preset": self.preset.map(Preset::name),
                 "panel_open": self.panel.open,
                 "panel_visible": self.panel.visible(),
                 "panels": self.panels,
