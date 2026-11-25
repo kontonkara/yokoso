@@ -81,6 +81,8 @@ pub enum Event {
     WindowLayouts(Vec<(u64, Layout)>),
     KeyboardLayouts(KeyboardLayouts),
     KeyboardLayoutSwitched(usize),
+    /// How many screencasts there are now.
+    Casts(usize),
     /// The stream is gone, or never came: niri is not there now.
     Lost,
 }
@@ -117,6 +119,7 @@ pub fn parse(line: &str) -> Option<Event> {
         "WindowLayoutsChanged" => Event::WindowLayouts(field(body, "changes")?),
         "KeyboardLayoutsChanged" => Event::KeyboardLayouts(field(body, "keyboard_layouts")?),
         "KeyboardLayoutSwitched" => Event::KeyboardLayoutSwitched(field(body, "idx")?),
+        "CastsChanged" => Event::Casts(field::<Vec<Value>>(body, "casts")?.len()),
         _ => return None,
     })
 }
@@ -129,6 +132,8 @@ pub struct State {
     pub workspaces: HashMap<u64, Workspace>,
     pub windows: HashMap<u64, Window>,
     pub layouts: KeyboardLayouts,
+    /// Screencasts going on now.
+    pub casts: usize,
 }
 
 impl State {
@@ -194,6 +199,7 @@ impl State {
             }
             Event::KeyboardLayouts(layouts) => self.layouts = layouts,
             Event::KeyboardLayoutSwitched(idx) => self.layouts.current_idx = idx,
+            Event::Casts(count) => self.casts = count,
             Event::Lost => *self = Self::default(),
         }
         *self != before
@@ -377,6 +383,8 @@ mod tests {
         assert_eq!(state.layouts.current_idx, 1);
         assert_eq!(parse(r#"{"OverviewOpenedOrClosed":{"is_open":true}}"#), None);
         assert_eq!(parse(r#"{"SomethingNew":{"x":1}}"#), None);
+        assert!(state.apply(parse(r#"{"CastsChanged":{"casts":[{"stream_id":3}]}}"#).unwrap()));
+        assert_eq!(state.casts, 1);
         assert_eq!(parse("not json"), None);
         // Lost: nothing is known any more.
         state.apply(Event::Lost);
