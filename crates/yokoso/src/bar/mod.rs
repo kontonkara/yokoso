@@ -33,12 +33,12 @@ use yokoso_ui::{
 
 use crate::{
     config::{Config, Edge, Module},
-    mpris, niri, nm, pw, rfkill, sni, upower,
+    mpris, niri, nm, notes, notify, pw, rfkill, sni, upower,
 };
 
 /// What the bar's services send it.
 pub enum Message {
-    Config(Result<Config, String>),
+    Config(Box<Result<Config, String>>),
     Niri(niri::Event),
     Power(upower::Power),
     Net(nm::Net),
@@ -46,6 +46,7 @@ pub enum Message {
     Sound(pw::Heard),
     Tray(sni::Said),
     Media(Option<mpris::Playing>),
+    Notes(notify::Said),
 }
 
 /// What its parts send when used.
@@ -133,6 +134,11 @@ pub struct Bar {
     tray_asks: Option<async_channel::Sender<sni::Ask>>,
     media: Option<mpris::Playing>,
     media_asks: Option<async_channel::Sender<mpris::Ask>>,
+    /// Notifications: what is kept of them, whether this is their server now,
+    /// and where what is done with them goes back to their apps.
+    notes: notes::Store,
+    serving: bool,
+    notes_asks: Option<async_channel::Sender<notify::Ask>>,
     /// The panel open now, or closing.
     popup: Option<popup::Popup>,
     /// The screen whose bar has a tooltip to show, and so a strip for it.
@@ -180,6 +186,9 @@ impl Bar {
             tray_asks: None,
             media: None,
             media_asks: None,
+            notes: notes::Store::open(notes::Store::path()),
+            serving: false,
+            notes_asks: None,
             popup: None,
             tip: None,
             tip_watched: false,
@@ -205,6 +214,8 @@ impl Bar {
         pw::listen(move |sound| sender.send(Message::Sound(sound)).is_ok());
         let sender = ui.sender();
         bar.tray_asks = Some(sni::listen(move |said| sender.send(Message::Tray(said)).is_ok()));
+        let sender = ui.sender();
+        bar.notes_asks = Some(notify::listen(move |said| sender.send(Message::Notes(said)).is_ok()));
         let sender = ui.sender();
         bar.media_asks = Some(mpris::listen(move |playing| {
             sender.send(Message::Media(playing)).is_ok()
@@ -516,6 +527,54 @@ impl Bar {
                 app.ui.refresh_surfaces();
                 TimeoutAction::Drop
             });
+    }
+
+    /// What an app said of its notifications: one more, by the rules and the
+    /// quiet times a toast, the history alone or nothing; one closed by it.
+    fn notified(&mut self, ui: &mut Ui<Self>, said: notify::Said) {
+        let settings = &self.config.notifications;
+        match said {
+            notify::Said::Notify(notification) => {
+                let notification = *notification;
+                let now = clock::now().format("%H:%M").to_string();
+                let quiet = self.notes.quiet
+                    || notes::within(&now, &settings.quiet_from, &settings.quiet_until)
+                    || (settings.quiet_sharing && self.niri.casts > 0);
+                let (fate, command) = notes::fate(&notification, &settings.rules, quiet);
+                if let Some((program, args)) = command.as_deref().and_then(<[String]>::split_first) {
+                    run_with(
+                        program,
+                        args,
+                        &[
+                            ("YOKOSO_SUMMARY", &notification.summary),
+                            ("YOKOSO_BODY", &notification.body),
+                        ],
+                    );
+                }
+                tracing::debug!(id = notification.id, app = notification.app, ?fate, "notification");
+                match fate {
+                    notes::Fate::Gone => self.tell(notify::Ask::Closed(notification.id, notify::Reason::Dismissed)),
+                    notes::Fate::Quiet | notes::Fate::Toast => {
+                        let most = settings.history;
+                        self.notes.add(notification, most);
+                    }
+                }
+            }
+            notify::Said::Close(id) => {
+                if self.notes.remove(id).is_some() {
+                    self.tell(notify::Ask::Closed(id, notify::Reason::Asked));
+                }
+            }
+            notify::Said::Serving(serving) => self.serving = serving,
+        }
+        self.changed(ui);
+    }
+
+    /// Tells an app what became of its notification.
+    fn tell(&self, ask: notify::Ask) {
+        if let Some(asks) = &self.notes_asks {
+            let _ = asks.try_send(ask);
+        }
     }
 
     /// The part whose panel is open now, by its key.
@@ -882,9 +941,12 @@ impl Bar {
 
 /// Starts `program` on its own: the bar never waits on it, and it is
 /// reaped when it ends.
-fn run(program: &str, args: &[String]) {
+/// Runs `program` with `args` and `env` added to its environment, not
+/// waiting on it.
+fn run_with(program: &str, args: &[String], env: &[(&str, &str)]) {
     match std::process::Command::new(program)
         .args(args)
+        .envs(env.iter().copied())
         .stdin(std::process::Stdio::null())
         .spawn()
     {
@@ -895,6 +957,10 @@ fn run(program: &str, args: &[String]) {
         }
         Err(error) => tracing::warn!(%error, program, "could not run"),
     }
+}
+
+fn run(program: &str, args: &[String]) {
+    run_with(program, args, &[]);
 }
 
 /// Timers fire this long after the change, never just before it.
@@ -931,9 +997,11 @@ impl Shell for Bar {
             Message::Sound(_) => "sound",
             Message::Tray(_) => "tray",
             Message::Media(_) => "media",
+            Message::Notes(_) => "notifications",
         };
         match message {
-            Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Config(loaded) => self.apply(ui, *loaded),
+            Message::Notes(said) => self.notified(ui, said),
             Message::Media(playing) => {
                 if playing != self.media {
                     self.media = playing;
@@ -1308,6 +1376,45 @@ impl crate::ipc::Answer for Bar {
                 ui.refresh_surfaces();
                 Ok(json!(!self.hidden))
             }
+            Some("notifications") => {
+                match words.get(1).map(String::as_str) {
+                    Some("quiet") => {
+                        let quiet = match words.get(2).map(String::as_str) {
+                            Some("on") => true,
+                            Some("off") => false,
+                            Some("toggle") | None => !self.notes.quiet,
+                            Some(other) => return Err(format!("on, off or toggle, not {other}")),
+                        };
+                        self.notes.set_quiet(quiet);
+                    }
+                    // What a click on a button or a typed reply does, by hand.
+                    Some("invoke") => {
+                        let id = words
+                            .get(2)
+                            .and_then(|id| id.parse().ok())
+                            .ok_or("invoke <id> [action]")?;
+                        let key = words.get(3).cloned().unwrap_or_else(|| "default".into());
+                        self.tell(notify::Ask::Invoke(id, key, None));
+                    }
+                    Some("reply") => {
+                        let id = words.get(2).and_then(|id| id.parse().ok()).ok_or("reply <id> <text>")?;
+                        self.tell(notify::Ask::Reply(id, words[3..].join(" ")));
+                    }
+                    Some("clear") => {
+                        for id in self.notes.clear(words.get(2).map(String::as_str)) {
+                            self.tell(notify::Ask::Closed(id, notify::Reason::Dismissed));
+                        }
+                    }
+                    Some(other) => {
+                        return Err(format!(
+                            "quiet [on|off|toggle], clear [app], invoke <id> [action] or reply <id> <text>, not {other}"
+                        ));
+                    }
+                    None => {}
+                }
+                self.changed(ui);
+                Ok(json!({ "quiet": self.notes.quiet, "count": self.notes.list.len() }))
+            }
             Some("stats") => {
                 let stats = ui.stats();
                 Ok(json!({
@@ -1326,6 +1433,17 @@ impl crate::ipc::Answer for Bar {
                 "using": self.using.iter().map(|used| format!("{used:?}")).collect::<Vec<_>>(),
                 "media": self.media.as_ref().map(|p| json!({ "title": p.title, "playing": p.playing })),
                 "redrawn": self.redrawn,
+                "notifications": {
+                    "serving": self.serving,
+                    "quiet": self.notes.quiet,
+                    "unread": self.notes.unread,
+                    "list": self.notes.list.iter().map(|n| json!({
+                        "id": n.id, "app": n.app, "summary": n.summary, "body": n.body,
+                        "urgency": n.urgency, "actions": n.actions, "reply": n.reply,
+                        "icon": n.icon.as_ref().map(|p| [p.width, p.height]),
+                        "image": n.image.as_ref().map(|p| [p.width, p.height]),
+                    })).collect::<Vec<_>>(),
+                },
                 "tips": self.surfaces.values().map(|s| s.tree.tooltips_shown()).sum::<usize>(),
                 "popup": self.popup.as_ref().map(|open| json!({
                     "open": open.panel.open,

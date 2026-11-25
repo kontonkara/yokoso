@@ -15,6 +15,7 @@ use yokoso_ui::Color;
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub bar: Bar,
+    pub notifications: Notifications,
     pub probe: Probe,
     pub debug: Debug,
 }
@@ -372,4 +373,84 @@ mod tests {
         let dir = dir_with("color", &[("config.toml", "[probe]\naccent = \"red\"\n")]);
         assert!(load(&dir).unwrap_err().contains("not a color"));
     }
+}
+
+/// Notifications: their toasts, their history, quiet times and rules.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Notifications {
+    /// How many toasts show at once; more wait their turn.
+    pub visible: usize,
+    /// Seconds a toast shows; a low one, a critical one (0: until closed).
+    pub timeout: f32,
+    pub timeout_low: f32,
+    pub timeout_critical: f32,
+    /// Critical ones over full-screen windows too.
+    pub over_fullscreen: bool,
+    /// How many the history keeps.
+    pub history: usize,
+    /// Quiet from and until, "23:00" and "08:00"; none for no such time.
+    #[serde(deserialize_with = "time_of_day")]
+    pub quiet_from: String,
+    #[serde(deserialize_with = "time_of_day")]
+    pub quiet_until: String,
+    /// Quiet while the screen is shared.
+    pub quiet_sharing: bool,
+    pub rules: Vec<Rule>,
+}
+
+impl Default for Notifications {
+    fn default() -> Self {
+        Self {
+            visible: 3,
+            timeout: 5.0,
+            timeout_low: 3.0,
+            timeout_critical: 0.0,
+            over_fullscreen: true,
+            history: 100,
+            quiet_from: String::new(),
+            quiet_until: String::new(),
+            quiet_sharing: false,
+            rules: Vec::new(),
+        }
+    }
+}
+
+/// What a rule does with the notifications it takes.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Act {
+    /// Gone, not kept.
+    Hide,
+    /// Kept, never a toast.
+    #[default]
+    Quiet,
+    /// A toast even while quiet.
+    Through,
+    /// Its command runs, and it goes on as any other.
+    Run,
+}
+
+/// A rule: notifications from an app, with some words in them, or both.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Rule {
+    /// The app's name or its desktop entry, any case.
+    pub app: String,
+    /// Words in its summary or body, any case.
+    pub text: String,
+    pub action: Act,
+    /// For `run`: a command, as words; the notification's summary and body
+    /// in YOKOSO_SUMMARY and YOKOSO_BODY.
+    pub run: Vec<String>,
+}
+
+fn time_of_day<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let time = String::deserialize(deserializer)?;
+    if !time.is_empty() && chrono::NaiveTime::parse_from_str(&time, "%H:%M").is_err() {
+        return Err(serde::de::Error::custom(format!(
+            "{time:?} is not a time of day, as \"23:00\""
+        )));
+    }
+    Ok(time)
 }

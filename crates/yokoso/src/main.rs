@@ -8,6 +8,8 @@ mod ipc;
 mod mpris;
 mod niri;
 mod nm;
+mod notes;
+mod notify;
 mod panel;
 mod probe;
 mod pw;
@@ -105,7 +107,7 @@ fn shell(window: bool) -> Result<(), String> {
         bar::Bar::start(&mut app.ui, &mut app.shell);
         let sender = app.ui.sender();
         config::watch(dir, move |loaded| {
-            let _ = sender.send(bar::Message::Config(loaded));
+            let _ = sender.send(bar::Message::Config(Box::new(loaded)));
         })?;
         Ok(())
     });
