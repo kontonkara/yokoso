@@ -10,11 +10,15 @@ use yokoso_ui::{
 
 use super::Msg;
 
-/// The panel's size.
-pub const WIDTH: f32 = 320.0;
-pub const HEIGHT: f32 = 336.0;
 const CELL: f32 = 36.0;
 const WEEK: f32 = 30.0;
+const NAMES: f32 = 24.0;
+const GAP: f32 = 2.0;
+const PAD: f32 = 12.0;
+/// The panel's size: just its grid, so the arrows above stand over its last
+/// two columns; the header, the day names, six weeks.
+pub const WIDTH: f32 = WEEK + 7.0 * CELL + 2.0 * PAD;
+pub const HEIGHT: f32 = CELL + NAMES + 6.0 * CELL + 7.0 * GAP + 2.0 * PAD;
 
 const MONTHS: [&str; 12] = [
     "January",
@@ -56,7 +60,9 @@ pub fn view(shown: (i32, u32), today: NaiveDate, theme: &Theme) -> El<Msg> {
     let (year, month) = shown;
     let faint = Ink::Own(theme.colors.on_surface.alpha(0.38));
     let arrow = |icon: &'static str, steps: f32| {
-        El::press(0.0, vec![El::icon(icon)], Some(Msg::CalendarStep(steps)))
+        // The icon in the middle of its cell, as the days below are.
+        let parts = vec![El::spacer(), El::icon(icon).key(("arrow", icon)), El::spacer()];
+        El::press(0.0, parts, Some(Msg::CalendarStep(steps)))
             .width(Size::Fixed(CELL))
             .height(Size::Fixed(CELL))
             .key(icon)
@@ -95,7 +101,7 @@ pub fn view(shown: (i32, u32), today: NaiveDate, theme: &Theme) -> El<Msg> {
         )
         .align(Align::Center)
         .width(Size::Fixed(width))
-        .height(Size::Fixed(24.0))
+        .height(Size::Fixed(NAMES))
     };
     let mut names = vec![cell(String::new(), faint, WEEK)];
     names.extend(
@@ -125,11 +131,12 @@ pub fn view(shown: (i32, u32), today: NaiveDate, theme: &Theme) -> El<Msg> {
                     .key(("day", day.num_days_from_ce())),
             );
         }
-        rows.push(El::row(0.0, row));
+        // The week's number in the middle of its row, as the days are.
+        rows.push(El::row(0.0, row).align(Align::Center));
     }
-    El::press(2.0, vec![El::column(2.0, rows)], None)
+    El::press(0.0, vec![El::column(GAP, rows)], None)
         .on_scroll(Msg::CalendarStep)
-        .padding(Edges::all(12.0))
+        .padding(Edges::all(PAD))
         .fill()
 }
 

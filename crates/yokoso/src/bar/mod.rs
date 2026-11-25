@@ -1129,7 +1129,21 @@ impl crate::ipc::Answer for Bar {
                     "shape": [open.panel.shape().x, open.panel.shape().y, open.panel.shape().w, open.panel.shape().h],
                     "to": [open.panel.content_rect().x, open.panel.content_rect().y, open.panel.content_rect().w, open.panel.content_rect().h],
                     "shows": match &open.shows {
-                        popup::Shows::Calendar { shown } => json!({ "calendar": [shown.0, shown.1] }),
+                        popup::Shows::Calendar { shown } => {
+                            // The arrows' icons, and the Saturday and Sunday of the first week below them.
+                            let tree = &open.panel.tree;
+                            let rect = |r: Option<yokoso_ui::geometry::Rect>| r.map(|r| [r.x, r.y, r.w, r.h]);
+                            let first = calendar::weeks(shown.0, shown.1)[0].1;
+                            let day = |d: chrono::NaiveDate| {
+                                use chrono::Datelike;
+                                rect(tree.rect_of(("day", d.num_days_from_ce())))
+                            };
+                            json!({
+                                "calendar": [shown.0, shown.1],
+                                "arrows": [rect(tree.rect_of(("arrow", "chevron-left"))), rect(tree.rect_of(("arrow", "chevron-right")))],
+                                "weekend": [day(first[5]), day(first[6])],
+                            })
+                        }
                         popup::Shows::Menu { entries, trail, .. } => json!({
                             "menu": entries.iter().map(|e| e.label.clone()).collect::<Vec<_>>(),
                             "depth": trail.len(),

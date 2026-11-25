@@ -16,6 +16,11 @@ click
 sleep 0.5
 [ "$(popup 'shows.calendar')" = "[$(date +%Y),$(date +%-m)]" ] || fail "the clock opened $(popup)"
 shot calendar
+# Its arrows stand over the last two columns, the weekend.
+mid() { popup "shows.$1" | jq -r ".[$2] | .[0] + .[2] / 2 | floor"; }
+for i in 0 1; do
+	[ "$(mid arrows "$i")" = "$(mid weekend "$i")" ] || fail "arrow $i at $(mid arrows "$i"), its column at $(mid weekend "$i")"
+done
 # The wheel on it: a month on, two back; its name back to today's.
 read -r px py <<EOT
 $(popup to | centre)
