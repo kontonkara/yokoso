@@ -17,11 +17,10 @@ move $(center 4)
 click
 [ "$(presses)" = 2 ] || fail "a disabled button counted a click"
 shot buttons
-# The keyboard: Tab shows the focus ring; past the pages list, Return presses
-# the first button.
-wtype -k Tab
-wtype -k Tab
-wtype -k Tab
+# The keyboard: Tab shows the focus ring; past the pages list, however long
+# it is, Return presses the first button.
+pages=$("$binary" msg dump | jq '[.nodes[] | select(.role == "Button" and .rect[0] < 200)] | length')
+for _ in $(seq $((pages + 1))); do wtype -k Tab; done
 wtype -k Return
 sleep 0.3
 [ "$(presses)" = 3 ] || fail "Return on the focused button did not count: $(presses)"
