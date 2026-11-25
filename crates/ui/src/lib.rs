@@ -3,6 +3,7 @@
 
 pub mod app;
 pub mod atlas;
+pub mod clipboard;
 pub mod el;
 pub mod geometry;
 pub mod gpu;

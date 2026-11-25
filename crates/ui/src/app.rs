@@ -313,6 +313,9 @@ impl<K> Surface<K> {
 pub struct Ui<S: Shell> {
     pub(crate) handle: LoopHandle<'static, App<S>>,
     pub(crate) qh: QueueHandle<App<S>>,
+    pub(crate) clipboard: crate::clipboard::Clipboard,
+    /// The last input event's serial: what lets us set the clipboard.
+    pub(crate) serial: u32,
     registry: RegistryState,
     output_state: OutputState,
     seat: SeatState,
@@ -755,6 +758,10 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         .map_err(|error| error.to_string())?;
     let ui = Ui {
         handle: event_loop.handle(),
+        clipboard: crate::clipboard::Clipboard::new(
+            smithay_client_toolkit::data_device_manager::DataDeviceManagerState::bind(&globals, &qh).ok(),
+        ),
+        serial: 0,
         registry: RegistryState::new(&globals),
         output_state: OutputState::new(&globals, &qh),
         seat: SeatState::new(&globals, &qh),
@@ -987,6 +994,7 @@ impl<S: Shell> SeatHandler for App<S> {
         if capability == Capability::Pointer && self.ui.pointer.is_none() {
             self.ui.pointer = self.ui.seat.get_pointer(qh, &seat).ok();
         }
+        self.ui.clipboard.seat(&seat, qh);
         if capability == Capability::Keyboard && self.ui.keyboard.is_none() {
             // Repeats at the compositor's rate and delay, timed on the loop.
             let repeat = Box::new(|app: &mut App<S>, _: &wl_keyboard::WlKeyboard, event: KeyEvent| {
@@ -1039,7 +1047,10 @@ impl<S: Shell> PointerHandler for App<S> {
                 PointerEventKind::Enter { .. } => Input::PointerEnter { x, y },
                 PointerEventKind::Leave { .. } => Input::PointerLeave,
                 PointerEventKind::Motion { .. } => Input::PointerMove { x, y },
-                PointerEventKind::Press { button, .. } => Input::Press { button, x, y },
+                PointerEventKind::Press { button, serial, .. } => {
+                    self.ui.serial = serial;
+                    Input::Press { button, x, y }
+                }
                 PointerEventKind::Release { button, .. } => Input::Release { button, x, y },
                 // A frame with neither motion nor fingers lifted carries nothing.
                 PointerEventKind::Axis {
@@ -1117,9 +1128,10 @@ impl<S: Shell> KeyboardHandler for App<S> {
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
-        _: u32,
+        serial: u32,
         event: KeyEvent,
     ) {
+        self.ui.serial = serial;
         self.key(event, KeyState::Pressed);
     }
 
