@@ -6,6 +6,7 @@ mod battery;
 pub mod clock;
 mod keyboard;
 mod network;
+mod sound;
 mod workspaces;
 
 use std::{cell::RefCell, collections::HashMap, time::Duration};
@@ -27,7 +28,7 @@ use yokoso_ui::{
 
 use crate::{
     config::{Config, Edge, Module},
-    niri, nm, upower,
+    niri, nm, pw, upower,
 };
 
 /// What the bar's services send it.
@@ -36,6 +37,7 @@ pub enum Message {
     Niri(niri::Event),
     Power(upower::Power),
     Net(nm::Net),
+    Sound(pw::Sound),
 }
 
 /// What its parts send when used.
@@ -49,6 +51,9 @@ pub enum Msg {
     LayoutStep(f32),
     /// What the config says a part opens on a click.
     Open(Module),
+    /// The volume by wheel steps, up louder; muted or heard again.
+    Volume(f32),
+    Mute,
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -84,6 +89,7 @@ pub struct Bar {
     niri: niri::State,
     power: upower::Power,
     net: nm::Net,
+    sound: pw::Sound,
     /// Each screen's connector and logical width, as the surfaces were asked
     /// for: what a bar there shows depends on it.
     screens: RefCell<HashMap<OutputId, (String, f32)>>,
@@ -108,6 +114,7 @@ impl Bar {
             niri: niri::State::default(),
             power: upower::Power::default(),
             net: nm::Net::default(),
+            sound: pw::Sound::default(),
             screens: RefCell::default(),
         }
     }
@@ -121,6 +128,8 @@ impl Bar {
         upower::listen(move |power| sender.send(Message::Power(power)).is_ok());
         let sender = ui.sender();
         nm::listen(move |net| sender.send(Message::Net(net)).is_ok());
+        let sender = ui.sender();
+        pw::listen(move |sound| sender.send(Message::Sound(sound)).is_ok());
         let first = clock::next_change(&clock::now(), &bar.config.bar.clock);
         let _ = ui
             .handle()
@@ -249,6 +258,11 @@ impl Bar {
             Msg::Workspace(_) | Msg::Window(_) | Msg::WorkspaceStep(_) => workspaces::act(msg),
             Msg::LayoutStep(steps) => keyboard::act(*steps),
             Msg::Open(module) => self.open(*module),
+            Msg::Volume(steps) => {
+                let sound = &self.config.bar.sound;
+                pw::change_volume(steps * sound.step, sound.max);
+            }
+            Msg::Mute => pw::toggle_mute(),
         }
     }
 
@@ -275,6 +289,7 @@ impl Bar {
             }
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
+            Module::Sound => Some(sound::view(&self.sound, &self.theme, pad, self.opens(module))),
             Module::Network => Some(network::view(
                 &self.net,
                 &self.config.bar.network.vpn,
@@ -369,6 +384,12 @@ impl Shell for Bar {
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Sound(sound) => {
+                if sound != self.sound {
+                    self.sound = sound;
+                    self.changed(ui);
+                }
+            }
             Message::Net(net) => {
                 if net != self.net {
                     self.net = net;
@@ -565,6 +586,14 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "sound": match &self.sound {
+                    pw::Sound::Out(out) => json!({
+                        "name": out.name,
+                        "volume": (f64::from(out.volume) * 100.0).round() / 100.0,
+                        "muted": out.muted,
+                    }),
+                    other => json!(format!("{other:?}")),
+                },
                 "network": match &self.net {
                     nm::Net::Up(network) => json!({
                         "name": network.name,
@@ -589,6 +618,7 @@ impl crate::ipc::Answer for Bar {
                     "layout": surface.tree.rect_of("layout").map(|r| [r.x, r.y, r.w, r.h]),
                     "battery": surface.tree.rect_of("battery").map(|r| [r.x, r.y, r.w, r.h]),
                     "network": surface.tree.rect_of("network").map(|r| [r.x, r.y, r.w, r.h]),
+                    "sound": surface.tree.rect_of("sound").map(|r| [r.x, r.y, r.w, r.h]),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()
                         .map(|ws| json!({

@@ -125,6 +125,9 @@ pub struct Sound {
     pub on_click: Vec<String>,
     /// Percent the wheel moves the volume by, a notch.
     pub step: f32,
+    /// How loud the wheel goes, percent: past 100 is louder than the
+    /// output is made to be.
+    pub max: f32,
 }
 
 impl Default for Sound {
@@ -132,6 +135,7 @@ impl Default for Sound {
         Self {
             on_click: Vec::new(),
             step: 5.0,
+            max: 100.0,
         }
     }
 }
