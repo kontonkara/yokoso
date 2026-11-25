@@ -17,6 +17,9 @@ use yokoso_ui::{
 const REVEAL: f32 = 0.45;
 /// Closing, the shape fades once this little of the way is left.
 const FADE: f32 = 0.15;
+/// Turned back while closing with less of its content showing than this,
+/// the content comes in anew.
+const AGAIN: f32 = 0.5;
 
 pub struct Panel<M> {
     pub open: bool,
@@ -58,7 +61,13 @@ impl<M: Clone> Panel<M> {
         self.open = !self.open;
         self.from = button;
         self.to = to;
-        if self.open && !self.shape.is_moving() && self.shape.value == 0.0 {
+        let from_rest = !self.shape.is_moving() && self.shape.value == 0.0;
+        if self.open && !from_rest && self.content.value < AGAIN {
+            // Turned back while closing, its content mostly gone: it comes in
+            // anew, as from rest, where the shape is now.
+            self.tree = Tree::default();
+        }
+        if self.open && from_rest {
             // From rest, closed: it starts as the button, and its content comes
             // in anew, one after another.
             self.tree = Tree::default();
@@ -191,5 +200,60 @@ impl<M: Clone> Panel<M> {
         self.tree.paint(frame, theme);
         frame.clip(None);
         frame.alpha(1.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yokoso_ui::el::TileEl;
+
+    fn content() -> El<()> {
+        El::column(
+            0.0,
+            vec![El::tile(TileEl {
+                icon: "bell",
+                title: "t".into(),
+                subtitle: String::new(),
+                on: false,
+                pending: false,
+                on_press: Some(()),
+                on_more: None,
+            })],
+        )
+        .stagger()
+    }
+
+    /// Laid out as the shell does after a toggle: its content set anew.
+    fn lay(panel: &mut Panel<()>) {
+        panel.set(content());
+        panel
+            .tree
+            .layout_with(Rect::new(0.0, 0.0, 300.0, 200.0), &mut |_: &El<()>, _| (10.0, 10.0));
+    }
+
+    fn icon_size(panel: &Panel<()>) -> f32 {
+        let tile = panel.tree.nodes()[1].id;
+        panel.tree.state(tile).unwrap().pop.value
+    }
+
+    #[test]
+    fn turned_back_with_its_content_mostly_gone_it_comes_in_anew() {
+        let theme = Theme::default();
+        let (button, to) = (Rect::new(0.0, 0.0, 40.0, 40.0), Rect::new(0.0, 50.0, 300.0, 200.0));
+        let mut panel = Panel::<()>::default();
+        panel.toggle(button, to);
+        lay(&mut panel);
+        while panel.update(1.0 / 240.0, 0.0, &theme) {}
+        assert_eq!(icon_size(&panel), 1.0);
+        // Closing, until little of the content shows; then open again.
+        panel.toggle(button, to);
+        while panel.content.value >= AGAIN {
+            panel.update(1.0 / 240.0, 0.0, &theme);
+        }
+        assert!(panel.visible(), "still closing");
+        panel.toggle(button, to);
+        lay(&mut panel);
+        assert!(icon_size(&panel) < 1.0, "its icons pop in again");
     }
 }
