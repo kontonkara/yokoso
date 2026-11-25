@@ -38,11 +38,11 @@ export __EGL_VENDOR_LIBRARY_FILENAMES=/run/opengl-driver/share/glvnd/egl_vendor.
 
 stop() {
 	trap - EXIT INT TERM
-	for pid in ${others:-} ${shell_pid:-} ${niri_pid:-} ${sway_pid:-}; do
+	for pid in ${others:-} ${shell_pid:-} ${niri_pid:-} ${sway_pid:-} ${bus_pid:-}; do
 		kill "$pid" 2>/dev/null || true
 	done
 	sleep 0.3
-	for pid in ${others:-} ${shell_pid:-} ${niri_pid:-} ${sway_pid:-}; do
+	for pid in ${others:-} ${shell_pid:-} ${niri_pid:-} ${sway_pid:-} ${bus_pid:-}; do
 		kill -9 "$pid" 2>/dev/null || true
 		wait "$pid" 2>/dev/null || true
 	done
@@ -50,6 +50,29 @@ stop() {
 }
 trap stop EXIT
 trap 'exit 1' INT TERM
+
+# A session bus of its own: the tray and the players on it are the stand's,
+# never the desktop's.
+# Nothing on it starts by itself: it knows no services to activate.
+cat >"$work/bus.conf" <<EOT
+<busconfig>
+  <type>session</type>
+  <listen>unix:path=$XDG_RUNTIME_DIR/bus</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+EOT
+dbus-daemon --config-file="$work/bus.conf" --nofork --nopidfile >"$work/bus.log" 2>&1 &
+bus_pid=$!
+export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+for _ in $(seq 50); do
+	[ -S "$XDG_RUNTIME_DIR/bus" ] && break
+	sleep 0.05
+done
 
 printf 'xwayland disable\noutput * resolution 1400x900\ndefault_border none\n' >"$work/sway.conf"
 sway --unsupported-gpu -c "$work/sway.conf" >"$work/sway.log" 2>&1 &
