@@ -588,6 +588,8 @@ fn paint_list<M>(
     theme: &Theme,
 ) {
     let colors = &theme.colors;
+    // Its highlights and bar stay inside it, as its rows do.
+    let outer = frame.clip_within(rect);
     let radius = theme.sizes.radius_inner * 2.0;
     let row_rect = |row: usize| {
         Rect::new(
@@ -620,6 +622,7 @@ fn paint_list<M>(
         let y = rect.y + (rect.h - paragraph.height()) / 2.0;
         frame.text(paragraph, x, y, colors.on_surface_variant);
     }
+    frame.clip(outer);
     if focused {
         ring(frame, rect, radius, state, theme);
     }
@@ -658,7 +661,7 @@ fn paint_rolling(t: &TextEl, rect: Rect, state: &State, paragraphs: &[Paragraph]
     let roll = state.roll.value.clamp(0.0, 1.2);
     let line = paragraphs[0].height();
     let y = rect.y + ((rect.h - line) / 2.0).max(0.0);
-    frame.clip(Some(Rect::new(rect.x, y, rect.w.max(paragraphs[0].width()), line)));
+    let outer = frame.clip_within(Rect::new(rect.x, y, rect.w.max(paragraphs[0].width()), line));
     let old_text = state.was.as_deref().unwrap_or_default();
     let count = t.text.chars().count();
     if paragraphs.len() == 1 + 2 * count {
@@ -682,6 +685,7 @@ fn paint_rolling(t: &TextEl, rect: Rect, state: &State, paragraphs: &[Paragraph]
         );
         frame.text(now, rect.x, y + (1.0 - roll) * line, color);
     }
+    frame.clip(outer);
 }
 
 /// The focus ring: outside the element, as far as its spring has come.

@@ -143,7 +143,7 @@ pub fn paint_popup<M>(
     let radius = theme.sizes.radius;
     frame.shadow(shown, radius, 12.0, colors.shadow.alpha(0.4 * open));
     frame.fill(shown, radius, colors.surface_container_high.alpha(open));
-    frame.clip(Some(shown));
+    let outer = frame.clip_within(shown);
     let height = item_height(theme);
     for (at, paragraph) in paragraphs.iter().skip(1).enumerate() {
         let item = Rect::new(
@@ -174,5 +174,5 @@ pub fn paint_popup<M>(
             frame.icon("check", check, colors.on_secondary_container.alpha(open));
         }
     }
-    frame.clip(None);
+    frame.clip(outer);
 }

@@ -172,6 +172,8 @@ pub struct Frame<'a> {
     /// Added to everything painted, logical pixels: what comes in sliding.
     offset: (f32, f32),
     alpha: f32,
+    /// What painting is kept inside now, logical pixels.
+    clipped: Option<Rect>,
 }
 
 impl Frame<'_> {
@@ -240,8 +242,22 @@ impl Frame<'_> {
 
     /// What is painted from here on shows only in `rect`, or everywhere.
     pub fn clip(&mut self, rect: Option<Rect>) {
+        self.clipped = rect;
         let rect = rect.map(|rect| self.snap(rect));
         self.painter.clip(rect);
+    }
+
+    /// What painting is kept inside now.
+    pub fn current_clip(&self) -> Option<Rect> {
+        self.clipped
+    }
+
+    /// Painting kept inside `rect` as well as what it is kept inside now.
+    /// What it was before, to put back with `clip`.
+    pub fn clip_within(&mut self, rect: Rect) -> Option<Rect> {
+        let before = self.clipped;
+        self.clip(Some(before.map_or(rect, |outer| outer.intersect(&rect))));
+        before
     }
 }
 
@@ -688,6 +704,7 @@ impl<S: Shell> Ui<S> {
             view,
             offset: (0.0, 0.0),
             alpha: 1.0,
+            clipped: None,
         };
         shell.render(key, &mut frame);
         self.painter.flush(&self.gpu.gl, width, height, region);

@@ -127,7 +127,7 @@ pub fn paint<M>(
         0.0
     };
     let inside = Rect::new(rect.x + PAD, rect.y, (rect.w - 2.0 * PAD - caps_room).max(0.0), rect.h);
-    frame.clip(Some(inside));
+    let outer = frame.clip_within(inside);
     let y = rect.y + (rect.h - text.height()) / 2.0;
     let x = text_x(rect, state.scroll_x);
     if field.text.is_empty() {
@@ -156,7 +156,7 @@ pub fn paint<M>(
         let height = text.height().max(placeholder.height());
         frame.fill(Rect::new(x + caret.x - 1.0, y, 2.0, height), 1.0, colors.primary);
     }
-    frame.clip(None);
+    frame.clip(outer);
     if caps_room > 0.0 {
         let x = rect.right() - PAD - caps_word.width();
         let y = rect.y + (rect.h - caps_word.height()) / 2.0;

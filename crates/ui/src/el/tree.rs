@@ -817,7 +817,10 @@ impl<M: Clone> Tree<M> {
         let Some(el) = &self.el else { return };
         let mut all = Vec::new();
         walk(el, ROOT, None, &mut all);
-        let mut clip = None;
+        // What the tree is painted inside already, as a panel's shape: every
+        // element's own clip is kept inside it too.
+        let outer = frame.current_clip();
+        let mut clip = outer;
         let mut popups = Vec::new();
         // How far each element has come in: its own way, times its parent's.
         let base_alpha = frame.current_alpha();
@@ -836,8 +839,12 @@ impl<M: Clone> Tree<M> {
                 frame.alpha(base_alpha);
                 frame.set_offset(base_offset.0, base_offset.1);
             }
-            if node.clip != clip {
-                clip = node.clip;
+            let want = match (outer, node.clip) {
+                (Some(outer), Some(own)) => Some(outer.intersect(&own)),
+                (outer, own) => outer.or(own),
+            };
+            if want != clip {
+                clip = want;
                 frame.clip(clip);
             }
             kinds::paint(el, node.rect, state, laid, focused, frame, theme);
@@ -850,7 +857,7 @@ impl<M: Clone> Tree<M> {
                 popups.push((menu, node.rect, state, laid));
             }
         }
-        frame.clip(None);
+        frame.clip(outer);
         frame.alpha(base_alpha);
         frame.set_offset(base_offset.0, base_offset.1);
         // Open menus over everything but tooltips.
@@ -858,7 +865,7 @@ impl<M: Clone> Tree<M> {
         for (menu, rect, state, laid) in popups {
             super::menu::paint_popup(menu, rect, bounds, state, laid, frame, theme);
         }
-        frame.clip(None);
+        frame.clip(outer);
         // Tooltips last, over everything.
         let view = frame.view();
         let bounds = Rect::new(0.0, 0.0, view.width, view.height);
