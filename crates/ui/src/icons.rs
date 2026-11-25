@@ -50,6 +50,7 @@ const SET: &[(&str, &str)] = &[
         "battery",
         r#"<rect x="2.5" y="7" width="16.5" height="10" rx="2.5"/><path d="M21.5 10.5v3"/>"#,
     ),
+    ("bolt", r#"<path d="M13.5 3L6 13h5.5l-1 8L18 11h-5.5z"/>"#),
 ];
 
 /// The names of every icon there is.
