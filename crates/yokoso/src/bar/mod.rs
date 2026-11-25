@@ -3,9 +3,11 @@
 //! changes the frame it hears of a change; at rest it draws nothing.
 
 mod battery;
+mod calendar;
 pub mod clock;
 mod keyboard;
 mod network;
+mod popup;
 mod sound;
 mod tray;
 mod workspaces;
@@ -61,6 +63,14 @@ pub enum Msg {
     TraySecondary(String),
     TrayMenu(String),
     TrayScroll(String, f32),
+    /// The clock: its calendar; a month on (more) or back; today.
+    Calendar,
+    CalendarStep(f32),
+    CalendarToday,
+    /// In a tray menu: a row chosen, a row that opens more, the way back.
+    MenuPick(i32),
+    MenuOpen(i32),
+    MenuBack,
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -68,6 +78,8 @@ pub enum Msg {
 pub enum Place {
     Screen(OutputId),
     Window,
+    /// What opens from the bar on a screen: over all of it.
+    Popup(OutputId),
 }
 
 /// Each bar's elements, and the description they were last built from.
@@ -100,9 +112,13 @@ pub struct Bar {
     tray: Vec<sni::Item>,
     /// Where what the tray is asked goes.
     tray_asks: Option<async_channel::Sender<sni::Ask>>,
+    /// The panel open now, or closing.
+    popup: Option<popup::Popup>,
+    /// A tray menu asked for, on this screen: it opens as it comes.
+    menu_asked: Option<(OutputId, String)>,
     /// Each screen's connector and logical width, as the surfaces were asked
     /// for: what a bar there shows depends on it.
-    screens: RefCell<HashMap<OutputId, (String, f32)>>,
+    screens: RefCell<HashMap<OutputId, (String, f32, f32)>>,
 }
 
 /// The window's size, to try the bar beside the session.
@@ -127,6 +143,8 @@ impl Bar {
             sound: pw::Sound::default(),
             tray: Vec::new(),
             tray_asks: None,
+            popup: None,
+            menu_asked: None,
             screens: RefCell::default(),
         }
     }
@@ -201,7 +219,7 @@ impl Bar {
     /// a window's edges as it would float on a screen.
     fn rect(&self, place: Place, view: &View) -> Rect {
         match place {
-            Place::Screen(_) => Rect::new(0.0, 0.0, view.width, view.height),
+            Place::Screen(_) | Place::Popup(_) => Rect::new(0.0, 0.0, view.width, view.height),
             Place::Window => {
                 let margin = self.config.bar.margin;
                 Rect::new(margin, margin, view.width - 2.0 * margin, self.config.bar.height)
@@ -213,7 +231,9 @@ impl Bar {
     /// width: a window's, the one with the focused workspace.
     fn screen(&self, place: Place) -> Option<(String, f32)> {
         match place {
-            Place::Screen(id) => self.screens.borrow().get(&id).cloned(),
+            Place::Screen(id) | Place::Popup(id) => {
+                self.screens.borrow().get(&id).map(|(name, w, _)| (name.clone(), *w))
+            }
             Place::Window => {
                 let output = self
                     .niri
@@ -225,8 +245,8 @@ impl Bar {
                     .screens
                     .borrow()
                     .values()
-                    .find(|(name, _)| *name == output)
-                    .map_or(1920.0, |(_, width)| *width);
+                    .find(|(name, _, _)| *name == output)
+                    .map_or(1920.0, |(_, width, _)| *width);
                 Some((output, width))
             }
         }
@@ -273,8 +293,361 @@ impl Bar {
         }
     }
 
-    /// Does what a part asks.
-    fn act(&mut self, msg: &Msg) {
+    /// Where the bar on `output` is, on the screen: its own rect.
+    fn bar_on_screen(&self, output: OutputId) -> Option<Rect> {
+        let (_, width, height) = self.screens.borrow().get(&output).cloned()?;
+        let bar = &self.config.bar;
+        let y = match bar.position {
+            Edge::Top => bar.margin,
+            Edge::Bottom => height - bar.margin - bar.height,
+        };
+        Some(Rect::new(bar.margin, y, width - 2.0 * bar.margin, bar.height))
+    }
+
+    /// Where the part `key` of the bar on `output` is, on the screen.
+    fn part_on_screen(&self, output: OutputId, key: &str) -> Option<Rect> {
+        let bar = self.bar_on_screen(output)?;
+        let tree = &self.surfaces.get(&Place::Screen(output))?.tree;
+        let rect = match key.strip_prefix("tray:") {
+            Some(address) => tree.rect_of(("tray", address)),
+            None => tree.rect_of(key),
+        }?;
+        Some(Rect::new(bar.x + rect.x, bar.y + rect.y, rect.w, rect.h))
+    }
+
+    /// The size of what `shows`.
+    fn panel_size(shows: &popup::Shows) -> (f32, f32) {
+        match shows {
+            popup::Shows::Calendar { .. } => (calendar::WIDTH, calendar::HEIGHT),
+            popup::Shows::Menu { entries, trail, .. } => popup::menu_size(entries, !trail.is_empty()),
+        }
+    }
+
+    /// Opens a panel showing `shows` on `output`, grown from its part: in
+    /// place of another open one; the same one again closes it.
+    fn show(&mut self, ui: &mut Ui<Self>, output: OutputId, shows: popup::Shows) {
+        let Some(button) = self.part_on_screen(output, &shows.part()) else {
+            return;
+        };
+        let (Some(bar), Some((_, width, height))) =
+            (self.bar_on_screen(output), self.screens.borrow().get(&output).cloned())
+        else {
+            return;
+        };
+        let top = self.config.bar.position == Edge::Top;
+        let to = popup::place(
+            button,
+            Self::panel_size(&shows),
+            (width, height),
+            bar,
+            top,
+            self.config.bar.margin,
+        );
+        match &mut self.popup {
+            Some(open)
+                if open.output == output && open.panel.open && open.shows.same(&shows) && open.shows == shows =>
+            {
+                self.close(ui);
+                return;
+            }
+            Some(open) if open.output == output => {
+                // The same panel showing something else stays where it is;
+                // another one goes over to its own part.
+                if !open.shows.same(&shows) || !open.panel.open {
+                    open.panel.retarget(button, to);
+                } else {
+                    open.panel.retarget(open.button, to);
+                }
+                open.button = button;
+                open.shows = shows;
+                open.stale = true;
+            }
+            _ => {
+                let mut panel = crate::panel::Panel::default();
+                panel.toggle(button, to);
+                self.popup = Some(popup::Popup {
+                    output,
+                    shows,
+                    panel,
+                    button,
+                    stale: true,
+                    pointer: None,
+                    on_bar: false,
+                });
+                ui.refresh_surfaces();
+            }
+        }
+        ui.dirty(Place::Popup(output));
+        self.changed(ui);
+    }
+
+    /// Closes the open panel back into its part; its layer goes once it has.
+    fn close(&mut self, ui: &mut Ui<Self>) {
+        let Some(open) = &mut self.popup else { return };
+        if open.panel.open {
+            let to = open.panel.content_rect();
+            open.panel.toggle(open.button, to);
+        }
+        let place = Place::Popup(open.output);
+        self.generation += 1;
+        ui.dirty_all();
+        ui.dirty(place);
+        let _ = ui.handle().insert_source(
+            Timer::from_duration(Duration::from_millis(50)),
+            move |_, _, app| match &app.shell.popup {
+                Some(open) if !open.panel.open && open.panel.visible() => {
+                    TimeoutAction::ToDuration(Duration::from_millis(50))
+                }
+                Some(open) if !open.panel.open => {
+                    app.shell.popup = None;
+                    app.ui.refresh_surfaces();
+                    TimeoutAction::Drop
+                }
+                _ => TimeoutAction::Drop,
+            },
+        );
+    }
+
+    /// The part whose panel is open now, by its key.
+    fn open_part(&self) -> Option<String> {
+        self.popup
+            .as_ref()
+            .filter(|open| open.panel.open)
+            .map(|open| open.shows.part())
+    }
+
+    /// The month the calendar shows now, else today's.
+    fn calendar_month(&self) -> (i32, u32) {
+        use chrono::Datelike;
+        match &self.popup {
+            Some(popup::Popup {
+                shows: popup::Shows::Calendar { shown },
+                ..
+            }) => *shown,
+            _ => {
+                let today = clock::now().date_naive();
+                (today.year(), today.month())
+            }
+        }
+    }
+
+    /// Does what a part asks, on `place`.
+    fn act(&mut self, ui: &mut Ui<Self>, place: Place, msg: &Msg) {
+        let output = match place {
+            Place::Screen(id) | Place::Popup(id) => Some(id),
+            Place::Window => None,
+        };
+        match msg {
+            Msg::Calendar => {
+                use chrono::Datelike;
+                let today = clock::now().date_naive();
+                if let Some(output) = output {
+                    let shown = (today.year(), today.month());
+                    let showing = self
+                        .popup
+                        .as_ref()
+                        .is_some_and(|open| open.panel.open && matches!(open.shows, popup::Shows::Calendar { .. }));
+                    if showing {
+                        self.close(ui);
+                    } else {
+                        self.show(ui, output, popup::Shows::Calendar { shown });
+                    }
+                }
+            }
+            Msg::CalendarStep(steps) => {
+                let (year, month) = self.calendar_month();
+                // Up the wheel, back in time.
+                let shown = calendar::step(year, month, -(steps.signum() as i32));
+                if let Some(open) = &mut self.popup {
+                    open.shows = popup::Shows::Calendar { shown };
+                    open.stale = true;
+                    ui.dirty(Place::Popup(open.output));
+                }
+            }
+            Msg::CalendarToday => {
+                use chrono::Datelike;
+                let today = clock::now().date_naive();
+                if let Some(open) = &mut self.popup {
+                    open.shows = popup::Shows::Calendar {
+                        shown: (today.year(), today.month()),
+                    };
+                    open.stale = true;
+                    ui.dirty(Place::Popup(open.output));
+                }
+            }
+            Msg::TrayMenu(address) => {
+                if let Some(output) = output {
+                    let showing = self.popup.as_ref().is_some_and(|open| {
+                        open.panel.open && matches!(&open.shows, popup::Shows::Menu { address: a, .. } if a == address)
+                    });
+                    if showing {
+                        self.close(ui);
+                    } else {
+                        self.menu_asked = Some((output, address.clone()));
+                        self.ask_tray(sni::Ask::Menu(address.clone(), 0));
+                    }
+                }
+            }
+            Msg::MenuOpen(id) => {
+                if let Some(popup::Popup {
+                    output,
+                    shows: popup::Shows::Menu {
+                        address, parent, trail, ..
+                    },
+                    ..
+                }) = &mut self.popup
+                {
+                    trail.push(*parent);
+                    self.menu_asked = Some((*output, address.clone()));
+                    let ask = sni::Ask::Menu(address.clone(), *id);
+                    self.ask_tray(ask);
+                }
+            }
+            Msg::MenuBack => {
+                if let Some(popup::Popup {
+                    output,
+                    shows: popup::Shows::Menu { address, trail, .. },
+                    ..
+                }) = &mut self.popup
+                    && let Some(back) = trail.pop()
+                {
+                    self.menu_asked = Some((*output, address.clone()));
+                    let ask = sni::Ask::Menu(address.clone(), back);
+                    self.ask_tray(ask);
+                }
+            }
+            Msg::MenuPick(id) => {
+                if let Some(popup::Popup {
+                    shows: popup::Shows::Menu { address, .. },
+                    ..
+                }) = &self.popup
+                {
+                    let ask = sni::Ask::Pick(address.clone(), *id);
+                    self.ask_tray(ask);
+                }
+                self.close(ui);
+            }
+            _ => self.act_plain(msg),
+        }
+    }
+
+    /// Input on an open panel's layer: over the bar it is the bar's, over
+    /// the panel the panel's; a press anywhere else closes it. Keys are the
+    /// panel's, and Escape goes back a level, then closes.
+    fn popup_input(&mut self, ui: &mut Ui<Self>, output: OutputId, input: &Input) {
+        let layer = Place::Popup(output);
+        let beneath = Place::Screen(output);
+        let Some(bar) = self.bar_on_screen(output) else { return };
+        let Some(open) = &mut self.popup else { return };
+        if let Some(at) = popup::at(input) {
+            open.pointer = Some(at);
+        }
+        if matches!(input, Input::PointerLeave) {
+            open.pointer = None;
+        }
+        let at = open.pointer;
+        let over_bar = at.is_some_and(|(x, y)| bar.contains(x, y));
+        let over_panel = at.is_some_and(|(x, y)| open.panel.open && open.panel.shape().contains(x, y));
+        let mut messages = Vec::new();
+        if matches!(
+            input,
+            Input::Key(_) | Input::KeyboardEnter | Input::KeyboardLeave | Input::Paste(_)
+        ) {
+            let response = open.panel.tree.input(input);
+            if response.redraw {
+                ui.dirty(layer);
+            }
+            if response.escaped {
+                let deeper = matches!(&open.shows, popup::Shows::Menu { trail, .. } if !trail.is_empty());
+                if deeper {
+                    messages.push(Msg::MenuBack);
+                } else {
+                    self.close(ui);
+                    return;
+                }
+            }
+            messages.extend(response.messages);
+        } else if over_bar {
+            if !open.on_bar {
+                open.on_bar = true;
+                open.panel.tree.input(&Input::PointerLeave);
+                ui.dirty(layer);
+            }
+            let hovering = matches!(input, Input::PointerMove { .. } | Input::PointerEnter { .. });
+            if let Some(surface) = self.surfaces.get_mut(&beneath) {
+                let response = surface.tree.input(&popup::shifted(input, bar.x, bar.y));
+                if response.redraw {
+                    ui.dirty(beneath);
+                }
+                if let Some(wake) = response.wake {
+                    ui.wake_after(beneath, wake);
+                }
+                messages.extend(response.messages);
+            }
+            // With a panel open, the pointer on another part with one opens
+            // that one in its place.
+            if hovering
+                && self.config.bar.hover_switch
+                && let Some((x, y)) = at
+            {
+                messages.extend(self.switch_to(output, x, y));
+            }
+        } else {
+            if open.on_bar {
+                open.on_bar = false;
+                if let Some(surface) = self.surfaces.get_mut(&beneath) {
+                    surface.tree.input(&Input::PointerLeave);
+                    ui.dirty(beneath);
+                }
+            }
+            let Some(open) = &mut self.popup else { return };
+            if over_panel || !matches!(input, Input::Press { .. }) {
+                let response = open
+                    .panel
+                    .tree
+                    .input(if over_panel { input } else { &Input::PointerLeave });
+                if response.redraw {
+                    ui.dirty(layer);
+                }
+                if let Some(wake) = response.wake {
+                    ui.wake_after(layer, wake);
+                }
+                messages.extend(response.messages);
+            } else {
+                self.close(ui);
+                return;
+            }
+        }
+        for message in &messages {
+            self.act(ui, layer, message);
+        }
+    }
+
+    /// With a panel open, what the pointer at `x`, `y` on the bar opens in
+    /// its place, if it is on another part with a panel.
+    fn switch_to(&self, output: OutputId, x: f32, y: f32) -> Option<Msg> {
+        let open = self.popup.as_ref().filter(|open| open.panel.open)?;
+        if !matches!(open.shows, popup::Shows::Calendar { .. })
+            && self
+                .part_on_screen(output, "clock")
+                .is_some_and(|rect| rect.contains(x, y))
+        {
+            return Some(Msg::Calendar);
+        }
+        let item = self.tray.iter().find(|item| {
+            self.part_on_screen(output, &format!("tray:{}", item.address))
+                .is_some_and(|rect| rect.contains(x, y))
+        })?;
+        let showing = matches!(&open.shows, popup::Shows::Menu { address, .. } if *address == item.address);
+        let asked = self
+            .menu_asked
+            .as_ref()
+            .is_some_and(|(_, address)| *address == item.address);
+        (!showing && !asked && item.menu.is_some()).then(|| Msg::TrayMenu(item.address.clone()))
+    }
+
+    /// Does what a part asks that opens nothing of the bar's own.
+    fn act_plain(&mut self, msg: &Msg) {
         match msg {
             Msg::Workspace(_) | Msg::Window(_) | Msg::WorkspaceStep(_) => workspaces::act(msg),
             Msg::LayoutStep(steps) => keyboard::act(*steps),
@@ -287,7 +660,8 @@ impl Bar {
             Msg::TrayActivate(address) => self.ask_tray(sni::Ask::Activate(address.clone())),
             Msg::TraySecondary(address) => self.ask_tray(sni::Ask::Secondary(address.clone())),
             Msg::TrayScroll(address, steps) => self.ask_tray(sni::Ask::Scroll(address.clone(), steps.round() as i32)),
-            Msg::TrayMenu(address) => self.ask_tray(sni::Ask::Menu(address.clone(), 0)),
+            // Opening things of the bar its own goes through `act`.
+            _ => {}
         }
     }
 
@@ -306,7 +680,8 @@ impl Bar {
                     parts.push(El::text(date, Type::Body).weight(500.0));
                 }
                 Some(
-                    El::press(sizes.gap * 0.75, parts, None)
+                    El::press(sizes.gap * 0.75, parts, Some(Msg::Calendar))
+                        .selected(self.open_part().as_deref() == Some("clock"))
                         .key("clock")
                         .padding(pad)
                         .height(Size::Fill(1.0)),
@@ -314,7 +689,7 @@ impl Bar {
             }
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
-            Module::Tray => tray::view(&self.tray, self.theme.sizes.icon),
+            Module::Tray => tray::view(&self.tray, self.theme.sizes.icon, self.open_part().as_deref()),
             Module::Sound => Some(sound::view(&self.sound, &self.theme, pad, self.opens(module))),
             Module::Network => Some(network::view(
                 &self.net,
@@ -416,7 +791,36 @@ impl Shell for Bar {
                     self.changed(ui);
                 }
             }
-            Message::Tray(sni::Said::Menu { .. }) => {}
+            Message::Tray(sni::Said::Menu {
+                address,
+                parent,
+                entries,
+            }) => {
+                // As asked for: the menu opens, or goes a level on or back.
+                if let Some((output, asked)) = self.menu_asked.take()
+                    && asked == address
+                {
+                    let trail = match &self.popup {
+                        Some(popup::Popup {
+                            shows: popup::Shows::Menu { address: a, trail, .. },
+                            panel,
+                            ..
+                        }) if *a == address && panel.open => trail.clone(),
+                        _ => Vec::new(),
+                    };
+                    let trail = if parent == 0 { Vec::new() } else { trail };
+                    self.show(
+                        ui,
+                        output,
+                        popup::Shows::Menu {
+                            address,
+                            parent,
+                            entries,
+                            trail,
+                        },
+                    );
+                }
+            }
             Message::Sound(sound) => {
                 if sound != self.sound {
                     self.sound = sound;
@@ -446,7 +850,12 @@ impl Shell for Bar {
     fn surfaces(&self, outputs: &[Output]) -> Vec<(Place, Spec)> {
         *self.screens.borrow_mut() = outputs
             .iter()
-            .map(|output| (output.id, (output.name.clone(), output.size.0 as f32)))
+            .map(|output| {
+                (
+                    output.id,
+                    (output.name.clone(), output.size.0 as f32, output.size.1 as f32),
+                )
+            })
             .collect();
         let bar = &self.config.bar;
         if self.hidden {
@@ -465,7 +874,7 @@ impl Shell for Bar {
             Edge::Top => (Anchor::TOP, (margin, margin, 0, margin)),
             Edge::Bottom => (Anchor::BOTTOM, (0, margin, margin, margin)),
         };
-        chosen(outputs, &bar.screens)
+        let mut all: Vec<(Place, Spec)> = chosen(outputs, &bar.screens)
             .into_iter()
             .map(|output| {
                 let spec = LayerSpec {
@@ -480,10 +889,32 @@ impl Shell for Bar {
                 };
                 (Place::Screen(output.id), Spec::Layer(spec))
             })
-            .collect()
+            .collect();
+        // An open panel: over the whole screen, the bar too, and the keys
+        // its own while it is there.
+        if let Some(open) = &self.popup
+            && outputs.iter().any(|output| output.id == open.output)
+        {
+            let spec = LayerSpec {
+                output: open.output,
+                layer: Layer::Overlay,
+                anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::LEFT | Anchor::RIGHT,
+                size: (0, 0),
+                margin: (0, 0, 0, 0),
+                exclusive_zone: -1,
+                keyboard: KeyboardInteractivity::Exclusive,
+                namespace: "yokoso-panel".into(),
+            };
+            all.push((Place::Popup(open.output), Spec::Layer(spec)));
+        }
+        all
     }
 
     fn input(&mut self, ui: &mut Ui<Self>, key: Place, input: &Input) {
+        if let Place::Popup(output) = key {
+            self.popup_input(ui, output, input);
+            return;
+        }
         let Some(surface) = self.surfaces.get_mut(&key) else {
             return;
         };
@@ -495,11 +926,17 @@ impl Shell for Bar {
             ui.wake_after(key, wake);
         }
         for message in &response.messages {
-            self.act(message);
+            self.act(ui, key, message);
         }
     }
 
     fn update(&mut self, key: Place, time: &FrameTime) -> bool {
+        if let Place::Popup(_) = key {
+            return match &mut self.popup {
+                Some(open) => open.panel.update(time.dt as f32, time.now, &self.theme),
+                None => false,
+            };
+        }
         let Some(surface) = self.surfaces.get_mut(&key) else {
             return false;
         };
@@ -515,6 +952,26 @@ impl Shell for Bar {
     }
 
     fn layout(&mut self, key: Place, view: &View, text: &mut Text) {
+        if let Place::Popup(_) = key {
+            let content = self
+                .popup
+                .as_ref()
+                .filter(|open| open.stale)
+                .map(|open| match &open.shows {
+                    popup::Shows::Calendar { shown } => calendar::view(*shown, clock::now().date_naive(), &self.theme),
+                    popup::Shows::Menu { entries, trail, .. } => {
+                        popup::menu_view(entries, !trail.is_empty(), &self.theme)
+                    }
+                });
+            if let Some(open) = &mut self.popup {
+                if let Some(content) = content {
+                    open.panel.set(content);
+                    open.stale = false;
+                }
+                open.panel.layout(view, text, &self.theme);
+            }
+            return;
+        }
         let rect = self.rect(key, view);
         let fresh = self
             .surfaces
@@ -556,9 +1013,15 @@ impl Shell for Bar {
     }
 
     fn render(&self, key: Place, frame: &mut Frame) {
+        let theme = &self.theme;
+        if let Place::Popup(_) = key {
+            if let Some(open) = &self.popup {
+                open.panel.render(frame, theme);
+            }
+            return;
+        }
         let view = frame.view();
         let rect = self.rect(key, &view);
-        let theme = &self.theme;
         frame.fill(rect, theme.sizes.radius, theme.colors.surface_container);
         let Some(surface) = self.surfaces.get(&key) else {
             return;
@@ -572,6 +1035,9 @@ impl Shell for Bar {
     }
 
     fn wake(&self, key: Place) -> Option<Duration> {
+        if let Place::Popup(_) = key {
+            return self.popup.as_ref().and_then(|open| open.panel.wake());
+        }
         let surface = self.surfaces.get(&key)?;
         // The frame was sent somewhere new at layout: it moves from the next
         // frame on.
@@ -619,6 +1085,20 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "popup": self.popup.as_ref().map(|open| json!({
+                    "open": open.panel.open,
+                    "visible": open.panel.visible(),
+                    "shape": [open.panel.shape().x, open.panel.shape().y, open.panel.shape().w, open.panel.shape().h],
+                    "to": [open.panel.content_rect().x, open.panel.content_rect().y, open.panel.content_rect().w, open.panel.content_rect().h],
+                    "shows": match &open.shows {
+                        popup::Shows::Calendar { shown } => json!({ "calendar": [shown.0, shown.1] }),
+                        popup::Shows::Menu { entries, trail, .. } => json!({
+                            "menu": entries.iter().map(|e| e.label.clone()).collect::<Vec<_>>(),
+                            "depth": trail.len(),
+                        }),
+                    },
+                    "rows": open.panel.tree.nodes().iter().filter(|n| n.role == yokoso_ui::el::tree::Role::Button).map(|n| [n.rect.x, n.rect.y, n.rect.w, n.rect.h]).collect::<Vec<_>>(),
+                })),
                 "tray": self.tray.iter().map(|item| json!({ "title": item.title, "status": item.status, "icon": item.icon.as_ref().map(|p| [p.width, p.height]) })).collect::<Vec<_>>(),
                 "sound": match &self.sound {
                     pw::Sound::Out(out) => json!({

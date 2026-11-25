@@ -78,6 +78,8 @@ pub enum Ask {
     Scroll(String, i32),
     /// The rows of its menu under `parent`, 0 for the top.
     Menu(String, i32),
+    /// A row of its menu chosen.
+    Pick(String, i32),
 }
 
 /// "bus/path" into its two halves.
@@ -311,7 +313,7 @@ async fn layout(bus: &Connection, item: &Item, parent: i32) -> Vec<Entry> {
 
 async fn ask(bus: &Connection, items: &HashMap<String, Item>, ask: Ask, send: &impl Fn(Said) -> bool) {
     let address = match &ask {
-        Ask::Activate(a) | Ask::Secondary(a) | Ask::Scroll(a, _) | Ask::Menu(a, _) => a.clone(),
+        Ask::Activate(a) | Ask::Secondary(a) | Ask::Scroll(a, _) | Ask::Menu(a, _) | Ask::Pick(a, _) => a.clone(),
     };
     let Some(item) = items.get(&address) else { return };
     let (name, path) = split(&address);
@@ -324,6 +326,19 @@ async fn ask(bus: &Connection, items: &HashMap<String, Item>, ask: Ask, send: &i
                 entries,
             });
             return;
+        }
+        Ask::Pick(_, id) => {
+            let Some(menu) = &item.menu else { return };
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs() as u32);
+            match Proxy::new(bus, name.to_owned(), menu.clone(), MENU).await {
+                Ok(proxy) => proxy
+                    .call_method("Event", &(id, "clicked", zbus::Variant::from(0i32), now))
+                    .await
+                    .map(|_| ()),
+                Err(error) => Err(error),
+            }
         }
         Ask::Activate(_) | Ask::Secondary(_) | Ask::Scroll(..) => {
             match Proxy::new(bus, name.to_owned(), path.to_owned(), ITEM).await {

@@ -9,7 +9,9 @@ use super::Msg;
 use crate::sni::Item;
 
 /// The part; None with nothing in the tray.
-pub fn view(items: &[Item], icon: f32) -> Option<El<Msg>> {
+/// The item whose menu is open now is shown chosen: `open` is the bar part
+/// with a panel open, as "tray:<address>".
+pub fn view(items: &[Item], icon: f32, open: Option<&str>) -> Option<El<Msg>> {
     let shown: Vec<El<Msg>> = items
         .iter()
         .filter(|item| item.status != "Passive")
@@ -35,6 +37,7 @@ pub fn view(items: &[Item], icon: f32) -> Option<El<Msg>> {
                 vec![picture.width(Size::Fixed(icon)).height(Size::Fixed(icon))],
                 Some(on_press),
             )
+            .selected(open.and_then(|part| part.strip_prefix("tray:")) == Some(item.address.as_str()))
             .on_middle(Msg::TraySecondary(address.clone()))
             .on_secondary(Msg::TrayMenu(address.clone()))
             .on_scroll(move |steps| Msg::TrayScroll(address.clone(), steps))
