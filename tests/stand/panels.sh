@@ -113,6 +113,24 @@ after=$(rss)
 echo "memory: $before KiB, then $after KiB after 30 calendars"
 [ $((after - before)) -lt 4096 ] || fail "memory grew by $((after - before)) KiB"
 [ "$(popup)" = null ] || fail "a calendar was left open: $(popup)"
+# Growing and going, it never reaches up through its part: it comes out of
+# its lower edge.
+# A pixel or two over, as a spring goes past its mark, is no matter.
+low=$(dump | jq '.bars[0].clock | 8 + .[1] + .[3] - 3 | floor')
+move "$x" "$y"
+click
+for _ in 1 2 3 4; do
+	top=$(popup shape | jq '.[1] | floor')
+	[ "$top" -ge "$low" ] || fail "the panel reached up to $top, through its part, whose edge is at $low"
+	sleep 0.04
+done
+wtype -k Escape
+for _ in 1 2 3 4; do
+	shape=$(popup shape)
+	[ "$shape" = null ] || [ "$(echo "$shape" | jq '.[1] | floor')" -ge "$low" ] || fail "going, the panel reached up to $shape"
+	sleep 0.04
+done
+sleep 0.8
 # Told to, a panel drops from the bar's edge, as wide as itself from the
 # first frame on, rather than growing out of its part.
 printf '[bar]\npanels = "drop"\n' >"$XDG_CONFIG_HOME/yokoso/config.toml"

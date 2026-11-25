@@ -44,7 +44,7 @@ left = ["workspaces", "media"]
 center = ["clock"]
 right = ["privacy", "tray", "layout", "network", "sound", "battery"]
 hover_switch = true       # with a panel open, the pointer on another part opens its own
-panels = "grow"           # out of their part; "drop": down from the bar's edge
+panels = "grow"           # out of their part's edge; "drop": down from the bar's edge
 
 [bar.clock]
 format = "%H:%M"          # strftime

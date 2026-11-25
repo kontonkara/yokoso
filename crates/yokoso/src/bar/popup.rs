@@ -185,12 +185,14 @@ pub fn at(input: &Input) -> Option<(f32, f32)> {
     }
 }
 
-/// What a panel at `to` grows out of, and goes back into: its part at
-/// `button`, or a line along the bar's edge as wide as itself, at the top
-/// of it for a bar at the top.
+/// What a panel at `to` grows out of, and goes back into: a line along the
+/// edge of its part at `button` facing the panel, as wide as the part; or
+/// one along the bar's edge as wide as the panel. It grows away from the
+/// bar from there, never through the part.
 pub fn origin(panels: crate::config::Panels, button: Rect, to: Rect, top: bool) -> Rect {
     match panels {
-        crate::config::Panels::Grow => button,
+        crate::config::Panels::Grow if top => Rect::new(button.x, button.bottom() - 1.0, button.w, 1.0),
+        crate::config::Panels::Grow => Rect::new(button.x, button.y, button.w, 1.0),
         crate::config::Panels::Drop if top => Rect::new(to.x, to.y, to.w, 1.0),
         crate::config::Panels::Drop => Rect::new(to.x, to.bottom() - 1.0, to.w, 1.0),
     }
@@ -222,11 +224,18 @@ mod tests {
     }
 
     #[test]
-    fn a_dropping_panel_comes_from_the_bar_edge_as_wide_as_itself() {
+    fn a_panel_comes_from_the_edge_of_its_part_or_of_the_bar() {
         use crate::config::Panels;
         let button = Rect::new(680.0, 12.0, 40.0, 32.0);
         let to = Rect::new(540.0, 54.0, 320.0, 300.0);
-        assert_eq!(origin(Panels::Grow, button, to, true), button);
+        assert_eq!(
+            origin(Panels::Grow, button, to, true),
+            Rect::new(680.0, 43.0, 40.0, 1.0)
+        );
+        assert_eq!(
+            origin(Panels::Grow, button, to, false),
+            Rect::new(680.0, 12.0, 40.0, 1.0)
+        );
         assert_eq!(
             origin(Panels::Drop, button, to, true),
             Rect::new(540.0, 54.0, 320.0, 1.0)

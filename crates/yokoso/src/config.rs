@@ -76,7 +76,7 @@ impl Default for Bar {
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Panels {
-    /// Out of its part: the part grows into it.
+    /// Out of its part's lower edge, as wide as the part at first.
     #[default]
     Grow,
     /// Down from the bar's edge under its part, as a list drops; the part

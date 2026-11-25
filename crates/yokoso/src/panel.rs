@@ -143,7 +143,8 @@ impl<M: Clone> Panel<M> {
 
     /// Its shape now.
     pub fn shape(&self) -> Rect {
-        Rect::new(self.x.value, self.y.value, self.w.value, self.h.value)
+        // A spring past its mark going into a line is no size, not less.
+        Rect::new(self.x.value, self.y.value, self.w.value.max(0.0), self.h.value.max(0.0))
     }
 
     pub fn visible(&self) -> bool {
