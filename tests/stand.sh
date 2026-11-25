@@ -6,6 +6,7 @@
 #   pixel X Y       the color there in the last shot, as #rrggbb
 #   move X Y        the pointer to X Y, in niri's logical pixels
 #   click [BUTTON]  left, right or middle
+#   rss             the shell's resident memory, KiB
 #   log             the shell's log so far
 #   own PID         a process the script started, stopped with the stand
 #
@@ -113,6 +114,7 @@ move() {
 	sleep 0.1
 }
 click() { wlrctl pointer click "${1:-left}"; sleep 0.2; }
+rss() { awk '/^VmRSS/ { print $2 }' "/proc/$shell_pid/status"; }
 log() { cat "$out/shell.log"; }
 fail() { echo "stand: $*" >&2; exit 1; }
 # What a script starts in the background, stopped with the rest: `own $!`.
