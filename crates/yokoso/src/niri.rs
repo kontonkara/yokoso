@@ -205,6 +205,16 @@ impl State {
         *self != before
     }
 
+    /// What of it shows, its words on resting aside: windows without their
+    /// titles, which a terminal or a browser changes all the time.
+    pub fn shown(&self) -> State {
+        let mut shown = self.clone();
+        for window in shown.windows.values_mut() {
+            window.title = None;
+        }
+        shown
+    }
+
     /// The workspaces on `output`, in niri's order.
     pub fn workspaces_on(&self, output: &str) -> Vec<&Workspace> {
         let mut on: Vec<&Workspace> = self
@@ -372,6 +382,12 @@ mod tests {
         let moved = r#"{"WindowLayoutsChanged":{"changes":[[2,{"pos_in_scrolling_layout":[3,2],"tile_size":[400.0,600.0],"window_size":[400,600],"tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]}]]}}"#;
         state.apply(parse(moved).unwrap());
         assert_eq!(columns(&state), [vec![3], vec![5, 2]]);
+        // A new title is a change, but none that shows.
+        let before = state.shown();
+        let mut retitled = state.windows[&5].clone();
+        retitled.title = Some("Something else".into());
+        assert!(state.apply(Event::WindowOpenedOrChanged(retitled)));
+        assert_eq!(state.shown(), before);
     }
 
     #[test]

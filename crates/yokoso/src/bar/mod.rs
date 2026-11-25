@@ -974,8 +974,10 @@ impl Shell for Bar {
                 }
             }
             Message::Niri(event) => {
+                let before = self.niri.shown();
                 if self.niri.apply(event) {
-                    self.changed(ui);
+                    let seen = self.niri.shown() != before;
+                    self.changed_if(ui, seen);
                 }
             }
         }
