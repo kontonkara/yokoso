@@ -79,6 +79,9 @@ enum Wake {
 }
 
 async fn run(send: &impl Fn(Option<Playing>) -> bool, asks: async_channel::Receiver<Ask>) -> zbus::Result<()> {
+    // Signals on a connection of their own: on the one that asks, a burst of
+    // them filling its queue would hold back the replies, for ever.
+    let listening = Connection::session().await?;
     let bus = Connection::session().await?;
     let dbus = DBusProxy::new(&bus).await?;
     let rule = MatchRule::builder()
@@ -87,7 +90,7 @@ async fn run(send: &impl Fn(Option<Playing>) -> bool, asks: async_channel::Recei
         .member("PropertiesChanged")
         .path(PATH)
         .build()?;
-    let changes = MessageStream::for_match_rule(rule, &bus, None).await?;
+    let changes = MessageStream::for_match_rule(rule, &listening, None).await?;
     let mut wakes = select_all([
         changes
             .map(|message| match message {
@@ -101,7 +104,12 @@ async fn run(send: &impl Fn(Option<Playing>) -> bool, asks: async_channel::Recei
                 Err(_) => Wake::Names,
             })
             .boxed(),
-        dbus.receive_name_owner_changed().await?.map(|_| Wake::Names).boxed(),
+        DBusProxy::new(&listening)
+            .await?
+            .receive_name_owner_changed()
+            .await?
+            .map(|_| Wake::Names)
+            .boxed(),
         asks.map(Wake::Ask).boxed(),
     ]);
     // Each player by name, its unique name, and in the order they last

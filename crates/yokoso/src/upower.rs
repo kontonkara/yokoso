@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use zbus::{Connection, Proxy};
 
 const UPOWER: &str = "org.freedesktop.UPower";
@@ -72,14 +72,19 @@ async fn read(device: &Proxy<'_>) -> zbus::Result<Power> {
 }
 
 async fn watch(send: &impl Fn(Power) -> bool) -> zbus::Result<()> {
+    // Signals on a connection of their own, as the network's: a burst of them
+    // can't hold back the replies.
+    let listening = Connection::system().await?;
     let bus = Connection::system().await?;
     let device = Proxy::new(&bus, UPOWER, DISPLAY, DEVICE).await?;
-    let properties = Proxy::new(&bus, UPOWER, DISPLAY, "org.freedesktop.DBus.Properties").await?;
+    let properties = Proxy::new(&listening, UPOWER, DISPLAY, "org.freedesktop.DBus.Properties").await?;
     let mut changes = properties.receive_signal("PropertiesChanged").await?;
     if !send(read(&device).await?) {
         return Ok(());
     }
     while changes.next().await.is_some() {
+        // A burst is read once.
+        while let Some(Some(_)) = changes.next().now_or_never() {}
         if !send(read(&device).await?) {
             return Ok(());
         }

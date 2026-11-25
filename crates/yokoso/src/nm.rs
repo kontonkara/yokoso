@@ -3,7 +3,7 @@
 
 use std::{collections::HashMap, time::Duration};
 
-use futures_util::StreamExt;
+use futures_util::{FutureExt, StreamExt};
 use zbus::{
     Connection, MatchRule, MessageStream, OwnedObjectPath, OwnedVariant, Proxy,
     proxy::{Builder, CacheProperties},
@@ -137,18 +137,40 @@ async fn read(bus: &Connection) -> zbus::Result<Network> {
     Ok(network)
 }
 
+/// Reads the network, once more after a moment where it changed under the
+/// reading: a connection gone between two questions.
+async fn settled(bus: &Connection) -> zbus::Result<Network> {
+    let mut tries = 0;
+    loop {
+        match read(bus).await {
+            Ok(network) => return Ok(network),
+            Err(_) if tries < 3 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
 async fn watch(send: &impl Fn(Net) -> bool) -> zbus::Result<()> {
+    // Signals come on a connection of their own. On the one that asks, a
+    // burst of them, as a scan sends, fills its queue; its reader then waits
+    // for room, the replies behind it never come, and both wait for ever.
+    let listening = Connection::system().await?;
     let bus = Connection::system().await?;
     let rule = MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
         .sender(NM)
         .build()?;
-    let mut signals = MessageStream::for_match_rule(rule, &bus, None).await?;
-    if !send(Net::Up(read(&bus).await?)) {
+    let mut signals = MessageStream::for_match_rule(rule, &listening, None).await?;
+    if !send(Net::Up(settled(&bus).await?)) {
         return Ok(());
     }
     while signals.next().await.is_some() {
-        if !send(Net::Up(read(&bus).await?)) {
+        // A burst is read once.
+        while let Some(Some(_)) = signals.next().now_or_never() {}
+        if !send(Net::Up(settled(&bus).await?)) {
             return Ok(());
         }
     }

@@ -367,6 +367,9 @@ enum Wake {
 
 async fn run(send: &impl Fn(Said) -> bool, asks: async_channel::Receiver<Ask>) -> zbus::Result<()> {
     let bus = Connection::session().await?;
+    // Signals on a connection of their own: on the one that asks, a burst of
+    // them filling its queue would hold back the replies, for ever.
+    let ears = Connection::session().await?;
     let (changed, heard) = async_channel::unbounded::<()>();
     let ours = Arc::new(Mutex::new(Vec::<String>::new()));
     bus.object_server()
@@ -392,18 +395,21 @@ async fn run(send: &impl Fn(Said) -> bool, asks: async_channel::Receiver<Ask>) -
         .call_method("RegisterStatusNotifierHost", &(host.as_str(),))
         .await;
     let dbus = DBusProxy::new(&bus).await?;
+    let heard_watcher = Proxy::new(&ears, WATCHER, WATCHER_PATH, WATCHER).await?;
     let mut wakes = select_all([
-        watcher
+        heard_watcher
             .receive_signal("StatusNotifierItemRegistered")
             .await?
             .map(|_| Wake::List)
             .boxed(),
-        watcher
+        heard_watcher
             .receive_signal("StatusNotifierItemUnregistered")
             .await?
             .map(|_| Wake::List)
             .boxed(),
-        dbus.receive_name_owner_changed()
+        DBusProxy::new(&ears)
+            .await?
+            .receive_name_owner_changed()
             .await?
             .map(|signal| match signal.args() {
                 Ok(args) if args.name().as_str() == WATCHER => Wake::Watcher,
@@ -452,7 +458,7 @@ async fn run(send: &impl Fn(Said) -> bool, asks: async_channel::Receiver<Ask>) -
             if !listening.contains(address) {
                 listening.push(address.clone());
                 let (name, path) = split(address);
-                if let Ok(proxy) = Proxy::new(&bus, name.to_owned(), path.to_owned(), ITEM).await
+                if let Ok(proxy) = Proxy::new(&ears, name.to_owned(), path.to_owned(), ITEM).await
                     && let Ok(stream) = proxy.receive_all_signals().await
                 {
                     let address = address.clone();
