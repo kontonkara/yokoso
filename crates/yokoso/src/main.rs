@@ -1,5 +1,6 @@
 //! yokoso: a desktop shell for Wayland.
 
+mod backlight;
 mod bar;
 mod config;
 mod demo;

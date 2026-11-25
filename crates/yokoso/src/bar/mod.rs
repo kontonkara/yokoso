@@ -9,6 +9,7 @@ mod history;
 mod keyboard;
 mod media;
 mod network;
+mod osd;
 mod popup;
 mod privacy;
 mod sound;
@@ -49,6 +50,8 @@ pub enum Message {
     Tray(sni::Said),
     Media(Option<mpris::Playing>),
     Notes(notify::Said),
+    /// The backlight, a share of its most.
+    Brightness(f32),
 }
 
 /// What its parts send when used.
@@ -113,6 +116,8 @@ pub enum Place {
     Tip(OutputId),
     /// The toasts' column at the top right of a screen.
     Toasts(OutputId),
+    /// The OSD at the bottom of the main screen.
+    Osd(OutputId),
 }
 
 /// Each bar's elements, and the description they were last built from.
@@ -166,6 +171,12 @@ pub struct Bar {
     toast_notes: HashMap<u32, notify::Notification>,
     /// The toast last pressed: where keys go, as to its reply field.
     toast_keys: Option<u32>,
+    /// The OSD, the screen it shows on, until when (monotonic seconds); the
+    /// brightness as last heard.
+    osd: osd::Osd,
+    osd_on: Option<OutputId>,
+    osd_until: f64,
+    brightness: Option<f32>,
     /// The apps folded away in the history.
     folded: std::collections::HashSet<String>,
     drafts: HashMap<u32, String>,
@@ -226,6 +237,10 @@ impl Bar {
             toast_notes: HashMap::new(),
             toast_keys: None,
             folded: std::collections::HashSet::new(),
+            osd: osd::Osd::default(),
+            osd_on: None,
+            osd_until: 0.0,
+            brightness: None,
             drafts: HashMap::new(),
             due: HashMap::new(),
             left: HashMap::new(),
@@ -256,6 +271,8 @@ impl Bar {
         bar.tray_asks = Some(sni::listen(move |said| sender.send(Message::Tray(said)).is_ok()));
         let sender = ui.sender();
         bar.notes_asks = Some(notify::listen(move |said| sender.send(Message::Notes(said)).is_ok()));
+        let sender = ui.sender();
+        crate::backlight::listen(move |level| sender.send(Message::Brightness(level)).is_ok());
         let sender = ui.sender();
         bar.media_asks = Some(mpris::listen(move |playing| {
             sender.send(Message::Media(playing)).is_ok()
@@ -329,7 +346,7 @@ impl Bar {
     /// a window's edges as it would float on a screen.
     fn rect(&self, place: Place, view: &View) -> Rect {
         match place {
-            Place::Screen(_) | Place::Popup(_) | Place::Tip(_) | Place::Toasts(_) => {
+            Place::Screen(_) | Place::Popup(_) | Place::Tip(_) | Place::Toasts(_) | Place::Osd(_) => {
                 Rect::new(0.0, 0.0, view.width, view.height)
             }
             Place::Window => {
@@ -343,7 +360,7 @@ impl Bar {
     /// width: a window's, the one with the focused workspace.
     fn screen(&self, place: Place) -> Option<(String, f32)> {
         match place {
-            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) | Place::Toasts(id) => {
+            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) | Place::Toasts(id) | Place::Osd(id) => {
                 self.screens.borrow().get(&id).map(|(name, w, _)| (name.clone(), *w))
             }
             Place::Window => {
@@ -645,6 +662,31 @@ impl Bar {
             })
     }
 
+    /// What shows over the rest, the bar there or not: the toasts and the OSD.
+    fn overlays(&self, outputs: &[Output]) -> Vec<(Place, Spec)> {
+        let mut all = self.toast_surfaces(outputs);
+        if let Some(output) = self.osd_on.filter(|id| outputs.iter().any(|o| o.id == *id))
+            && !self.window
+        {
+            let spec = LayerSpec {
+                output,
+                layer: Layer::Overlay,
+                anchor: Anchor::BOTTOM,
+                size: (
+                    (osd::WIDTH + 2.0 * osd::PAD) as u32,
+                    (osd::HEIGHT + 2.0 * osd::PAD + 12.0) as u32,
+                ),
+                margin: (0, 0, 36, 0),
+                exclusive_zone: 0,
+                keyboard: KeyboardInteractivity::None,
+                namespace: "yokoso-osd".into(),
+                through: true,
+            };
+            all.push((Place::Osd(output), Spec::Layer(spec)));
+        }
+        all
+    }
+
     /// The toasts' column, on the screen they show on, while any is there:
     /// down the right side below the bar, as it keeps clear of every bar;
     /// over full-screen windows while a critical one shows.
@@ -860,6 +902,52 @@ impl Bar {
         }
     }
 
+    /// The OSD says `shows`, unless the config hides it: on the main screen,
+    /// for as long as the config says from now, each change again keeping it.
+    fn show_osd(&mut self, ui: &mut Ui<Self>, shows: osd::Shows) {
+        if self.window || self.config.osd.hidden.iter().any(|hidden| hidden == shows.group()) {
+            return;
+        }
+        let main = self
+            .surfaces
+            .keys()
+            .find_map(|place| match place {
+                Place::Screen(id) => Some(*id),
+                _ => None,
+            })
+            .or_else(|| self.focused_output());
+        let Some(output) = self.osd_on.or(main) else { return };
+        self.osd.show(shows);
+        if self.osd_on.is_none() {
+            self.osd_on = Some(output);
+            ui.refresh_surfaces();
+        }
+        ui.dirty(Place::Osd(output));
+        let duration = f64::from(self.config.osd.duration.max(0.2));
+        self.osd_until = yokoso_ui::app::monotonic() + duration;
+        let _ = ui
+            .handle()
+            .insert_source(Timer::from_duration(Duration::from_secs_f64(duration)), |_, _, app| {
+                let shell = &mut app.shell;
+                let Some(output) = shell.osd_on else {
+                    return TimeoutAction::Drop;
+                };
+                let now = yokoso_ui::app::monotonic();
+                if now < shell.osd_until - 0.01 {
+                    // Kept by a later change: that one's timer takes over.
+                    return TimeoutAction::Drop;
+                }
+                if !shell.osd.gone() {
+                    shell.osd.hide();
+                    app.ui.dirty(Place::Osd(output));
+                    return TimeoutAction::ToDuration(Duration::from_millis(100));
+                }
+                shell.osd_on = None;
+                app.ui.refresh_surfaces();
+                TimeoutAction::Drop
+            });
+    }
+
     /// Tells an app what became of its notification.
     fn tell(&self, ask: notify::Ask) {
         if let Some(asks) = &self.notes_asks {
@@ -893,7 +981,7 @@ impl Bar {
     /// Does what a part asks, on `place`.
     fn act(&mut self, ui: &mut Ui<Self>, place: Place, msg: &Msg) {
         let output = match place {
-            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) | Place::Toasts(id) => Some(id),
+            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) | Place::Toasts(id) | Place::Osd(id) => Some(id),
             Place::Window => None,
         };
         match msg {
@@ -1362,10 +1450,17 @@ impl Shell for Bar {
             Message::Tray(_) => "tray",
             Message::Media(_) => "media",
             Message::Notes(_) => "notifications",
+            Message::Brightness(_) => "brightness",
         };
         match message {
             Message::Config(loaded) => self.apply(ui, *loaded),
             Message::Notes(said) => self.notified(ui, said),
+            Message::Brightness(level) => {
+                let before = self.brightness.replace(level);
+                if before.is_some_and(|before| (before - level).abs() > 0.001) {
+                    self.show_osd(ui, osd::Shows::Brightness { level });
+                }
+            }
             Message::Media(playing) => {
                 if playing != self.media {
                     self.media = playing;
@@ -1411,10 +1506,14 @@ impl Shell for Bar {
             }
             Message::Sound(heard) => {
                 if heard.sound != self.sound || heard.using != self.using || heard.mic != self.mic {
+                    let said = osd::sound_change(&self.sound, &heard.sound, &self.mic, &heard.mic);
                     self.sound = heard.sound;
                     self.using = heard.using;
                     self.mic = heard.mic;
                     self.changed(ui);
+                    if let Some(said) = said {
+                        self.show_osd(ui, said);
+                    }
                 }
             }
             Message::Net(net) => {
@@ -1445,9 +1544,18 @@ impl Shell for Bar {
             }
             Message::Niri(event) => {
                 let before = self.niri.shown();
+                let layouts = self.niri.layouts.clone();
                 if self.niri.apply(event) {
                     let seen = self.niri.shown() != before;
                     self.changed_if(ui, seen);
+                    // Another layout of the same ones: the OSD names it.
+                    let now = &self.niri.layouts;
+                    if now.names == layouts.names
+                        && now.current_idx != layouts.current_idx
+                        && let Some(name) = now.names.get(now.current_idx).cloned()
+                    {
+                        self.show_osd(ui, osd::Shows::Layout { name });
+                    }
                 }
             }
         }
@@ -1465,7 +1573,7 @@ impl Shell for Bar {
             .collect();
         let bar = &self.config.bar;
         if self.hidden {
-            return self.toast_surfaces(outputs);
+            return self.overlays(outputs);
         }
         if self.window {
             let spec = WindowSpec {
@@ -1533,7 +1641,7 @@ impl Shell for Bar {
             };
             all.push((Place::Tip(output), Spec::Layer(spec)));
         }
-        all.extend(self.toast_surfaces(outputs));
+        all.extend(self.overlays(outputs));
         all
     }
 
@@ -1569,6 +1677,9 @@ impl Shell for Bar {
         if let Place::Toasts(_) = key {
             return self.toasts.update(time.dt as f32, time.now, &self.theme);
         }
+        if let Place::Osd(_) = key {
+            return self.osd.update(time.dt as f32, time.now, &self.theme);
+        }
         if let Place::Tip(output) = key {
             // The bar's own frames move the tooltip; this one only sees it
             // is due, as it may wake first.
@@ -1601,6 +1712,10 @@ impl Shell for Bar {
     }
 
     fn layout(&mut self, key: Place, view: &View, text: &mut Text) {
+        if let Place::Osd(_) = key {
+            self.osd.layout(view, text, &self.theme);
+            return;
+        }
         if let Place::Toasts(_) = key {
             let (notes, drafts, theme) = (&self.toast_notes, &self.drafts, &self.theme);
             self.toasts.layout(view, text, theme, |id| {
@@ -1686,6 +1801,10 @@ impl Shell for Bar {
             self.toasts.render(frame, theme);
             return;
         }
+        if let Place::Osd(_) = key {
+            self.osd.render(frame, theme);
+            return;
+        }
         if let Place::Popup(_) = key {
             if let Some(open) = &self.popup {
                 open.panel.render(frame, theme);
@@ -1727,6 +1846,9 @@ impl Shell for Bar {
     }
 
     fn wake(&self, key: Place) -> Option<Duration> {
+        if let Place::Osd(_) = key {
+            return self.osd.wake();
+        }
         if let Place::Toasts(_) = key {
             return if self.toasts.moving() {
                 Some(Duration::ZERO)
@@ -1850,6 +1972,10 @@ impl crate::ipc::Answer for Bar {
                         "image": n.image.as_ref().map(|p| [p.width, p.height]),
                     })).collect::<Vec<_>>(),
                 },
+                "osd": self.osd_on.map(|_| json!({
+                    "shows": self.osd.shows.as_ref().map(|shows| format!("{shows:?}")),
+                    "leaving": self.osd.gone(),
+                })),
                 "tips": self.surfaces.values().map(|s| s.tree.tooltips_shown()).sum::<usize>(),
                 "popup": self.popup.as_ref().map(|open| json!({
                     "open": open.panel.open,

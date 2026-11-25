@@ -22,3 +22,4 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 zbus = "6.5.0"
 futures-util = { version = "0.3.34", default-features = false }
 async-channel = "2.5.0"
+rustix = { version = "1.1.2", features = ["event", "fs"] }

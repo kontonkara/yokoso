@@ -2089,6 +2089,7 @@ dependencies = [
  "chrono",
  "futures-util",
  "inotify",
+ "rustix",
  "serde",
  "serde_json",
  "toml",

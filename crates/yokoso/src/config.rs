@@ -16,6 +16,7 @@ use yokoso_ui::Color;
 pub struct Config {
     pub bar: Bar,
     pub notifications: Notifications,
+    pub osd: Osd,
     pub probe: Probe,
     pub debug: Debug,
 }
@@ -456,4 +457,23 @@ fn time_of_day<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Stri
         )));
     }
     Ok(time)
+}
+
+/// The OSD: what changed, a moment at the bottom of the main screen.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Osd {
+    /// Seconds it stays after the last change.
+    pub duration: f32,
+    /// What it doesn't show: volume, mic, output, brightness, layout.
+    pub hidden: Vec<String>,
+}
+
+impl Default for Osd {
+    fn default() -> Self {
+        Self {
+            duration: 1.5,
+            hidden: Vec::new(),
+        }
+    }
 }
