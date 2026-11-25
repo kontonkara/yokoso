@@ -110,6 +110,37 @@ pub enum ButtonStyle {
     Text,
 }
 
+pub struct SliderEl<M> {
+    pub value: f32,
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+    /// Its value written beside it.
+    pub show_value: bool,
+    pub on_change: Option<std::rc::Rc<dyn Fn(f32) -> M>>,
+}
+
+impl<M> SliderEl<M> {
+    /// `value` kept in range, on a step.
+    pub fn fit(&self, value: f32) -> f32 {
+        let value = value.clamp(self.min, self.max);
+        if self.step > 0.0 {
+            (self.min + ((value - self.min) / self.step).round() * self.step).clamp(self.min, self.max)
+        } else {
+            value
+        }
+    }
+
+    /// Where `value` is along it, 0 to 1.
+    pub fn fraction(&self, value: f32) -> f32 {
+        if self.max > self.min {
+            ((value - self.min) / (self.max - self.min)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+}
+
 /// What an element is.
 pub enum Kind<M> {
     Row {
@@ -138,6 +169,9 @@ pub enum Kind<M> {
         pending: bool,
         on_toggle: Option<M>,
     },
+    /// A value between `min` and `max`, in `step`s. Disabled without a
+    /// message to send.
+    Slider(SliderEl<M>),
     #[doc(hidden)]
     _Message(std::marker::PhantomData<M>),
 }
@@ -209,6 +243,25 @@ impl<M> El<M> {
 
     pub fn toggle(on: bool, pending: bool, on_toggle: Option<M>) -> Self {
         Self::new(Kind::Toggle { on, pending, on_toggle })
+    }
+
+    pub fn slider(value: f32, min: f32, max: f32, step: f32, on_change: Option<impl Fn(f32) -> M + 'static>) -> Self {
+        Self::new(Kind::Slider(SliderEl {
+            value,
+            min,
+            max,
+            step,
+            show_value: false,
+            on_change: on_change.map(|change| std::rc::Rc::new(change) as std::rc::Rc<dyn Fn(f32) -> M>),
+        }))
+    }
+
+    /// For a slider: its value written beside it.
+    pub fn show_value(mut self) -> Self {
+        if let Kind::Slider(slider) = &mut self.kind {
+            slider.show_value = true;
+        }
+        self
     }
 
     /// Its key: what names it among its siblings, for ones that come and go.

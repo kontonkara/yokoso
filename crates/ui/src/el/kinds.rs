@@ -1,7 +1,7 @@
 //! What each kind of element is: its role, its size, its text, and how it
 //! paints in its state. The tree calls these; they never change state.
 
-use super::{ButtonStyle, El, Ink, Kind, TextEl, Type, tree::Role, tree::State};
+use super::{ButtonStyle, El, Ink, Kind, SliderEl, TextEl, Type, tree::Role, tree::State};
 use crate::{
     app::Frame,
     geometry::{Color, Rect},
@@ -14,6 +14,7 @@ pub fn role<M>(kind: &Kind<M>) -> Role {
         Kind::Text(_) => Role::Text,
         Kind::Button { .. } => Role::Button,
         Kind::Toggle { .. } => Role::Toggle,
+        Kind::Slider(_) => Role::Slider,
         _ => Role::Group,
     }
 }
@@ -23,7 +24,7 @@ pub fn interactive<M>(kind: &Kind<M>) -> bool {
     matches!(
         kind,
         Kind::Button { on_press: Some(_), .. } | Kind::Toggle { on_toggle: Some(_), .. }
-    )
+    ) || matches!(kind, Kind::Slider(slider) if slider.on_change.is_some())
 }
 
 /// Whether it waits on something, pulsing meanwhile.
@@ -34,8 +35,12 @@ pub fn pending<M>(kind: &Kind<M>) -> bool {
 /// Aims its springs at what the description says: a toggle's thumb at its
 /// side. The first time there, at once.
 pub fn settle<M>(kind: &Kind<M>, state: &mut State) {
-    if let Kind::Toggle { on, .. } = kind {
-        let target = if *on { 1.0 } else { 0.0 };
+    let target = match kind {
+        Kind::Toggle { on, .. } => Some(if *on { 1.0 } else { 0.0 }),
+        Kind::Slider(slider) => Some(slider.fraction(slider.value)),
+        _ => None,
+    };
+    if let Some(target) = target {
         if state.known {
             state.value.to(target);
         } else {
@@ -97,6 +102,10 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
             (laid.width().ceil().min(max.unwrap_or(f32::MAX)), laid.height().ceil())
         }
         Kind::Toggle { .. } => (TRACK.0.min(max.unwrap_or(f32::MAX)), TRACK.1),
+        Kind::Slider(slider) => {
+            let label = if slider.show_value { VALUE_ROOM } else { 0.0 };
+            ((240.0 + label).min(max.unwrap_or(f32::MAX)), HANDLE.1)
+        }
         Kind::Button { label, .. } => {
             let laid = text.layout(label, &label_style(theme), scale, None, false);
             let width = laid.width().ceil() + 2.0 * button_pad(theme);
@@ -110,6 +119,18 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
 pub fn paragraph<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, scale: f32) -> Option<Paragraph> {
     match &el.kind {
         Kind::Text(t) => Some(text.layout(&t.text, &style(t, theme), scale, Some(rect.w + 0.5), t.ellipsis)),
+        Kind::Slider(slider) if slider.show_value => Some(text.layout(
+            &value_text(slider),
+            &Style {
+                size: theme.sizes.label,
+                weight: 500.0,
+                family: None,
+                tabular: true,
+            },
+            scale,
+            None,
+            false,
+        )),
         Kind::Button { label, .. } => {
             let room = (rect.w - 2.0 * button_pad(theme)).max(0.0) + 0.5;
             Some(text.layout(label, &label_style(theme), scale, Some(room), true))
@@ -182,7 +203,87 @@ pub fn paint<M>(
         Kind::Toggle { on, pending, on_toggle } => {
             paint_toggle(*on, *pending, on_toggle.is_some(), rect, state, focused, frame, theme);
         }
+        Kind::Slider(slider) => paint_slider(slider, rect, state, paragraph, focused, frame, theme),
         _ => {}
+    }
+}
+
+/// A slider's handle: a tall pill, as Material 3 Expressive has it.
+const HANDLE: (f32, f32) = (4.0, 44.0);
+/// Room for the value written beside a slider.
+const VALUE_ROOM: f32 = 56.0;
+/// The space between the handle and the track on either side of it.
+const HANDLE_GAP: f32 = 6.0;
+
+fn value_text<M>(slider: &SliderEl<M>) -> String {
+    if slider.step >= 1.0 {
+        format!("{:.0}", slider.value)
+    } else {
+        format!("{:.2}", slider.value)
+    }
+}
+
+/// Where a slider's handle runs, in `rect`: all of it, but the room for its
+/// value.
+pub fn slider_track<M>(slider: &SliderEl<M>, rect: Rect) -> Rect {
+    let room = if slider.show_value { VALUE_ROOM } else { 0.0 };
+    Rect::new(rect.x, rect.y, (rect.w - room).max(0.0), rect.h)
+}
+
+/// The value at `x` along a slider's `track`, on a step.
+pub fn slider_value_at<M>(slider: &SliderEl<M>, track: Rect, x: f32) -> f32 {
+    let inner = (track.w - HANDLE.0).max(1.0);
+    let t = ((x - track.x - HANDLE.0 / 2.0) / inner).clamp(0.0, 1.0);
+    slider.fit(slider.min + t * (slider.max - slider.min))
+}
+
+fn paint_slider<M>(
+    slider: &SliderEl<M>,
+    rect: Rect,
+    state: &State,
+    paragraph: Option<&Paragraph>,
+    focused: bool,
+    frame: &mut Frame,
+    theme: &Theme,
+) {
+    let colors = &theme.colors;
+    let enabled = slider.on_change.is_some();
+    let track = slider_track(slider, rect);
+    let t = state.value.value.clamp(0.0, 1.0);
+    let middle = track.y + track.h / 2.0;
+    let x = track.x + HANDLE.0 / 2.0 + t * (track.w - HANDLE.0).max(0.0);
+    let (active, inactive, handle) = if enabled {
+        (colors.primary, colors.secondary_container, colors.primary)
+    } else {
+        let dim = colors.on_surface.alpha(state::DISABLED_CONTAINER);
+        (
+            colors.on_surface.alpha(state::DISABLED_CONTENT),
+            dim,
+            colors.on_surface.alpha(state::DISABLED_CONTENT),
+        )
+    };
+    let bar = 16.0;
+    let left = Rect::new(track.x, middle - bar / 2.0, (x - HANDLE_GAP - track.x).max(0.0), bar);
+    let right_x = x + HANDLE_GAP;
+    let right = Rect::new(right_x, middle - bar / 2.0, (track.right() - right_x).max(0.0), bar);
+    frame.fill(left, (left.w / 2.0).min(bar / 2.0), active);
+    frame.fill(right, (right.w / 2.0).min(bar / 2.0), inactive);
+    // Pressed, the handle narrows; hovered, it shows a state layer.
+    let press = state.press.value.clamp(0.0, 1.0);
+    let width = HANDLE.0 - 2.0 * press;
+    let handle_rect = Rect::new(x - width / 2.0, middle - HANDLE.1 / 2.0, width, HANDLE.1);
+    frame.fill(handle_rect, width / 2.0, handle);
+    if enabled && state.hover.value > 0.0 {
+        let halo = Rect::new(x - 10.0, middle - HANDLE.1 / 2.0 - 2.0, 20.0, HANDLE.1 + 4.0);
+        frame.fill(halo, 10.0, handle.alpha(state.hover.value * state::HOVER));
+    }
+    if focused {
+        ring(frame, handle_rect, width / 2.0, state, theme);
+    }
+    if let Some(paragraph) = paragraph {
+        let x = rect.right() - paragraph.width();
+        let y = middle - paragraph.height() / 2.0;
+        frame.text(paragraph, x, y, colors.on_surface_variant);
     }
 }
 

@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{El, kinds, layout};
+use super::{El, Kind, SliderEl, kinds, layout};
 use crate::{
     app::{Frame, View},
     geometry::Rect,
@@ -268,6 +268,10 @@ impl<M: Clone> Tree<M> {
         let mut messages = Vec::new();
         match input {
             Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
+                // Dragging a slider: its value follows the pointer.
+                if let Some(change) = self.pressed.and_then(|id| self.slide_to(id, *x)) {
+                    messages.push(change);
+                }
                 let now = self.hit(*x, *y);
                 if now != self.hovered {
                     self.set_spring(self.hovered, |s| s.hover.to(0.0));
@@ -281,7 +285,9 @@ impl<M: Clone> Tree<M> {
                 self.set_spring(gone, |s| s.hover.to(0.0));
                 redraw = true;
             }
-            Input::Press { button: BTN_LEFT, .. } => {
+            Input::Press {
+                button: BTN_LEFT, x, ..
+            } => {
                 // A click focuses without a ring.
                 self.focus_visible = false;
                 self.move_focus(self.hovered);
@@ -290,6 +296,7 @@ impl<M: Clone> Tree<M> {
                     self.pressed = Some(id);
                     self.set_spring(Some(id), |s| s.press.to(1.0));
                     redraw = true;
+                    messages.extend(self.slide_to(id, *x));
                 }
             }
             Input::Release { button: BTN_LEFT, x, y } => {
@@ -302,22 +309,45 @@ impl<M: Clone> Tree<M> {
                     }
                 }
             }
+            Input::Scroll(scroll) => {
+                if let Some(id) = self.hovered
+                    && let Some((slider, track)) = self.slider(id)
+                {
+                    // Up and right is more. A wheel goes by steps, fingers by
+                    // the pixel along the track.
+                    let by = if scroll.steps_y != 0.0 || scroll.steps_x != 0.0 {
+                        (scroll.steps_x - scroll.steps_y) * slider.step.max((slider.max - slider.min) / 100.0)
+                    } else {
+                        (scroll.x - scroll.y) / track.w.max(1.0) * (slider.max - slider.min)
+                    };
+                    let value = slider.fit(slider.value + by);
+                    if value != slider.value
+                        && let Some(change) = &slider.on_change
+                    {
+                        messages.push(change(value));
+                    }
+                }
+            }
             Input::Key(key) if key.state != KeyState::Released => {
                 redraw = true;
                 let was_visible = self.focus_visible;
                 self.focus_visible = true;
-                match key.keysym {
-                    Keysym::Tab if !key.mods.shift => self.step_focus(1, false),
-                    Keysym::Tab | Keysym::ISO_Left_Tab => self.step_focus(-1, false),
-                    Keysym::Right | Keysym::Down => self.step_focus(1, true),
-                    Keysym::Left | Keysym::Up => self.step_focus(-1, true),
-                    Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-                        if let Some(id) = self.focus {
-                            messages.extend(self.activate(id));
+                if let Some(change) = self.focus.and_then(|id| self.slider_key(id, key.keysym)) {
+                    messages.push(change);
+                } else {
+                    match key.keysym {
+                        Keysym::Tab if !key.mods.shift => self.step_focus(1, false),
+                        Keysym::Tab | Keysym::ISO_Left_Tab => self.step_focus(-1, false),
+                        Keysym::Right | Keysym::Down => self.step_focus(1, true),
+                        Keysym::Left | Keysym::Up => self.step_focus(-1, true),
+                        Keysym::Return | Keysym::KP_Enter | Keysym::space => {
+                            if let Some(id) = self.focus {
+                                messages.extend(self.activate(id));
+                            }
                         }
+                        Keysym::Escape => escaped = true,
+                        _ => {}
                     }
-                    Keysym::Escape => escaped = true,
-                    _ => {}
                 }
                 if !was_visible {
                     let focus = self.focus;
@@ -380,6 +410,48 @@ impl<M: Clone> Tree<M> {
         };
         let id = self.nodes[order[next]].id;
         self.move_focus(Some(id));
+    }
+
+    /// The slider `id`, and where its handle runs.
+    fn slider(&self, id: Id) -> Option<(&SliderEl<M>, Rect)> {
+        let el = self.el.as_ref()?;
+        let mut all = Vec::new();
+        walk(el, ROOT, None, &mut all);
+        let at = all.iter().position(|(_, found, _)| *found == id)?;
+        match &all[at].0.kind {
+            Kind::Slider(slider) if slider.on_change.is_some() => {
+                Some((slider, kinds::slider_track(slider, self.nodes.get(at)?.rect)))
+            }
+            _ => None,
+        }
+    }
+
+    /// The slider `id` set to the value at `x`, if it is a slider and the
+    /// value is new.
+    fn slide_to(&self, id: Id, x: f32) -> Option<M> {
+        let (slider, track) = self.slider(id)?;
+        let value = kinds::slider_value_at(slider, track, x);
+        let change = slider.on_change.as_ref()?;
+        (value != slider.value).then(|| change(value))
+    }
+
+    /// A key on the focused slider: arrows by a step, pages by ten, Home
+    /// and End to the ends.
+    fn slider_key(&self, id: Id, keysym: Keysym) -> Option<M> {
+        let (slider, _) = self.slider(id)?;
+        let step = slider.step.max((slider.max - slider.min) / 100.0);
+        let value = match keysym {
+            Keysym::Right | Keysym::Up => slider.value + step,
+            Keysym::Left | Keysym::Down => slider.value - step,
+            Keysym::Page_Up => slider.value + 10.0 * step,
+            Keysym::Page_Down => slider.value - 10.0 * step,
+            Keysym::Home => slider.min,
+            Keysym::End => slider.max,
+            _ => return None,
+        };
+        let value = slider.fit(value);
+        // At an end already: the key is spent all the same.
+        Some((slider.on_change.as_ref()?)(value))
     }
 
     /// What the element `id` sends when it is used: a button's message.
@@ -574,6 +646,51 @@ mod tests {
         });
         assert!(!tree.focus_visible);
         assert!(press(&mut tree, Keysym::Escape, false).escaped);
+    }
+
+    #[test]
+    fn a_slider_follows_a_drag_steps_by_wheel_and_keys() {
+        let mut tree = Tree::<f32>::default();
+        tree.set(El::row(
+            0.0,
+            vec![
+                El::slider(20.0, 0.0, 100.0, 1.0, Some(|v| v))
+                    .width(Size::Fixed(104.0))
+                    .height(Size::Fixed(44.0)),
+            ],
+        ));
+        tree.layout_with(Rect::new(0.0, 0.0, 200.0, 44.0), &mut |_: &El<f32>, _| (0.0, 0.0));
+        tree.input(&Input::PointerMove { x: 52.0, y: 20.0 });
+        assert_eq!(
+            tree.input(&Input::Press {
+                button: BTN_LEFT,
+                x: 52.0,
+                y: 20.0
+            })
+            .messages,
+            vec![50.0]
+        );
+        // Dragged on, past the end: the end.
+        assert_eq!(
+            tree.input(&Input::PointerMove { x: 300.0, y: 20.0 }).messages,
+            vec![100.0]
+        );
+        tree.input(&Input::Release {
+            button: BTN_LEFT,
+            x: 300.0,
+            y: 20.0,
+        });
+        // The wheel: up is more, a notch a step.
+        tree.input(&Input::PointerMove { x: 50.0, y: 20.0 });
+        let wheel = crate::input::Scroll {
+            steps_y: -2.0,
+            ..Default::default()
+        };
+        assert_eq!(tree.input(&Input::Scroll(wheel)).messages, vec![22.0]);
+        // Keys on the focused slider move it, not the focus.
+        tree.input(&key(Keysym::Tab, false));
+        assert_eq!(tree.input(&key(Keysym::Right, false)).messages, vec![21.0]);
+        assert_eq!(tree.input(&key(Keysym::End, false)).messages, vec![100.0]);
     }
 
     #[test]
