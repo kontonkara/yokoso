@@ -252,6 +252,13 @@ pub enum Kind<M> {
         name: &'static str,
         ink: Ink,
     },
+    /// Icons one after another, each `every` seconds, round and round while
+    /// it is there: a radio looking for its network.
+    Icons {
+        names: &'static [&'static str],
+        every: f32,
+        ink: Ink,
+    },
     /// Its one child, with a few words that show when the pointer rests on
     /// it a while.
     Tooltip {
@@ -434,6 +441,16 @@ impl<M> El<M> {
     pub fn icon(name: &'static str) -> Self {
         Self::new(Kind::Icon {
             name,
+            ink: Ink::OnSurfaceVariant,
+        })
+    }
+
+    /// `names` in turn, each `every` seconds, round and round: it asks for
+    /// the frames it needs while it is there.
+    pub fn icons_in_turn(names: &'static [&'static str], every: f32) -> Self {
+        Self::new(Kind::Icons {
+            names,
+            every,
             ink: Ink::OnSurfaceVariant,
         })
     }
@@ -644,7 +661,7 @@ impl<M> El<M> {
     pub fn ink(mut self, ink: Ink) -> Self {
         match &mut self.kind {
             Kind::Text(text) => text.ink = ink,
-            Kind::Icon { ink: own, .. } => *own = ink,
+            Kind::Icon { ink: own, .. } | Kind::Icons { ink: own, .. } => *own = ink,
             _ => {}
         }
         self

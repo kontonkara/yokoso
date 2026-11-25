@@ -22,21 +22,23 @@ nm Wifi b false
 until_says .network.link '"None"'
 until_says .network.airplane false
 shot off
-# Bluetooth off too: airplane mode, as it is turned on elsewhere; Bluetooth
-# back, Wi-Fi off alone.
-bluetooth() { busctl --user call org.bluez /stand stand.Bluetooth Power b "$1"; }
-bluetooth false
+# Wi-Fi off with Bluetooth blocked already is Wi-Fi off. Every radio blocked
+# is airplane mode, as the system has it; Wi-Fi unblocked, not any more.
+sleep 0.3
+until_says .network.airplane false
+printf '\000\000\000\000\001\002\001\000' >&3
 until_says .network.airplane true
 shot airplane
-bluetooth true
+printf '\000\000\000\000\001\002\000\000' >&3
 until_says .network.airplane false
-# On its way up, it pulses: frames keep coming while it does.
+# On its way up, its arcs light in turn: frames keep coming while they do.
 nm Connecting b true
 nm Wifi b true
 sleep 0.5
 frames=$("$binary" msg stats | jq .frames)
 sleep 0.5
 [ $(($("$binary" msg stats | jq .frames) - frames)) -ge 10 ] || fail "connecting, and no pulse: $(($("$binary" msg stats | jq .frames) - frames)) frames in 0.5 s"
+shot connecting
 nm Connecting b false
 until_says .network.name '"Stand"'
 # The strength from one percent to the next draws nothing: it shows only

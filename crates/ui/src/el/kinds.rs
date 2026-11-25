@@ -49,6 +49,7 @@ pub fn pending<M>(kind: &Kind<M>) -> bool {
     matches!(kind, Kind::Toggle { pending: true, .. })
         || matches!(kind, Kind::Tile(tile) if tile.pending)
         || matches!(kind, Kind::Press(press) if press.pending)
+        || matches!(kind, Kind::Icons { .. })
 }
 
 /// Aims its springs at what the description says: a toggle's thumb at its
@@ -137,7 +138,7 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
             (laid.width().ceil().min(max.unwrap_or(f32::MAX)), laid.height().ceil())
         }
         Kind::Toggle { .. } => (TRACK.0.min(max.unwrap_or(f32::MAX)), TRACK.1),
-        Kind::Icon { .. } | Kind::Picture(_) => (theme.sizes.icon, theme.sizes.icon),
+        Kind::Icon { .. } | Kind::Icons { .. } | Kind::Picture(_) => (theme.sizes.icon, theme.sizes.icon),
         Kind::Field(_) => (240.0f32.min(max.unwrap_or(f32::MAX)), super::field::height(theme)),
         Kind::Menu(menu) => super::menu::measure(menu, text, theme, scale, max),
         Kind::Tile(tile) => {
@@ -336,6 +337,16 @@ pub fn paint<M>(
             }
         }
         Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
+        Kind::Icons {
+            names,
+            every,
+            ink: color,
+        } => {
+            let turn = (state.phase / every.max(0.01)) as usize;
+            if let Some(name) = names.get(turn % names.len().max(1)) {
+                frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value);
+            }
+        }
         Kind::Block { ink: color, radius } => frame.fill(rect, *radius, ink(*color, theme)),
         Kind::Battery { level, ink: color } => {
             let color = ink(*color, theme);

@@ -92,16 +92,18 @@ map of their columns, media, the clock, who records (microphone, camera,
 the screen shared), the tray, the keyboard layout, the network, the sound
 and the battery. A click on the clock opens a calendar, a right click on a
 tray icon its menu; with a panel open, the pointer on another part with one
-opens that one. A click on the microphone mutes it. With Wi-Fi and Bluetooth both off, the
-network shows a plane: airplane mode. The wheel turns the
-workspaces, the layout, the volume, the microphone and the calendar's
-months; the middle button mutes the sound and skips a track. Tooltips show
-just past the bar, on a strip the pointer goes through.
+opens that one. A click on the microphone mutes it. With every radio
+blocked, airplane mode as the system has it, the network shows a plane.
+The wheel turns the workspaces, the layout, the volume, the microphone and
+the calendar's months; the middle button mutes the sound and skips a
+track. Tooltips show just past the bar, on a strip the pointer goes
+through.
 
-Its services are niri's event stream, UPower, NetworkManager, BlueZ, MPRIS
-and the StatusNotifierItem tray on D-Bus, and PipeWire through `pw-dump --monitor`
-and `wpctl`. Each is read once and then on its own signals: nothing is
-asked on a timer, and at rest the bar draws nothing.
+Its services are niri's event stream, UPower, NetworkManager, MPRIS and the
+StatusNotifierItem tray on D-Bus, PipeWire through `pw-dump --monitor` and
+`wpctl`, and the radios' switches in `/dev/rfkill`. Each is read once and
+then on its own signals: nothing is asked on a timer, and at rest the bar
+draws nothing.
 
 ## Test
 

@@ -1,6 +1,6 @@
 //! The network: Wi-Fi by its strength, a wire, or nothing; a shield while a
-//! VPN is up; a pulse while a connection comes up. Its name, strength and
-//! address in words on resting.
+//! VPN is up; arcs lighting in turn while a connection comes up; a plane in
+//! airplane mode. Its name, strength and address in words on resting.
 
 use yokoso_ui::{
     el::{Edges, El, Ink, Size},
@@ -31,12 +31,11 @@ pub fn vpns(network: &Network, named: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// The network as it shows, `bluetooth` beside it: Wi-Fi off and Bluetooth
-/// off is airplane mode, as it is turned on elsewhere; a switch that keeps
-/// the radios off is too.
-pub fn flying(net: &Net, bluetooth: crate::bluez::Bluetooth) -> Net {
+/// The network as it shows, `airplane` beside it: every radio blocked, as
+/// the system has it, is airplane mode whatever NetworkManager says.
+pub fn flying(net: &Net, airplane: bool) -> Net {
     match net {
-        Net::Up(network) if !network.wireless && bluetooth.off() => Net::Up(Network {
+        Net::Up(network) if airplane => Net::Up(Network {
             airplane: true,
             ..network.clone()
         }),
@@ -93,7 +92,6 @@ pub fn about(net: &Net, named: &[String]) -> String {
 /// The part: always there, as no network is worth seeing too.
 pub fn view(net: &Net, named: &[String], theme: &Theme, pad: Edges, on_click: Option<Msg>) -> El<Msg> {
     let faint = Ink::Own(theme.colors.on_surface.alpha(0.3));
-    let mut pending = false;
     let mut parts = match net {
         Net::Unknown => vec![El::icon("wifi-off").ink(faint)],
         Net::Up(network) if network.airplane => vec![El::icon("airplane")],
@@ -102,10 +100,12 @@ pub fn view(net: &Net, named: &[String], theme: &Theme, pad: Edges, on_click: Op
                 vec![El::stack(vec![El::icon("wifi").ink(faint), El::icon(level(*strength))])]
             }
             Link::Wired | Link::Other(_) => vec![El::icon("ethernet")],
-            Link::None if network.connecting.is_some() => {
-                pending = true;
-                vec![El::icon("wifi").ink(faint)]
-            }
+            // On its way up: the arcs light one after another, as a radio
+            // looking for its network.
+            Link::None if network.connecting.is_some() => vec![El::stack(vec![
+                El::icon("wifi").ink(faint),
+                El::icons_in_turn(&["wifi-0", "wifi-1", "wifi-2", "wifi"], 0.3),
+            ])],
             Link::None => vec![El::icon("wifi-off")],
         },
     };
@@ -115,7 +115,6 @@ pub fn view(net: &Net, named: &[String], theme: &Theme, pad: Edges, on_click: Op
         parts.push(El::icon("shield").ink(Ink::Primary));
     }
     El::press(2.0, parts, on_click)
-        .pending(pending)
         .key("network")
         .padding(pad)
         .height(Size::Fill(1.0))
@@ -145,20 +144,11 @@ mod tests {
     }
 
     #[test]
-    fn wifi_and_bluetooth_off_is_airplane_mode() {
-        use crate::bluez::Bluetooth;
-        let off = Net::Up(Network::default());
-        let flying = |net: &Net, bluetooth| matches!(flying(net, bluetooth), Net::Up(n) if n.airplane);
-        assert!(flying(&off, Bluetooth::Known { adapters: 1, on: false }));
-        assert!(
-            !flying(&off, Bluetooth::Known { adapters: 1, on: true }),
-            "Bluetooth on"
-        );
-        assert!(!flying(&off, Bluetooth::Unknown), "no word of Bluetooth");
-        assert!(
-            !flying(&Net::Up(wifi(70)), Bluetooth::Known { adapters: 1, on: false }),
-            "Wi-Fi on"
-        );
+    fn every_radio_blocked_is_airplane_mode() {
+        let flying = |net: &Net, airplane| matches!(flying(net, airplane), Net::Up(n) if n.airplane);
+        assert!(flying(&Net::Up(Network::default()), true));
+        assert!(flying(&Net::Up(wifi(70)), true));
+        assert!(!flying(&Net::Up(Network::default()), false), "Wi-Fi off alone");
     }
 
     #[test]

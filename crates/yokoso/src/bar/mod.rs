@@ -32,9 +32,8 @@ use yokoso_ui::{
 };
 
 use crate::{
-    bluez,
     config::{Config, Edge, Module},
-    mpris, niri, nm, pw, sni, upower,
+    mpris, niri, nm, pw, rfkill, sni, upower,
 };
 
 /// What the bar's services send it.
@@ -43,7 +42,7 @@ pub enum Message {
     Niri(niri::Event),
     Power(upower::Power),
     Net(nm::Net),
-    Bluetooth(bluez::Bluetooth),
+    Airplane(bool),
     Sound(pw::Heard),
     Tray(sni::Said),
     Media(Option<mpris::Playing>),
@@ -122,8 +121,8 @@ pub struct Bar {
     niri: niri::State,
     power: upower::Power,
     net: nm::Net,
-    /// Bluetooth: off with Wi-Fi off too, airplane mode shows.
-    bluetooth: bluez::Bluetooth,
+    /// Every radio blocked: airplane mode, as the system has it.
+    airplane: bool,
     sound: pw::Sound,
     /// What records now.
     using: Vec<pw::Use>,
@@ -173,7 +172,7 @@ impl Bar {
             niri: niri::State::default(),
             power: upower::Power::default(),
             net: nm::Net::default(),
-            bluetooth: bluez::Bluetooth::default(),
+            airplane: false,
             sound: pw::Sound::default(),
             using: Vec::new(),
             mic: pw::Sound::default(),
@@ -201,7 +200,7 @@ impl Bar {
         let sender = ui.sender();
         nm::listen(move |net| sender.send(Message::Net(net)).is_ok());
         let sender = ui.sender();
-        bluez::listen(move |bluetooth| sender.send(Message::Bluetooth(bluetooth)).is_ok());
+        rfkill::listen(move |airplane| sender.send(Message::Airplane(airplane)).is_ok());
         let sender = ui.sender();
         pw::listen(move |sound| sender.send(Message::Sound(sound)).is_ok());
         let sender = ui.sender();
@@ -833,7 +832,7 @@ impl Bar {
             Module::Tray => tray::view(&self.tray, self.theme.sizes.icon, self.open_part().as_deref()),
             Module::Sound => Some(sound::view(&self.sound, &self.theme, round, self.opens(module))),
             Module::Network => Some(network::view(
-                &network::flying(&self.net, self.bluetooth),
+                &network::flying(&self.net, self.airplane),
                 &self.config.bar.network.vpn,
                 &self.theme,
                 round,
@@ -928,7 +927,7 @@ impl Shell for Bar {
             Message::Niri(_) => "niri",
             Message::Power(_) => "battery",
             Message::Net(_) => "network",
-            Message::Bluetooth(_) => "bluetooth",
+            Message::Airplane(_) => "airplane",
             Message::Sound(_) => "sound",
             Message::Tray(_) => "tray",
             Message::Media(_) => "media",
@@ -989,19 +988,19 @@ impl Shell for Bar {
             Message::Net(net) => {
                 if net != self.net {
                     let named = &self.config.bar.network.vpn;
-                    let bluetooth = self.bluetooth;
-                    let seen = network::looks(&network::flying(&net, bluetooth), named)
-                        != network::looks(&network::flying(&self.net, bluetooth), named);
+                    let airplane = self.airplane;
+                    let seen = network::looks(&network::flying(&net, airplane), named)
+                        != network::looks(&network::flying(&self.net, airplane), named);
                     self.net = net;
                     self.changed_if(ui, seen);
                 }
             }
-            Message::Bluetooth(bluetooth) => {
-                if bluetooth != self.bluetooth {
+            Message::Airplane(airplane) => {
+                if airplane != self.airplane {
                     let named = &self.config.bar.network.vpn;
-                    let seen = network::looks(&network::flying(&self.net, bluetooth), named)
-                        != network::looks(&network::flying(&self.net, self.bluetooth), named);
-                    self.bluetooth = bluetooth;
+                    let seen = network::looks(&network::flying(&self.net, airplane), named)
+                        != network::looks(&network::flying(&self.net, self.airplane), named);
+                    self.airplane = airplane;
                     self.changed_if(ui, seen);
                 }
             }
@@ -1370,7 +1369,7 @@ impl crate::ipc::Answer for Bar {
                         "name": network.name,
                         "link": format!("{:?}", network.link),
                         "vpns": network::vpns(network, &self.config.bar.network.vpn),
-                        "airplane": matches!(network::flying(&self.net, self.bluetooth), nm::Net::Up(shown) if shown.airplane),
+                        "airplane": matches!(network::flying(&self.net, self.airplane), nm::Net::Up(shown) if shown.airplane),
                     }),
                     nm::Net::Unknown => json!(null),
                 },
