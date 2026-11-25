@@ -29,15 +29,17 @@ pub enum Place {
 pub enum Page {
     Buttons,
     Toggles,
+    Sliders,
 }
 
 impl Page {
-    const ALL: [Page; 2] = [Page::Buttons, Page::Toggles];
+    const ALL: [Page; 3] = [Page::Buttons, Page::Toggles, Page::Sliders];
 
     fn name(self) -> &'static str {
         match self {
             Page::Buttons => "Buttons",
             Page::Toggles => "Toggles",
+            Page::Sliders => "Sliders",
         }
     }
 }
@@ -51,6 +53,9 @@ pub enum Msg {
     Quick,
     /// The slow one: as a system setting, it waits for an answer.
     Slow,
+    Volume(f32),
+    Brightness(f32),
+    Fine(f32),
 }
 
 pub struct Demo {
@@ -67,6 +72,9 @@ pub struct Demo {
     slow: bool,
     /// The slow switch was asked to change and waits for its answer.
     slow_pending: bool,
+    volume: f32,
+    brightness: f32,
+    fine: f32,
 }
 
 const WIDTH: u32 = 960;
@@ -85,6 +93,9 @@ impl Demo {
             quick: true,
             slow: false,
             slow_pending: false,
+            volume: 40.0,
+            brightness: 70.0,
+            fine: 0.5,
         }
     }
 
@@ -97,6 +108,9 @@ impl Demo {
                 self.last = Some(style);
             }
             Msg::Quick => self.quick = !self.quick,
+            Msg::Volume(value) => self.volume = value,
+            Msg::Brightness(value) => self.brightness = value,
+            Msg::Fine(value) => self.fine = value,
             Msg::Slow => {
                 // As a slow system would: the answer comes a while later.
                 self.slow_pending = true;
@@ -111,6 +125,40 @@ impl Demo {
             }
         }
         self.stale = true;
+    }
+
+    /// The sliders page: by whole numbers, by fives, fine, and disabled.
+    fn sliders(&self) -> El<Msg> {
+        let gap = self.theme.sizes.gap;
+        let line = |name: &str, slider: El<Msg>| {
+            El::column(
+                4.0,
+                vec![
+                    El::text(name, Type::Label).ink(Ink::OnSurfaceVariant),
+                    slider.width(Size::Fixed(420.0)),
+                ],
+            )
+        };
+        El::column(
+            gap * 1.5,
+            vec![
+                El::text("Sliders", Type::Title).weight(600.0),
+                line(
+                    "Volume, by one",
+                    El::slider(self.volume, 0.0, 100.0, 1.0, Some(Msg::Volume)).show_value(),
+                ),
+                line(
+                    "Brightness, by five",
+                    El::slider(self.brightness, 0.0, 100.0, 5.0, Some(Msg::Brightness)).show_value(),
+                ),
+                line(
+                    "Fine, 0 to 1",
+                    El::slider(self.fine, 0.0, 1.0, 0.01, Some(Msg::Fine)).show_value(),
+                ),
+                line("Disabled", El::slider(30.0, 0.0, 100.0, 1.0, None::<fn(f32) -> Msg>)),
+            ],
+        )
+        .align(Align::Start)
     }
 
     /// The toggles page: quick, slow and disabled.
@@ -209,6 +257,7 @@ impl Demo {
         let page = match self.page {
             Page::Buttons => self.buttons(),
             Page::Toggles => self.toggles(),
+            Page::Sliders => self.sliders(),
         };
         El::column(
             sizes.gap,
@@ -325,6 +374,9 @@ impl crate::ipc::Answer for Demo {
                 "quick": self.quick,
                 "slow": self.slow,
                 "slow_pending": self.slow_pending,
+                "volume": self.volume,
+                "brightness": self.brightness,
+                "fine": self.fine,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
