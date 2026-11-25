@@ -14,8 +14,9 @@ use yokoso_ui::{
     calloop::timer::{TimeoutAction, Timer},
     el::{Align, ButtonStyle, CardStyle, Edges, El, Ink, Size, TileEl, Type, tree::Tree},
     input::Input,
+    motion::{Mode, Motion, Preset},
     text::Text,
-    theme::Theme,
+    theme::{Density, Palette, Theme, Variant},
 };
 
 /// Where the demo is.
@@ -33,16 +34,18 @@ pub enum Page {
     Cards,
     Lists,
     Fields,
+    Settings,
 }
 
 impl Page {
-    const ALL: [Page; 6] = [
+    const ALL: [Page; 7] = [
         Page::Buttons,
         Page::Toggles,
         Page::Sliders,
         Page::Cards,
         Page::Lists,
         Page::Fields,
+        Page::Settings,
     ];
 
     fn name(self) -> &'static str {
@@ -53,6 +56,7 @@ impl Page {
             Page::Cards => "Cards and tiles",
             Page::Lists => "Lists",
             Page::Fields => "Fields",
+            Page::Settings => "Theme and motion",
         }
     }
 }
@@ -80,7 +84,28 @@ pub enum Msg {
     Name(String),
     Secret(String),
     Sent,
+    Dark(usize),
+    Variant(usize),
+    Accent(usize),
+    Density(usize),
+    Preset(usize),
+    Mode(usize),
+    Speed(f32),
+    Zoom(usize),
 }
+
+/// Accents to try, by name and seed.
+const ACCENTS: [(&str, &str); 6] = [
+    ("Peach", "#f3a17a"),
+    ("Rose", "#f06292"),
+    ("Violet", "#9575cd"),
+    ("Blue", "#64b5f6"),
+    ("Teal", "#4db6ac"),
+    ("Green", "#81c784"),
+];
+const DENSITIES: [Density; 3] = [Density::Compact, Density::Normal, Density::Comfortable];
+const MODES: [Mode; 3] = [Mode::Normal, Mode::Reduced, Mode::Off];
+const ZOOMS: [f32; 5] = [0.75, 1.0, 1.25, 1.5, 2.0];
 
 /// The demo's tiles: icon, name, and whether they wait on a slow system.
 const TILES: [(&str, &str, bool); 4] = [
@@ -117,6 +142,10 @@ pub struct Demo {
     name: String,
     secret: String,
     sent: Option<String>,
+    /// What the theme is made of, as chosen on the settings page.
+    accent: usize,
+    zoom: usize,
+    preset: Option<Preset>,
 }
 
 const WIDTH: u32 = 960;
@@ -147,6 +176,9 @@ impl Demo {
             name: String::new(),
             secret: String::new(),
             sent: None,
+            accent: 0,
+            zoom: 1,
+            preset: Some(Preset::Expressive),
         }
     }
 
@@ -169,6 +201,24 @@ impl Demo {
             Msg::Name(text) => self.name = text,
             Msg::Secret(text) => self.secret = text,
             Msg::Sent => self.sent = Some(self.name.clone()),
+            Msg::Dark(at) => self.retheme(|palette, _, _| palette.dark = at == 0),
+            Msg::Variant(at) => self.retheme(|palette, _, _| palette.variant = Variant::ALL[at]),
+            Msg::Accent(at) => {
+                self.accent = at;
+                let seed = yokoso_ui::Color::hex(ACCENTS[at].1).unwrap_or(yokoso_ui::Color::WHITE);
+                self.retheme(|palette, _, _| palette.seed = seed);
+            }
+            Msg::Density(at) => self.retheme(|_, density, _| *density = DENSITIES[at]),
+            Msg::Preset(at) => {
+                self.preset = Some(Preset::ALL[at]);
+                self.retheme(|_, _, motion| motion.global = Preset::ALL[at].params());
+            }
+            Msg::Mode(at) => self.retheme(|_, _, motion| motion.mode = MODES[at]),
+            Msg::Speed(speed) => self.retheme(|_, _, motion| motion.speed = speed),
+            Msg::Zoom(at) => {
+                self.zoom = at;
+                ui.set_zoom(ZOOMS[at]);
+            }
             Msg::Tile(at) if TILES[at].2 => {
                 self.tiles_pending[at] = true;
                 let answer = Timer::from_duration(Duration::from_millis(1200));
@@ -195,6 +245,109 @@ impl Demo {
             }
         }
         self.stale = true;
+    }
+
+    /// The theme made anew with `change` to its palette, density or motion.
+    fn retheme(&mut self, change: impl FnOnce(&mut Palette, &mut Density, &mut Motion)) {
+        let (mut palette, mut density, mut motion) =
+            (self.theme.palette, self.theme.density, self.theme.motion.clone());
+        change(&mut palette, &mut density, &mut motion);
+        self.theme = Theme::new(palette, density, motion);
+    }
+
+    /// The theme and motion page: everything the theme is made of, changed
+    /// on the fly.
+    fn settings(&self) -> El<Msg> {
+        let sizes = &self.theme.sizes;
+        let names = |all: &[&str]| all.iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        let line = |name: &str, control: El<Msg>| {
+            El::row(
+                sizes.gap,
+                vec![
+                    El::text(name, Type::Body).width(Size::Fixed(130.0)),
+                    control.width(Size::Fixed(240.0)),
+                ],
+            )
+        };
+        let theme = &self.theme;
+        let motion = &theme.motion;
+        El::column(
+            sizes.gap,
+            vec![
+                El::text("Theme and motion", Type::Title).weight(600.0),
+                line(
+                    "Theme",
+                    El::menu(
+                        names(&["Dark", "Light"]),
+                        Some(if theme.palette.dark { 0 } else { 1 }),
+                        "",
+                        Some(Msg::Dark),
+                    ),
+                ),
+                line(
+                    "Palette",
+                    El::menu(
+                        Variant::ALL.iter().map(|variant| variant.name().to_string()).collect(),
+                        Variant::ALL
+                            .iter()
+                            .position(|variant| *variant == theme.palette.variant),
+                        "",
+                        Some(Msg::Variant),
+                    ),
+                ),
+                line(
+                    "Accent",
+                    El::menu(
+                        ACCENTS.iter().map(|(name, _)| name.to_string()).collect(),
+                        Some(self.accent),
+                        "",
+                        Some(Msg::Accent),
+                    ),
+                ),
+                line(
+                    "Density",
+                    El::menu(
+                        names(&["Compact", "Normal", "Comfortable"]),
+                        DENSITIES.iter().position(|density| *density == theme.density),
+                        "",
+                        Some(Msg::Density),
+                    ),
+                ),
+                line(
+                    "Spring",
+                    El::menu(
+                        Preset::ALL.iter().map(|preset| preset.name().to_string()).collect(),
+                        self.preset
+                            .and_then(|preset| Preset::ALL.iter().position(|p| *p == preset)),
+                        "",
+                        Some(Msg::Preset),
+                    ),
+                ),
+                line(
+                    "Motion",
+                    El::menu(
+                        names(&["Normal", "Reduced", "Off"]),
+                        MODES.iter().position(|mode| *mode == motion.mode),
+                        "",
+                        Some(Msg::Mode),
+                    ),
+                ),
+                line(
+                    "Speed",
+                    El::slider(motion.speed, 0.5, 2.0, 0.05, Some(Msg::Speed)).show_value(),
+                ),
+                line(
+                    "Zoom",
+                    El::menu(
+                        ZOOMS.iter().map(|zoom| format!("{zoom}\u{d7}")).collect(),
+                        Some(self.zoom),
+                        "",
+                        Some(Msg::Zoom),
+                    ),
+                ),
+            ],
+        )
+        .align(Align::Start)
     }
 
     /// The fields page: plain, a password, and disabled.
@@ -492,6 +645,7 @@ impl Demo {
             Page::Cards => self.cards(),
             Page::Lists => self.lists(),
             Page::Fields => self.fields(),
+            Page::Settings => self.settings(),
         };
         El::column(
             sizes.gap,
@@ -635,6 +789,12 @@ impl crate::ipc::Answer for Demo {
                 "name": self.name,
                 "secret_length": self.secret.chars().count(),
                 "sent": self.sent,
+                "dark": self.theme.palette.dark,
+                "accent": ACCENTS[self.accent].0,
+                "density": format!("{:?}", self.theme.density),
+                "zoom": ui.zoom(),
+                "mode": format!("{:?}", self.theme.motion.mode),
+                "speed": self.theme.motion.speed,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
