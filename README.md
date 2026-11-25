@@ -49,6 +49,18 @@ format = "%H:%M"          # strftime
 date = false
 date_format = "%a %-d %b"
 
+[bar.network]
+on_click = []             # a command, as words, until it has a panel
+vpn = []                  # connections that count as a VPN, by name
+
+[bar.sound]
+on_click = []
+step = 5                  # percent a notch of the wheel
+max = 100                 # how loud the wheel goes; up to 150
+
+[bar.battery]
+on_click = []
+
 [probe]                   # the test card of `yokoso probe`
 accent = "#f3a17a"
 radius = 8
@@ -63,7 +75,24 @@ overlay = false   # frame times over every surface
 `overlay [on|off]`, `move [seconds]`.
 
 As a user service: `dist/yokoso.service` (the package installs it), part of
-`graphical-session.target`.
+`graphical-session.target`. Failing three times within a minute, it stays
+down and `yokoso-fallback.service` runs `$XDG_CONFIG_HOME/yokoso/fallback`, a
+script of your own that brings back what yokoso took over, if there is one.
+
+## The bar
+
+From its start to its end, as the config orders them: the workspaces as a
+map of their columns, media, the clock, who records (microphone, camera,
+the screen shared), the tray, the keyboard layout, the network, the sound
+and the battery. A click on the clock opens a calendar, a right click on a
+tray icon its menu; with a panel open, the pointer on another part with one
+opens that one. The wheel turns the workspaces, the layout, the volume and
+the calendar's months; the middle button mutes the sound and skips a track.
+
+Its services are niri's event stream, UPower, NetworkManager, MPRIS and the
+StatusNotifierItem tray on D-Bus, and PipeWire through `pw-dump --monitor`
+and `wpctl`. Each is read once and then on its own signals: nothing is
+asked on a timer, and at rest the bar draws nothing.
 
 ## Test
 
