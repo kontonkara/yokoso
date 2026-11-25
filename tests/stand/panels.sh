@@ -85,3 +85,18 @@ move 700 700
 click
 sleep 0.8
 [ "$(popup)" = null ] || fail "a click elsewhere left $(popup)"
+# Thirty openings of the calendar leave no memory behind, and no frames.
+before=$(rss)
+for _ in $(seq 30); do
+	"$binary" msg dump >/dev/null
+	move "$x" "$y"
+	click
+	sleep 0.15
+	click
+	sleep 0.15
+done
+sleep 1.5
+after=$(rss)
+echo "memory: $before KiB, then $after KiB after 30 calendars"
+[ $((after - before)) -lt 4096 ] || fail "memory grew by $((after - before)) KiB"
+[ "$(popup)" = null ] || fail "a calendar was left open: $(popup)"

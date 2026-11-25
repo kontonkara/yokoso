@@ -38,3 +38,9 @@ sleep 0.3
 "$binary" msg bar show >/dev/null
 sleep 0.5
 [ "$(dump | jq '.surfaces | length')" = 1 ] || fail "the bar did not come back"
+# At rest, nothing is drawn: no frames but the clock's, once a minute.
+sleep 1.2
+frames=$("$binary" msg stats | jq .frames)
+sleep 2
+now=$("$binary" msg stats | jq .frames)
+[ $((now - frames)) -le 1 ] || fail "$((now - frames)) frames in 2 s at rest"
