@@ -341,6 +341,8 @@ pub struct Ui<S: Shell> {
     refresh: bool,
     sender: channel::Sender<S::Message>,
     stats: Stats,
+    /// How much larger than its own logical pixels everything is drawn.
+    zoom: f32,
     quit: bool,
 }
 
@@ -405,6 +407,17 @@ impl<S: Shell> Ui<S> {
             app.ui.dirty(key);
             calloop::timer::TimeoutAction::Drop
         });
+    }
+
+    /// Everything drawn `zoom` times larger (or smaller): layout sees a
+    /// smaller (or larger) surface, painting a finer scale.
+    pub fn set_zoom(&mut self, zoom: f32) {
+        self.zoom = zoom.clamp(0.5, 3.0);
+        self.dirty_all();
+    }
+
+    pub fn zoom(&self) -> f32 {
+        self.zoom
     }
 
     pub fn quit(&mut self) {
@@ -601,9 +614,9 @@ impl<S: Shell> Ui<S> {
         surface.last_time = Some(now);
         // Layout.
         let view = View {
-            width: surface.size.0 as f32,
-            height: surface.size.1 as f32,
-            scale: surface.scale,
+            width: surface.size.0 as f32 / self.zoom,
+            height: surface.size.1 as f32 / self.zoom,
+            scale: surface.scale * self.zoom,
         };
         shell.layout(key, &view, &mut self.text);
         let asked = shell.damage(key);
@@ -785,6 +798,7 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         refresh: true,
         sender,
         stats: Stats::default(),
+        zoom: 1.0,
         quit: false,
     };
     let mut app = App { shell, ui };
@@ -1042,7 +1056,8 @@ impl<S: Shell> PointerHandler for App<S> {
             else {
                 continue;
             };
-            let (x, y) = (event.position.0 as f32, event.position.1 as f32);
+            let zoom = self.ui.zoom;
+            let (x, y) = (event.position.0 as f32 / zoom, event.position.1 as f32 / zoom);
             let input = match event.kind {
                 PointerEventKind::Enter { .. } => Input::PointerEnter { x, y },
                 PointerEventKind::Leave { .. } => Input::PointerLeave,
