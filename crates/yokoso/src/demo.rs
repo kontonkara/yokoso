@@ -32,10 +32,18 @@ pub enum Page {
     Sliders,
     Cards,
     Lists,
+    Fields,
 }
 
 impl Page {
-    const ALL: [Page; 5] = [Page::Buttons, Page::Toggles, Page::Sliders, Page::Cards, Page::Lists];
+    const ALL: [Page; 6] = [
+        Page::Buttons,
+        Page::Toggles,
+        Page::Sliders,
+        Page::Cards,
+        Page::Lists,
+        Page::Fields,
+    ];
 
     fn name(self) -> &'static str {
         match self {
@@ -44,6 +52,7 @@ impl Page {
             Page::Sliders => "Sliders",
             Page::Cards => "Cards and tiles",
             Page::Lists => "Lists",
+            Page::Fields => "Fields",
         }
     }
 }
@@ -68,6 +77,9 @@ pub enum Msg {
     Open(usize),
     /// The list with its rows, or with none.
     Empty,
+    Name(String),
+    Secret(String),
+    Sent,
 }
 
 /// The demo's tiles: icon, name, and whether they wait on a slow system.
@@ -102,6 +114,9 @@ pub struct Demo {
     selected: Option<usize>,
     opened: Option<usize>,
     empty: bool,
+    name: String,
+    secret: String,
+    sent: Option<String>,
 }
 
 const WIDTH: u32 = 960;
@@ -129,6 +144,9 @@ impl Demo {
             selected: None,
             opened: None,
             empty: false,
+            name: String::new(),
+            secret: String::new(),
+            sent: None,
         }
     }
 
@@ -148,6 +166,9 @@ impl Demo {
             Msg::Select(row) => self.selected = Some(row),
             Msg::Open(row) => self.opened = Some(row),
             Msg::Empty => self.empty = !self.empty,
+            Msg::Name(text) => self.name = text,
+            Msg::Secret(text) => self.secret = text,
+            Msg::Sent => self.sent = Some(self.name.clone()),
             Msg::Tile(at) if TILES[at].2 => {
                 self.tiles_pending[at] = true;
                 let answer = Timer::from_duration(Duration::from_millis(1200));
@@ -174,6 +195,41 @@ impl Demo {
             }
         }
         self.stale = true;
+    }
+
+    /// The fields page: plain, a password, and disabled.
+    fn fields(&self) -> El<Msg> {
+        let sizes = &self.theme.sizes;
+        let line = |name: &str, field: El<Msg>| {
+            El::column(
+                4.0,
+                vec![
+                    El::text(name, Type::Label).ink(Ink::OnSurfaceVariant),
+                    field.width(Size::Fixed(380.0)),
+                ],
+            )
+        };
+        let said = match &self.sent {
+            Some(name) => format!("Sent: {name}"),
+            None => "Return sends the first; Ctrl+arrows go by words".into(),
+        };
+        El::column(
+            sizes.gap * 1.5,
+            vec![
+                El::text("Fields", Type::Title).weight(600.0),
+                line(
+                    "Name",
+                    El::field(&self.name, "Type here", Some(Msg::Name)).on_submit(Msg::Sent),
+                ),
+                line(
+                    "Password",
+                    El::field(&self.secret, "Dots, and nothing to copy", Some(Msg::Secret)).password(),
+                ),
+                line("Disabled", El::field("Takes nothing", "", None::<fn(String) -> Msg>)),
+                El::text(said, Type::Body).ink(Ink::OnSurfaceVariant),
+            ],
+        )
+        .align(Align::Start)
     }
 
     /// The lists page: ten thousand rows, or none.
@@ -435,6 +491,7 @@ impl Demo {
             Page::Sliders => self.sliders(),
             Page::Cards => self.cards(),
             Page::Lists => self.lists(),
+            Page::Fields => self.fields(),
         };
         El::column(
             sizes.gap,
@@ -495,6 +552,16 @@ impl Shell for Demo {
         if let Some(wake) = response.wake {
             ui.wake_after(key, wake);
         }
+        if let Some(text) = response.copy {
+            ui.copy(text);
+        }
+        if response.paste {
+            ui.paste(key);
+        }
+    }
+
+    fn wake(&self, _: Place) -> Option<std::time::Duration> {
+        self.tree.wake()
     }
 
     fn update(&mut self, _: Place, time: &FrameTime) -> bool {
@@ -565,6 +632,9 @@ impl crate::ipc::Answer for Demo {
                 "scroll": self.tree.nodes().iter().find(|node| node.role == yokoso_ui::el::tree::Role::List)
                     .and_then(|node| self.tree.state(node.id)).map(|state| state.scroll.value),
                 "opened": self.opened,
+                "name": self.name,
+                "secret_length": self.secret.chars().count(),
+                "sent": self.sent,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
