@@ -182,7 +182,7 @@ pub struct Frame<'a> {
     /// Added to everything painted, logical pixels: what comes in sliding.
     offset: (f32, f32),
     alpha: f32,
-    /// What painting is kept inside now, logical pixels.
+    /// What painting is kept inside now, logical pixels on the surface.
     clipped: Option<Rect>,
 }
 
@@ -263,20 +263,25 @@ impl Frame<'_> {
 
     /// What is painted from here on shows only in `rect`, or everywhere.
     pub fn clip(&mut self, rect: Option<Rect>) {
-        self.clipped = rect;
+        // Kept where it is on the surface, so an offset set after it moves
+        // what is painted, not the clip.
+        let (dx, dy) = self.offset;
+        self.clipped = rect.map(|rect| Rect::new(rect.x + dx, rect.y + dy, rect.w, rect.h));
         let rect = rect.map(|rect| self.snap(rect));
         self.painter.clip(rect);
     }
 
-    /// What painting is kept inside now.
+    /// What painting is kept inside now, from where the offset is now.
     pub fn current_clip(&self) -> Option<Rect> {
+        let (dx, dy) = self.offset;
         self.clipped
+            .map(|rect| Rect::new(rect.x - dx, rect.y - dy, rect.w, rect.h))
     }
 
     /// Painting kept inside `rect` as well as what it is kept inside now.
     /// What it was before, to put back with `clip`.
     pub fn clip_within(&mut self, rect: Rect) -> Option<Rect> {
-        let before = self.clipped;
+        let before = self.current_clip();
         self.clip(Some(before.map_or(rect, |outer| outer.intersect(&rect))));
         before
     }
