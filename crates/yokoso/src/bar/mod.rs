@@ -766,9 +766,17 @@ impl Bar {
     /// A part, as it shows on `place` now; None where it has nothing to show.
     fn module(&self, place: Place, module: Module) -> Option<El<Msg>> {
         let sizes = &self.theme.sizes;
+        // Room either side of a part with words; one of icons alone is as wide
+        // as it is tall, a circle under the pointer, as close to the next as
+        // the icons of a row are.
         let pad = Edges {
-            left: sizes.pad * 0.75,
-            right: sizes.pad * 0.75,
+            left: sizes.pad * 0.625,
+            right: sizes.pad * 0.625,
+            ..Edges::default()
+        };
+        let round = Edges {
+            left: sizes.pad * 0.375,
+            right: sizes.pad * 0.375,
             ..Edges::default()
         };
         match module {
@@ -788,14 +796,14 @@ impl Bar {
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
             Module::Media => media::view(self.media.as_ref(), &self.theme, pad),
-            Module::Privacy => privacy::view(&self.using, self.niri.casts, &self.theme, pad),
+            Module::Privacy => privacy::view(&self.using, self.niri.casts, &self.theme, round),
             Module::Tray => tray::view(&self.tray, self.theme.sizes.icon, self.open_part().as_deref()),
-            Module::Sound => Some(sound::view(&self.sound, &self.theme, pad, self.opens(module))),
+            Module::Sound => Some(sound::view(&self.sound, &self.theme, round, self.opens(module))),
             Module::Network => Some(network::view(
                 &self.net,
                 &self.config.bar.network.vpn,
                 &self.theme,
-                pad,
+                round,
                 self.opens(module),
             )),
             Module::Workspaces => {
