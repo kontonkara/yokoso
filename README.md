@@ -83,6 +83,10 @@ text = ""                 # and/or words in it
 action = "quiet"          # hide | quiet | through | run
 run = []                  # for run: a command, as words
 
+[osd]
+duration = 1.5            # seconds after the last change
+hidden = []               # volume | mic | output | brightness | layout
+
 [probe]                   # the test card of `yokoso probe`
 accent = "#f3a17a"
 radius = 8
@@ -136,6 +140,11 @@ app. Critical ones stay until closed and show over full-screen windows. The
 history is kept for its owner alone in
 `$XDG_STATE_HOME/yokoso/notifications.json`, and so is quiet. Text comes as
 plain text: markup in it is taken out, and nothing in it is loaded.
+
+The OSD shows what changed at the bottom middle of the main screen: the
+volume or the microphone, whatever changed it, the output sound moved to,
+the brightness as the kernel tells it, the keyboard layout. The pointer goes
+through it.
 
 ## Test
 
