@@ -59,6 +59,11 @@ pub struct State {
     pub focus: Spring,
     /// For a toggle's thumb, a slider's handle and the like.
     pub value: Spring,
+    /// Seconds into a pulse, while the element waits on something.
+    pub phase: f32,
+    /// Its springs were set from a description once: after that they move
+    /// to new values rather than jump.
+    pub known: bool,
 }
 
 impl Default for State {
@@ -68,6 +73,8 @@ impl Default for State {
             press: Spring::new(0.0),
             focus: Spring::new(0.0),
             value: Spring::new(0.0),
+            phase: 0.0,
+            known: false,
         }
     }
 }
@@ -98,6 +105,8 @@ pub struct Tree<M> {
     stale: bool,
     pub hovered: Option<Id>,
     pub pressed: Option<Id>,
+    /// Elements waiting on something, which pulse meanwhile.
+    pending: HashSet<Id>,
     pub focus: Option<Id>,
     /// The focus ring shows: a key was pressed since the last click.
     pub focus_visible: bool,
@@ -116,6 +125,7 @@ impl<M> Default for Tree<M> {
             pressed: None,
             focus: None,
             focus_visible: false,
+            pending: HashSet::new(),
         }
     }
 }
@@ -163,6 +173,13 @@ impl<M: Clone> Tree<M> {
     pub fn update(&mut self, dt: f32, theme: &Theme) -> bool {
         let feel = theme.motion.feel(Part::Micro);
         let mut moving = false;
+        // What waits pulses, and keeps frames coming while it does.
+        for id in &self.pending {
+            if let Some(state) = self.states.get_mut(id) {
+                state.phase += dt;
+                moving = true;
+            }
+        }
         for state in self.states.values_mut() {
             for spring in state.springs() {
                 moving |= spring.step(dt, &feel);
@@ -200,9 +217,16 @@ impl<M: Clone> Tree<M> {
         let mut all = Vec::new();
         walk(el, ROOT, None, &mut all);
         let mut seen = HashSet::new();
+        self.pending.clear();
         for ((el, id, parent), rect) in all.into_iter().zip(rects) {
             seen.insert(id);
-            self.states.entry(id).or_default();
+            let state = self.states.entry(id).or_default();
+            kinds::settle(&el.kind, state);
+            if kinds::pending(&el.kind) {
+                self.pending.insert(id);
+            } else {
+                state.phase = 0.0;
+            }
             self.nodes.push(Node {
                 id,
                 rect,
@@ -366,6 +390,11 @@ impl<M: Clone> Tree<M> {
         let (el, _, _) = all.into_iter().find(|(_, found, _)| *found == id)?;
         match &el.kind {
             super::Kind::Button { on_press, .. } => on_press.clone(),
+            super::Kind::Toggle {
+                on_toggle,
+                pending: false,
+                ..
+            } => on_toggle.clone(),
             _ => None,
         }
     }

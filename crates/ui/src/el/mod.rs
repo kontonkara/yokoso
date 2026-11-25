@@ -131,6 +131,13 @@ pub enum Kind<M> {
         style: ButtonStyle,
         on_press: Option<M>,
     },
+    /// A switch. Pending: asked to change, not yet confirmed, as a system
+    /// setting is until the system answers. Disabled without a message.
+    Toggle {
+        on: bool,
+        pending: bool,
+        on_toggle: Option<M>,
+    },
     #[doc(hidden)]
     _Message(std::marker::PhantomData<M>),
 }
@@ -198,6 +205,10 @@ impl<M> El<M> {
             style,
             on_press,
         })
+    }
+
+    pub fn toggle(on: bool, pending: bool, on_toggle: Option<M>) -> Self {
+        Self::new(Kind::Toggle { on, pending, on_toggle })
     }
 
     /// Its key: what names it among its siblings, for ones that come and go.

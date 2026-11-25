@@ -13,13 +13,36 @@ pub fn role<M>(kind: &Kind<M>) -> Role {
     match kind {
         Kind::Text(_) => Role::Text,
         Kind::Button { .. } => Role::Button,
+        Kind::Toggle { .. } => Role::Toggle,
         _ => Role::Group,
     }
 }
 
 /// Whether it takes the pointer and the keyboard.
 pub fn interactive<M>(kind: &Kind<M>) -> bool {
-    matches!(kind, Kind::Button { on_press: Some(_), .. })
+    matches!(
+        kind,
+        Kind::Button { on_press: Some(_), .. } | Kind::Toggle { on_toggle: Some(_), .. }
+    )
+}
+
+/// Whether it waits on something, pulsing meanwhile.
+pub fn pending<M>(kind: &Kind<M>) -> bool {
+    matches!(kind, Kind::Toggle { pending: true, .. })
+}
+
+/// Aims its springs at what the description says: a toggle's thumb at its
+/// side. The first time there, at once.
+pub fn settle<M>(kind: &Kind<M>, state: &mut State) {
+    if let Kind::Toggle { on, .. } = kind {
+        let target = if *on { 1.0 } else { 0.0 };
+        if state.known {
+            state.value.to(target);
+        } else {
+            state.value.snap(target);
+        }
+    }
+    state.known = true;
 }
 
 /// Text's style from the theme's tokens.
@@ -73,6 +96,7 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
             let laid = text.layout(&t.text, &style(t, theme), scale, wrap, false);
             (laid.width().ceil().min(max.unwrap_or(f32::MAX)), laid.height().ceil())
         }
+        Kind::Toggle { .. } => (TRACK.0.min(max.unwrap_or(f32::MAX)), TRACK.1),
         Kind::Button { label, .. } => {
             let laid = text.layout(label, &label_style(theme), scale, None, false);
             let width = laid.width().ceil() + 2.0 * button_pad(theme);
@@ -155,7 +179,80 @@ pub fn paint<M>(
                 frame.text(paragraph, x, y, content);
             }
         }
+        Kind::Toggle { on, pending, on_toggle } => {
+            paint_toggle(*on, *pending, on_toggle.is_some(), rect, state, focused, frame, theme);
+        }
         _ => {}
+    }
+}
+
+/// A switch's track, as Material 3 has it.
+const TRACK: (f32, f32) = (52.0, 32.0);
+
+#[allow(clippy::too_many_arguments)]
+fn paint_toggle(
+    on: bool,
+    pending: bool,
+    enabled: bool,
+    rect: Rect,
+    state: &State,
+    focused: bool,
+    frame: &mut Frame,
+    theme: &Theme,
+) {
+    let colors = &theme.colors;
+    let track = Rect::new(
+        rect.x + (rect.w - TRACK.0) / 2.0,
+        rect.y + (rect.h - TRACK.1) / 2.0,
+        TRACK.0,
+        TRACK.1,
+    );
+    let radius = TRACK.1 / 2.0;
+    // How far over the thumb is, 0 off to 1 on: it may overshoot.
+    let t = state.value.value;
+    let shown = t.clamp(0.0, 1.0);
+    let fade = |color: Color| {
+        if enabled {
+            color
+        } else {
+            color.alpha(state::DISABLED_CONTENT)
+        }
+    };
+    let off_track = colors.surface_container_highest;
+    frame.fill(track, radius, fade(off_track.mix(colors.primary, shown)));
+    if shown < 1.0 {
+        frame.ring(track, radius, 2.0, fade(colors.outline).alpha(1.0 - shown));
+    }
+    // The thumb: small off, larger on, larger still while pressed.
+    let press = state.press.value.clamp(0.0, 1.0);
+    let size = 16.0 + 8.0 * shown;
+    let size = size + (28.0 - size) * press;
+    let x = track.x + radius + t * (TRACK.0 - 2.0 * radius);
+    let y = track.y + radius;
+    if enabled {
+        let halo = 40.0;
+        let layer = state.hover.value * state::HOVER + press * state::PRESS;
+        let ink = if on { colors.primary } else { colors.on_surface };
+        frame.fill(
+            Rect::new(x - halo / 2.0, y - halo / 2.0, halo, halo),
+            halo / 2.0,
+            ink.alpha(layer),
+        );
+    }
+    let thumb_color = colors.outline.mix(colors.on_primary, shown);
+    // Waiting on the system, the thumb pulses.
+    let pulse = if pending {
+        0.6 + 0.4 * (state.phase * std::f32::consts::TAU * 1.2).cos()
+    } else {
+        1.0
+    };
+    frame.fill(
+        Rect::new(x - size / 2.0, y - size / 2.0, size, size),
+        size / 2.0,
+        fade(thumb_color).alpha(pulse),
+    );
+    if focused {
+        ring(frame, track, radius, state, theme);
     }
 }
 
