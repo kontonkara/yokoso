@@ -59,7 +59,9 @@ impl<M: Clone> Panel<M> {
         self.from = button;
         self.to = to;
         if self.open && !self.shape.is_moving() && self.shape.value == 0.0 {
-            // From rest, closed: it starts as the button.
+            // From rest, closed: it starts as the button, and its content comes
+            // in anew, one after another.
+            self.tree = Tree::default();
             self.x.snap(button.x);
             self.y.snap(button.y);
             self.w.snap(button.w);

@@ -99,6 +99,19 @@ pub enum Msg {
     Panel,
 }
 
+/// Milliseconds of the wall clock.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis() as u64)
+}
+
+/// The time of day, UTC, as hh:mm:ss: its digits roll.
+fn clock() -> String {
+    let seconds = now_ms() / 1000 % 86_400;
+    format!("{:02}:{:02}:{:02}", seconds / 3600, seconds / 60 % 60, seconds % 60)
+}
+
 /// Accents to try, by name and seed.
 const ACCENTS: [(&str, &str); 6] = [
     ("Peach", "#f3a17a"),
@@ -154,6 +167,8 @@ pub struct Demo {
     panel: crate::panel::Panel<Msg>,
     /// Times the panel was opened, for the memory test.
     panels: u32,
+    /// A clock ticks on the panel page.
+    ticking: bool,
 }
 
 const WIDTH: u32 = 960;
@@ -189,13 +204,29 @@ impl Demo {
             preset: Some(Preset::Expressive),
             panel: crate::panel::Panel::default(),
             panels: 0,
+            ticking: false,
         }
     }
 
     /// What the elements said, done.
     fn apply(&mut self, ui: &mut Ui<Self>, message: Msg) {
         match message {
-            Msg::Page(page) => self.page = page,
+            Msg::Page(page) => {
+                self.page = page;
+                if page == Page::Panel && !self.ticking {
+                    self.ticking = true;
+                    let tick = Timer::from_duration(Duration::from_millis(1000 - (now_ms() % 1000)));
+                    let _ = ui.handle().insert_source(tick, |_, _, app| {
+                        if app.shell.page != Page::Panel {
+                            app.shell.ticking = false;
+                            return TimeoutAction::Drop;
+                        }
+                        app.shell.stale = true;
+                        app.ui.dirty_all();
+                        TimeoutAction::ToDuration(Duration::from_millis(1000 - (now_ms() % 1000)))
+                    });
+                }
+            }
             Msg::Pressed(style) => {
                 self.presses += 1;
                 self.last = Some(style);
@@ -284,6 +315,7 @@ impl Demo {
                 )
                 .ink(Ink::OnSurfaceVariant)
                 .width(Size::Fixed(420.0)),
+                El::text(clock(), Type::Headline).weight(500.0).tabular().rolling(),
                 El::button(
                     if self.panel.open { "Close" } else { "Quick settings" },
                     ButtonStyle::Tonal,
