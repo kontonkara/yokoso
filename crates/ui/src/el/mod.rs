@@ -271,8 +271,13 @@ pub enum Kind<M> {
     Block {
         ink: Ink,
         radius: f32,
-        /// Only its edge, this wide; filled for 0.
-        line: f32,
+    },
+    /// A battery filled `level` of the way, 0 to 1: a body, its nub and the
+    /// fill, each edge on a whole pixel and the room around the fill even at
+    /// any scale, as shapes laid out apart can't be.
+    Battery {
+        level: f32,
+        ink: Ink,
     },
     Text(TextEl),
     /// Disabled without a message to send.
@@ -355,12 +360,17 @@ impl<M> El<M> {
 
     /// A plain shape in `ink`, rounded by `radius`; its size as set.
     pub fn block(ink: Ink, radius: f32) -> Self {
-        Self::new(Kind::Block { ink, radius, line: 0.0 })
+        Self::new(Kind::Block { ink, radius })
     }
 
-    /// The edge of a block alone, `line` wide inside it.
-    pub fn outline(ink: Ink, radius: f32, line: f32) -> Self {
-        Self::new(Kind::Block { ink, radius, line })
+    /// A battery `level` full, 0 to 1, 24 by 12 unless sized otherwise.
+    pub fn battery(level: f32, ink: Ink) -> Self {
+        Self::new(Kind::Battery {
+            level: level.clamp(0.0, 1.0),
+            ink,
+        })
+        .width(Size::Fixed(24.0))
+        .height(Size::Fixed(12.0))
     }
 
     pub fn text(text: impl Into<String>, ty: Type) -> Self {

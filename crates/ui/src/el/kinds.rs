@@ -336,16 +336,13 @@ pub fn paint<M>(
             }
         }
         Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
-        Kind::Block {
-            ink: color,
-            radius,
-            line,
-        } => {
-            if *line > 0.0 {
-                frame.ring(rect, *radius, *line, ink(*color, theme));
-            } else {
-                frame.fill(rect, *radius, ink(*color, theme));
-            }
+        Kind::Block { ink: color, radius } => frame.fill(rect, *radius, ink(*color, theme)),
+        Kind::Battery { level, ink: color } => {
+            let color = ink(*color, theme);
+            let shape = battery(*level, rect, frame.view().scale);
+            frame.ring(shape.body, shape.radius, shape.line, color);
+            frame.fill(shape.nub, shape.radius / 3.0, color);
+            frame.fill(shape.fill, shape.radius / 3.0, color);
         }
         Kind::Picture(picture) => {
             // Whole, as large as fits, in the middle.
@@ -776,4 +773,75 @@ pub fn ring(frame: &mut Frame, rect: Rect, radius: f32, state: &State, theme: &T
     let gap = 2.0;
     let outer = rect.grow(gap + width);
     frame.ring(outer, radius + gap + width, width, theme.colors.secondary.alpha(shown));
+}
+
+/// A battery's parts, logical pixels on whole buffer pixels.
+#[derive(Debug, PartialEq)]
+struct Battery {
+    body: Rect,
+    nub: Rect,
+    fill: Rect,
+    line: f32,
+    radius: f32,
+}
+
+/// The battery `level` full in `rect` at `scale`: worked out in buffer
+/// pixels at once, so the room around the fill is the same on each side,
+/// and the nub in the middle of the body's height.
+fn battery(level: f32, rect: Rect, scale: f32) -> Battery {
+    let scale = scale.max(0.01);
+    let px = |v: f32| (v * scale).round().max(1.0) / scale;
+    let line = px(1.5);
+    let room = px(1.5);
+    let tall = px(rect.h.min(12.0));
+    let x = (rect.x * scale).round() / scale;
+    let y = ((rect.y + (rect.h - tall) / 2.0) * scale).round() / scale;
+    let nub_w = px(2.0);
+    let wide = px(rect.w - 3.0);
+    let body = Rect::new(x, y, wide, tall);
+    // Off the top as far as off the bottom.
+    let off = px((tall - 5.0) / 2.0);
+    let nub = Rect::new(x + wide + px(1.0), y + off, nub_w, tall - 2.0 * off);
+    let inset = line + room;
+    let inner = wide - 2.0 * inset;
+    let filled = ((inner * level * scale).round() / scale).max(px(2.0)).min(inner);
+    let fill = Rect::new(x + inset, y + inset, filled, tall - 2.0 * inset);
+    Battery {
+        body,
+        nub,
+        fill,
+        line,
+        radius: px(3.0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_full_battery_has_as_much_room_on_each_side_of_its_fill_at_any_scale() {
+        for scale in [1.0, 1.25, 1.5, 2.0] {
+            for x in [0.0, 10.3, 1031.6] {
+                let shape = battery(1.0, Rect::new(x, 13.7, 24.0, 12.0), scale);
+                let on_grid = |v: f32| ((v * scale) - (v * scale).round()).abs() < 1e-3;
+                for r in [shape.body, shape.nub, shape.fill] {
+                    assert!(
+                        on_grid(r.x) && on_grid(r.y) && on_grid(r.w) && on_grid(r.h),
+                        "{r:?} at {scale}"
+                    );
+                }
+                let left = shape.fill.x - shape.body.x;
+                let right = shape.body.right() - shape.fill.right();
+                let top = shape.fill.y - shape.body.y;
+                let bottom = shape.body.bottom() - shape.fill.bottom();
+                assert!((left - right).abs() < 1e-3, "left {left}, right {right} at {scale}");
+                assert!((top - bottom).abs() < 1e-3, "top {top}, bottom {bottom} at {scale}");
+                assert!((left - top).abs() < 1e-3, "sides {left}, ends {top} at {scale}");
+                let above = shape.nub.y - shape.body.y;
+                let below = shape.body.bottom() - shape.nub.bottom();
+                assert!((above - below).abs() < 1e-3, "the nub off the middle at {scale}");
+            }
+        }
+    }
 }

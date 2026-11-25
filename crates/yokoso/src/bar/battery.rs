@@ -59,43 +59,6 @@ pub fn ink(battery: &Battery, theme: &Theme) -> Ink {
     }
 }
 
-/// The battery drawn of shapes, filled as far as it is charged: a body, its
-/// nub to the right, the fill inside with room around it. Each on whole
-/// pixels at any scale, as an icon drawn whole can't be beside a fill.
-fn shape(level: f32, ink: Ink) -> El<Msg> {
-    const BODY: f32 = 21.0;
-    const TALL: f32 = 12.0;
-    const INSET: f32 = 3.0;
-    let at = |el: El<Msg>, left: f32, top: f32| {
-        El::row(0.0, vec![el]).padding(Edges {
-            left,
-            top,
-            ..Edges::default()
-        })
-    };
-    let room = BODY - 2.0 * INSET;
-    El::stack(vec![
-        El::outline(ink, 3.0, 1.5)
-            .width(Size::Fixed(BODY))
-            .height(Size::Fixed(TALL)),
-        at(
-            El::block(ink, 1.0).width(Size::Fixed(2.0)).height(Size::Fixed(6.0)),
-            BODY + 1.0,
-            3.0,
-        ),
-        at(
-            El::block(ink, 1.0)
-                .width(Size::Fixed((room * level).max(2.0)))
-                .height(Size::Fixed(TALL - 2.0 * INSET))
-                .glide(),
-            INSET,
-            INSET,
-        ),
-    ])
-    .width(Size::Fixed(BODY + 3.0))
-    .height(Size::Fixed(TALL))
-}
-
 /// The part; None without a battery.
 pub fn view(power: &Power, theme: &Theme, pad: Edges, on_click: Option<Msg>) -> Option<El<Msg>> {
     let Power::Battery(battery) = power else {
@@ -107,7 +70,7 @@ pub fn view(power: &Power, theme: &Theme, pad: Edges, on_click: Option<Msg>) -> 
     if matches!(battery.charge, Charge::Charging) {
         parts.push(El::icon("bolt").ink(ink));
     }
-    parts.push(shape(level, ink));
+    parts.push(El::battery(level, ink));
     parts.push(
         El::text(format!("{:.0}%", battery.percentage), Type::Body)
             .weight(600.0)

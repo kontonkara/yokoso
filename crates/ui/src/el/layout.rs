@@ -67,7 +67,7 @@ pub fn natural<M>(el: &El<M>, max_width: Option<f32>, measure: &mut impl Measure
             .iter()
             .map(|child| natural(child, inner_max, measure))
             .fold((0.0f32, 0.0f32), |(w, h), (cw, ch)| (w.max(cw), h.max(ch))),
-        Kind::Spacer | Kind::Block { .. } | Kind::_Message(_) => (0.0, 0.0),
+        Kind::Spacer | Kind::Block { .. } | Kind::Battery { .. } | Kind::_Message(_) => (0.0, 0.0),
         Kind::List(list) => (0.0, list.len as f32 * list.row_height),
         _ => measure.measure(el, inner_max),
     };
