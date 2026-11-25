@@ -7,6 +7,7 @@ pub mod clock;
 mod keyboard;
 mod network;
 mod sound;
+mod tray;
 mod workspaces;
 
 use std::{cell::RefCell, collections::HashMap, time::Duration};
@@ -28,7 +29,7 @@ use yokoso_ui::{
 
 use crate::{
     config::{Config, Edge, Module},
-    niri, nm, pw, upower,
+    niri, nm, pw, sni, upower,
 };
 
 /// What the bar's services send it.
@@ -38,6 +39,7 @@ pub enum Message {
     Power(upower::Power),
     Net(nm::Net),
     Sound(pw::Sound),
+    Tray(sni::Said),
 }
 
 /// What its parts send when used.
@@ -54,6 +56,11 @@ pub enum Msg {
     /// The volume by wheel steps, up louder; muted or heard again.
     Volume(f32),
     Mute,
+    /// To a tray item, by its address.
+    TrayActivate(String),
+    TraySecondary(String),
+    TrayMenu(String),
+    TrayScroll(String, f32),
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -90,6 +97,9 @@ pub struct Bar {
     power: upower::Power,
     net: nm::Net,
     sound: pw::Sound,
+    tray: Vec<sni::Item>,
+    /// Where what the tray is asked goes.
+    tray_asks: Option<async_channel::Sender<sni::Ask>>,
     /// Each screen's connector and logical width, as the surfaces were asked
     /// for: what a bar there shows depends on it.
     screens: RefCell<HashMap<OutputId, (String, f32)>>,
@@ -115,13 +125,15 @@ impl Bar {
             power: upower::Power::default(),
             net: nm::Net::default(),
             sound: pw::Sound::default(),
+            tray: Vec::new(),
+            tray_asks: None,
             screens: RefCell::default(),
         }
     }
 
     /// Starts its services, and its clock: from now on it wakes only when
     /// what it says changes.
-    pub fn start(ui: &mut Ui<Self>, bar: &Self) {
+    pub fn start(ui: &mut Ui<Self>, bar: &mut Self) {
         let sender = ui.sender();
         niri::listen(move |event| sender.send(Message::Niri(event)).is_ok());
         let sender = ui.sender();
@@ -130,6 +142,8 @@ impl Bar {
         nm::listen(move |net| sender.send(Message::Net(net)).is_ok());
         let sender = ui.sender();
         pw::listen(move |sound| sender.send(Message::Sound(sound)).is_ok());
+        let sender = ui.sender();
+        bar.tray_asks = Some(sni::listen(move |said| sender.send(Message::Tray(said)).is_ok()));
         let first = clock::next_change(&clock::now(), &bar.config.bar.clock);
         let _ = ui
             .handle()
@@ -252,6 +266,13 @@ impl Bar {
         }
     }
 
+    /// Passes `ask` on to the tray.
+    fn ask_tray(&self, ask: sni::Ask) {
+        if let Some(asks) = &self.tray_asks {
+            let _ = asks.try_send(ask);
+        }
+    }
+
     /// Does what a part asks.
     fn act(&mut self, msg: &Msg) {
         match msg {
@@ -263,6 +284,10 @@ impl Bar {
                 pw::change_volume(steps * sound.step, sound.max);
             }
             Msg::Mute => pw::toggle_mute(),
+            Msg::TrayActivate(address) => self.ask_tray(sni::Ask::Activate(address.clone())),
+            Msg::TraySecondary(address) => self.ask_tray(sni::Ask::Secondary(address.clone())),
+            Msg::TrayScroll(address, steps) => self.ask_tray(sni::Ask::Scroll(address.clone(), steps.round() as i32)),
+            Msg::TrayMenu(address) => self.ask_tray(sni::Ask::Menu(address.clone(), 0)),
         }
     }
 
@@ -289,6 +314,7 @@ impl Bar {
             }
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
+            Module::Tray => tray::view(&self.tray, self.theme.sizes.icon),
             Module::Sound => Some(sound::view(&self.sound, &self.theme, pad, self.opens(module))),
             Module::Network => Some(network::view(
                 &self.net,
@@ -384,6 +410,13 @@ impl Shell for Bar {
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Tray(sni::Said::Items(items)) => {
+                if items != self.tray {
+                    self.tray = items;
+                    self.changed(ui);
+                }
+            }
+            Message::Tray(sni::Said::Menu { .. }) => {}
             Message::Sound(sound) => {
                 if sound != self.sound {
                     self.sound = sound;
@@ -586,6 +619,7 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "tray": self.tray.iter().map(|item| json!({ "title": item.title, "status": item.status, "icon": item.icon.as_ref().map(|p| [p.width, p.height]) })).collect::<Vec<_>>(),
                 "sound": match &self.sound {
                     pw::Sound::Out(out) => json!({
                         "name": out.name,
@@ -619,6 +653,7 @@ impl crate::ipc::Answer for Bar {
                     "battery": surface.tree.rect_of("battery").map(|r| [r.x, r.y, r.w, r.h]),
                     "network": surface.tree.rect_of("network").map(|r| [r.x, r.y, r.w, r.h]),
                     "sound": surface.tree.rect_of("sound").map(|r| [r.x, r.y, r.w, r.h]),
+                    "tray": self.tray.iter().map(|item| surface.tree.rect_of(("tray", item.address.as_str())).map(|r| [r.x, r.y, r.w, r.h])).collect::<Vec<_>>(),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()
                         .map(|ws| json!({

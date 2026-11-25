@@ -3,12 +3,14 @@
 mod bar;
 mod config;
 mod demo;
+mod icon_theme;
 mod ipc;
 mod niri;
 mod nm;
 mod panel;
 mod probe;
 mod pw;
+mod sni;
 mod upower;
 
 use std::process::ExitCode;
@@ -98,7 +100,7 @@ fn shell(window: bool) -> Result<(), String> {
     let mut socket = None;
     let done = yokoso_ui::app::run(bar::Bar::new(window, config), |app| {
         socket = Some(ipc::listen(&app.ui)?);
-        bar::Bar::start(&mut app.ui, &app.shell);
+        bar::Bar::start(&mut app.ui, &mut app.shell);
         let sender = app.ui.sender();
         config::watch(dir, move |loaded| {
             let _ = sender.send(bar::Message::Config(loaded));
