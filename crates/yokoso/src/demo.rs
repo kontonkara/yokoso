@@ -823,6 +823,9 @@ impl Shell for Demo {
         if response.escaped && self.panel.open {
             self.toggle_panel();
             self.stale = true;
+        } else if response.escaped && self.layer {
+            // Nothing left to unwind: a layer has no close button, Escape is it.
+            ui.quit();
         }
         for message in response.messages {
             self.apply(ui, message);
