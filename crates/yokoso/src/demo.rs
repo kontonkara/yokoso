@@ -99,6 +99,11 @@ pub enum Msg {
     Panel,
 }
 
+/// A rect as `[x, y, w, h]`, for dumps.
+fn rect(r: Rect) -> [f32; 4] {
+    [r.x, r.y, r.w, r.h]
+}
+
 /// Milliseconds of the wall clock.
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -212,6 +217,10 @@ impl Demo {
     fn apply(&mut self, ui: &mut Ui<Self>, message: Msg) {
         match message {
             Msg::Page(page) => {
+                // Its button stays on its page: the panel goes with it.
+                if page != self.page && self.panel.visible() {
+                    self.panel.hide();
+                }
                 self.page = page;
                 if page == Page::Panel && !self.ticking {
                     self.ticking = true;
@@ -883,6 +892,15 @@ impl crate::ipc::Answer for Demo {
     fn answer(&mut self, ui: &mut Ui<Self>, words: &[String]) -> Result<Value, String> {
         match words.first().map(String::as_str) {
             Some("ping") => Ok(json!("pong")),
+            Some("panel") if words.get(1).map(String::as_str) == Some("at") => {
+                let at: f32 = words.get(2).and_then(|at| at.parse().ok()).ok_or("at what, 0 to 1?")?;
+                let button = self.tree.rect_of("panel-button").ok_or("not on the panel page")?;
+                let to = Rect::new(button.x, button.bottom() + 8.0, 360.0, 260.0);
+                self.panel.freeze(button, to, at.clamp(0.0, 1.0));
+                self.stale = true;
+                ui.dirty_all();
+                Ok(json!(null))
+            }
             Some("panel") => {
                 self.apply(ui, Msg::Panel);
                 ui.dirty_all();
@@ -938,6 +956,8 @@ impl crate::ipc::Answer for Demo {
                 "panel_open": self.panel.open,
                 "panel_visible": self.panel.visible(),
                 "panels": self.panels,
+                "panel_shape": rect(self.panel.shape()),
+                "panel_content": rect(self.panel.content_rect()),
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),

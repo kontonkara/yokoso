@@ -93,6 +93,33 @@ impl<M: Clone> Panel<M> {
         ((w + h) / 2.0).clamp(0.0, 1.0)
     }
 
+    /// Held still `at` of the way from its button to open, its content all
+    /// there: to see, and test, what shows where mid-way.
+    pub fn freeze(&mut self, button: Rect, to: Rect, at: f32) {
+        let lerp = |a: f32, b: f32| a + (b - a) * at;
+        self.open = true;
+        self.from = button;
+        self.to = to;
+        self.x.snap(lerp(button.x, to.x));
+        self.y.snap(lerp(button.y, to.y));
+        self.w.snap(lerp(button.w, to.w));
+        self.h.snap(lerp(button.h, to.h));
+        self.shape.snap(1.0);
+        self.content.snap(1.0);
+    }
+
+    /// Gone at once, as when what it grew from is gone too.
+    pub fn hide(&mut self) {
+        self.open = false;
+        self.shape.snap(0.0);
+        self.content.snap(0.0);
+    }
+
+    /// Its shape now.
+    pub fn shape(&self) -> Rect {
+        Rect::new(self.x.value, self.y.value, self.w.value, self.h.value)
+    }
+
     pub fn visible(&self) -> bool {
         self.shape.value > 0.0 || self.shape.is_moving()
     }
