@@ -9,6 +9,7 @@ mod keyboard;
 mod media;
 mod network;
 mod popup;
+mod privacy;
 mod sound;
 mod tray;
 mod workspaces;
@@ -41,7 +42,7 @@ pub enum Message {
     Niri(niri::Event),
     Power(upower::Power),
     Net(nm::Net),
-    Sound(pw::Sound),
+    Sound(pw::Heard),
     Tray(sni::Said),
     Media(Option<mpris::Playing>),
 }
@@ -114,6 +115,8 @@ pub struct Bar {
     power: upower::Power,
     net: nm::Net,
     sound: pw::Sound,
+    /// What records now.
+    using: Vec<pw::Use>,
     tray: Vec<sni::Item>,
     /// Where what the tray is asked goes.
     tray_asks: Option<async_channel::Sender<sni::Ask>>,
@@ -148,6 +151,7 @@ impl Bar {
             power: upower::Power::default(),
             net: nm::Net::default(),
             sound: pw::Sound::default(),
+            using: Vec::new(),
             tray: Vec::new(),
             tray_asks: None,
             media: None,
@@ -714,6 +718,7 @@ impl Bar {
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
             Module::Media => media::view(self.media.as_ref(), &self.theme, pad),
+            Module::Privacy => privacy::view(&self.using, self.niri.casts, &self.theme, pad),
             Module::Tray => tray::view(&self.tray, self.theme.sizes.icon, self.open_part().as_deref()),
             Module::Sound => Some(sound::view(&self.sound, &self.theme, pad, self.opens(module))),
             Module::Network => Some(network::view(
@@ -727,7 +732,6 @@ impl Bar {
                 let (output, width) = self.screen(place)?;
                 workspaces::view(&self.niri, &output, width, &self.theme)
             }
-            _ => None,
         }
     }
 
@@ -852,9 +856,10 @@ impl Shell for Bar {
                     );
                 }
             }
-            Message::Sound(sound) => {
-                if sound != self.sound {
-                    self.sound = sound;
+            Message::Sound(heard) => {
+                if heard.sound != self.sound || heard.using != self.using {
+                    self.sound = heard.sound;
+                    self.using = heard.using;
                     self.changed(ui);
                 }
             }
@@ -1116,6 +1121,7 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "using": self.using.iter().map(|used| format!("{used:?}")).collect::<Vec<_>>(),
                 "media": self.media.as_ref().map(|p| json!({ "title": p.title, "playing": p.playing })),
                 "popup": self.popup.as_ref().map(|open| json!({
                     "open": open.panel.open,
@@ -1166,6 +1172,7 @@ impl crate::ipc::Answer for Bar {
                     "network": surface.tree.rect_of("network").map(|r| [r.x, r.y, r.w, r.h]),
                     "sound": surface.tree.rect_of("sound").map(|r| [r.x, r.y, r.w, r.h]),
                     "media": surface.tree.rect_of("media").map(|r| [r.x, r.y, r.w, r.h]),
+                    "privacy": surface.tree.rect_of("privacy").map(|r| [r.x, r.y, r.w, r.h]),
                     "tray": self.tray.iter().map(|item| surface.tree.rect_of(("tray", item.address.as_str())).map(|r| [r.x, r.y, r.w, r.h])).collect::<Vec<_>>(),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()

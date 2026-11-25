@@ -36,6 +36,22 @@ pub enum Sound {
     Out(Output),
 }
 
+/// Something that records, by who.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Use {
+    /// An app recording sound.
+    Microphone(String),
+    /// A camera that runs, by its name.
+    Camera(String),
+}
+
+/// All PipeWire says that the bar shows.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Heard {
+    pub sound: Sound,
+    pub using: Vec<Use>,
+}
+
 /// Everything `pw-dump` has said so far, by object.
 #[derive(Default)]
 pub struct Dump {
@@ -81,6 +97,39 @@ impl Dump {
         self.objects
             .values()
             .filter(|object| object.get("type").and_then(Value::as_str) == Some("PipeWire:Interface:Node"))
+    }
+
+    /// What records now: an app's stream from a microphone, by the app's
+    /// name; a camera that runs. Level meters, which only listen to an
+    /// output, are not recording.
+    pub fn using(&self) -> Vec<Use> {
+        let prop = |node: &Value, key: &str| {
+            node.pointer(&format!("/info/props/{}", key.replace('/', "~1")))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        };
+        let running = |node: &&Value| node.pointer("/info/state").and_then(Value::as_str) == Some("running");
+        let mut using = Vec::new();
+        for node in self.nodes().filter(running) {
+            let class = prop(node, "media.class").unwrap_or_default();
+            let monitor = node
+                .pointer("/info/props/stream.monitor")
+                .is_some_and(|value| value == &Value::Bool(true) || value == "true");
+            if class == "Stream/Input/Audio" && !monitor {
+                let app = prop(node, "application.name")
+                    .or_else(|| prop(node, "application.process.binary"))
+                    .or_else(|| prop(node, "node.name"))
+                    .unwrap_or_default();
+                using.push(Use::Microphone(app));
+            } else if class == "Video/Source"
+                && matches!(prop(node, "device.api").as_deref(), Some("v4l2" | "libcamera"))
+            {
+                using.push(Use::Camera(prop(node, "node.description").unwrap_or_default()));
+            }
+        }
+        using.sort();
+        using.dedup();
+        using
     }
 
     /// The default output now.
@@ -135,7 +184,7 @@ fn program(variable: &str, default: &str) -> String {
 
 /// Watches PipeWire on a thread of its own. When `pw-dump` ends or isn't
 /// there, it says it doesn't know, and starts it again a while later.
-pub fn listen(send: impl Fn(Sound) -> bool + Send + 'static) {
+pub fn listen(send: impl Fn(Heard) -> bool + Send + 'static) {
     let spawned = std::thread::Builder::new().name("pipewire".into()).spawn(move || {
         let mut said = false;
         loop {
@@ -155,7 +204,10 @@ pub fn listen(send: impl Fn(Sound) -> bool + Send + 'static) {
                         for batch in batches {
                             let Ok(batch) = batch else { break };
                             dump.take(batch);
-                            let sound = dump.sound();
+                            let sound = Heard {
+                                sound: dump.sound(),
+                                using: dump.using(),
+                            };
                             if last.as_ref() != Some(&sound) {
                                 if !send(sound.clone()) {
                                     let _ = child.kill();
@@ -175,7 +227,7 @@ pub fn listen(send: impl Fn(Sound) -> bool + Send + 'static) {
                 }
                 Err(_) => {}
             }
-            if !send(Sound::Unknown) {
+            if !send(Heard::default()) {
                 return;
             }
             std::thread::sleep(Duration::from_secs(5));
@@ -242,6 +294,47 @@ mod tests {
             "props": { "metadata.name": "default" },
             "metadata": [ { "subject": 0, "key": "default.audio.sink", "type": "Spa:String:JSON", "value": { "name": name } } ]
         })
+    }
+
+    #[test]
+    fn what_records_is_an_app_on_a_microphone_or_a_running_camera() {
+        let node = |id: u64, props: Value, state: &str| json!({ "id": id, "type": "PipeWire:Interface:Node", "info": { "state": state, "props": props } });
+        let mut dump = Dump::default();
+        dump.take(vec![
+            node(
+                1,
+                json!({ "media.class": "Stream/Input/Audio", "application.name": "Telegram" }),
+                "running",
+            ),
+            // A level meter only listens to an output.
+            node(
+                2,
+                json!({ "media.class": "Stream/Input/Audio", "application.name": "Mixer", "stream.monitor": true }),
+                "running",
+            ),
+            // One that waits isn't recording.
+            node(
+                3,
+                json!({ "media.class": "Stream/Input/Audio", "application.name": "Idle" }),
+                "idle",
+            ),
+            node(
+                4,
+                json!({ "media.class": "Video/Source", "device.api": "v4l2", "node.description": "Webcam" }),
+                "running",
+            ),
+            node(
+                5,
+                json!({ "media.class": "Video/Source", "device.api": "v4l2", "node.description": "Other" }),
+                "suspended",
+            ),
+        ]);
+        assert_eq!(
+            dump.using(),
+            vec![Use::Microphone("Telegram".into()), Use::Camera("Webcam".into())]
+        );
+        dump.take(vec![json!({ "id": 1, "info": null })]);
+        assert_eq!(dump.using(), vec![Use::Camera("Webcam".into())]);
     }
 
     #[test]
