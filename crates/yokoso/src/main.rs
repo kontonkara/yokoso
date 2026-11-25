@@ -3,6 +3,7 @@
 mod config;
 mod demo;
 mod ipc;
+mod panel;
 mod probe;
 
 use std::process::ExitCode;

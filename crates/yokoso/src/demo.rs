@@ -35,10 +35,11 @@ pub enum Page {
     Lists,
     Fields,
     Settings,
+    Panel,
 }
 
 impl Page {
-    const ALL: [Page; 7] = [
+    const ALL: [Page; 8] = [
         Page::Buttons,
         Page::Toggles,
         Page::Sliders,
@@ -46,6 +47,7 @@ impl Page {
         Page::Lists,
         Page::Fields,
         Page::Settings,
+        Page::Panel,
     ];
 
     fn name(self) -> &'static str {
@@ -57,6 +59,7 @@ impl Page {
             Page::Lists => "Lists",
             Page::Fields => "Fields",
             Page::Settings => "Theme and motion",
+            Page::Panel => "Panel",
         }
     }
 }
@@ -92,6 +95,8 @@ pub enum Msg {
     Mode(usize),
     Speed(f32),
     Zoom(usize),
+    /// The panel opened, or closed.
+    Panel,
 }
 
 /// Accents to try, by name and seed.
@@ -146,6 +151,9 @@ pub struct Demo {
     accent: usize,
     zoom: usize,
     preset: Option<Preset>,
+    panel: crate::panel::Panel<Msg>,
+    /// Times the panel was opened, for the memory test.
+    panels: u32,
 }
 
 const WIDTH: u32 = 960;
@@ -179,6 +187,8 @@ impl Demo {
             accent: 0,
             zoom: 1,
             preset: Some(Preset::Expressive),
+            panel: crate::panel::Panel::default(),
+            panels: 0,
         }
     }
 
@@ -215,6 +225,7 @@ impl Demo {
             }
             Msg::Mode(at) => self.retheme(|_, _, motion| motion.mode = MODES[at]),
             Msg::Speed(speed) => self.retheme(|_, _, motion| motion.speed = speed),
+            Msg::Panel => self.toggle_panel(),
             Msg::Zoom(at) => {
                 self.zoom = at;
                 ui.set_zoom(ZOOMS[at]);
@@ -245,6 +256,73 @@ impl Demo {
             }
         }
         self.stale = true;
+    }
+
+    /// The panel opens from its button, or closes back into it, from
+    /// wherever it is.
+    fn toggle_panel(&mut self) {
+        let Some(button) = self.tree.rect_of("panel-button") else {
+            return;
+        };
+        let to = Rect::new(button.x, button.bottom() + 8.0, 360.0, 260.0);
+        self.panel.toggle(button, to);
+        if self.panel.open {
+            self.panels += 1;
+        }
+    }
+
+    /// The panel page: a button the panel grows from.
+    fn panel_page(&self) -> El<Msg> {
+        let sizes = &self.theme.sizes;
+        El::column(
+            sizes.gap,
+            vec![
+                El::text("Panel", Type::Title).weight(600.0),
+                El::text(
+                    "It grows out of its button; its content shows once it has grown. Click again mid-way: it turns where it is.",
+                    Type::Body,
+                )
+                .ink(Ink::OnSurfaceVariant)
+                .width(Size::Fixed(420.0)),
+                El::button(
+                    if self.panel.open { "Close" } else { "Quick settings" },
+                    ButtonStyle::Tonal,
+                    Some(Msg::Panel),
+                )
+                .key("panel-button"),
+            ],
+        )
+        .align(Align::Start)
+    }
+
+    /// What the panel holds.
+    fn panel_content(&self) -> El<Msg> {
+        let sizes = &self.theme.sizes;
+        let tile = |at: usize| {
+            let (icon, title, _) = TILES[at];
+            El::tile(TileEl {
+                icon,
+                title: title.into(),
+                subtitle: if self.tiles[at] { "On" } else { "Off" }.into(),
+                on: self.tiles[at],
+                pending: false,
+                on_press: Some(Msg::Tile(at)),
+                on_more: None,
+            })
+            .width(Size::Fill(1.0))
+        };
+        El::column(
+            sizes.gap,
+            vec![
+                El::text("Quick settings", Type::Title).weight(600.0),
+                El::row(sizes.gap, vec![tile(2), tile(3)]),
+                El::slider(self.volume, 0.0, 100.0, 1.0, Some(Msg::Volume))
+                    .show_value()
+                    .width(Size::Fill(1.0)),
+            ],
+        )
+        .padding(Edges::all(sizes.pad))
+        .fill()
     }
 
     /// The theme made anew with `change` to its palette, density or motion.
@@ -646,6 +724,7 @@ impl Demo {
             Page::Lists => self.lists(),
             Page::Fields => self.fields(),
             Page::Settings => self.settings(),
+            Page::Panel => self.panel_page(),
         };
         El::column(
             sizes.gap,
@@ -696,7 +775,23 @@ impl Shell for Demo {
     }
 
     fn input(&mut self, ui: &mut Ui<Self>, key: Place, input: &Input) {
-        let response = self.tree.input(input);
+        // The panel takes what lands on it while it is open.
+        let on_panel = self.panel.open
+            && match input {
+                Input::PointerMove { x, y } | Input::Press { x, y, .. } | Input::Release { x, y, .. } => {
+                    self.panel.content_rect().contains(*x, *y)
+                }
+                _ => false,
+            };
+        let response = if on_panel {
+            self.panel.tree.input(input)
+        } else {
+            self.tree.input(input)
+        };
+        if response.escaped && self.panel.open {
+            self.toggle_panel();
+            self.stale = true;
+        }
         for message in response.messages {
             self.apply(ui, message);
         }
@@ -719,17 +814,20 @@ impl Shell for Demo {
     }
 
     fn update(&mut self, _: Place, time: &FrameTime) -> bool {
-        self.tree.update(time.dt as f32, time.now, &self.theme)
+        let panel = self.panel.update(time.dt as f32, time.now, &self.theme);
+        self.tree.update(time.dt as f32, time.now, &self.theme) | panel
     }
 
     fn layout(&mut self, _: Place, view: &View, text: &mut Text) {
         if self.stale {
             self.tree.set(self.view());
+            self.panel.set(self.panel_content());
             self.stale = false;
         }
         if self.tree.needs_layout(view) {
             self.tree.layout(view, text, &self.theme);
         }
+        self.panel.layout(view, text, &self.theme);
     }
 
     fn render(&self, key: Place, frame: &mut Frame) {
@@ -742,6 +840,7 @@ impl Shell for Demo {
         };
         frame.fill(whole, radius, self.theme.colors.surface_container);
         self.tree.paint(frame, &self.theme);
+        self.panel.render(frame, &self.theme);
     }
 }
 
@@ -749,6 +848,11 @@ impl crate::ipc::Answer for Demo {
     fn answer(&mut self, ui: &mut Ui<Self>, words: &[String]) -> Result<Value, String> {
         match words.first().map(String::as_str) {
             Some("ping") => Ok(json!("pong")),
+            Some("panel") => {
+                self.apply(ui, Msg::Panel);
+                ui.dirty_all();
+                Ok(json!(self.panel.open))
+            }
             Some("page") => {
                 let name = words.get(1).ok_or("which page?")?;
                 let page = Page::ALL
@@ -795,6 +899,9 @@ impl crate::ipc::Answer for Demo {
                 "zoom": ui.zoom(),
                 "mode": format!("{:?}", self.theme.motion.mode),
                 "speed": self.theme.motion.speed,
+                "panel_open": self.panel.open,
+                "panel_visible": self.panel.visible(),
+                "panels": self.panels,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
