@@ -11,6 +11,7 @@ mod network;
 mod popup;
 mod privacy;
 mod sound;
+mod toasts;
 mod tray;
 mod workspaces;
 
@@ -82,6 +83,13 @@ pub enum Msg {
     /// The player shown: played or paused; its next track.
     PlayPause,
     NextTrack,
+    /// A toast: its default action, one of its buttons, closed, a reply being
+    /// typed, the reply sent.
+    ToastOpen(u32),
+    ToastAction(u32, String),
+    ToastClose(u32),
+    ToastDraft(u32, String),
+    ToastReply(u32),
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -94,6 +102,8 @@ pub enum Place {
     /// A strip just past the bar on a screen, the pointer going through it:
     /// where the bar's tooltips show, as the bar has no room for them.
     Tip(OutputId),
+    /// The toasts' column at the top right of a screen.
+    Toasts(OutputId),
 }
 
 /// Each bar's elements, and the description they were last built from.
@@ -139,6 +149,17 @@ pub struct Bar {
     notes: notes::Store,
     serving: bool,
     notes_asks: Option<async_channel::Sender<notify::Ask>>,
+    /// The toasts, the screen they show on, replies being typed in them, and
+    /// when each is to go (monotonic seconds) or, while the pointer is on
+    /// it, how long it has left.
+    toasts: toasts::Toasts,
+    toasts_on: Option<OutputId>,
+    toast_notes: HashMap<u32, notify::Notification>,
+    /// The toast last pressed: where keys go, as to its reply field.
+    toast_keys: Option<u32>,
+    drafts: HashMap<u32, String>,
+    due: HashMap<u32, f64>,
+    left: HashMap<u32, f64>,
     /// The panel open now, or closing.
     popup: Option<popup::Popup>,
     /// The screen whose bar has a tooltip to show, and so a strip for it.
@@ -189,6 +210,13 @@ impl Bar {
             notes: notes::Store::open(notes::Store::path()),
             serving: false,
             notes_asks: None,
+            toasts: toasts::Toasts::default(),
+            toasts_on: None,
+            toast_notes: HashMap::new(),
+            toast_keys: None,
+            drafts: HashMap::new(),
+            due: HashMap::new(),
+            left: HashMap::new(),
             popup: None,
             tip: None,
             tip_watched: false,
@@ -289,7 +317,9 @@ impl Bar {
     /// a window's edges as it would float on a screen.
     fn rect(&self, place: Place, view: &View) -> Rect {
         match place {
-            Place::Screen(_) | Place::Popup(_) | Place::Tip(_) => Rect::new(0.0, 0.0, view.width, view.height),
+            Place::Screen(_) | Place::Popup(_) | Place::Tip(_) | Place::Toasts(_) => {
+                Rect::new(0.0, 0.0, view.width, view.height)
+            }
             Place::Window => {
                 let margin = self.config.bar.margin;
                 Rect::new(margin, margin, view.width - 2.0 * margin, self.config.bar.height)
@@ -301,7 +331,7 @@ impl Bar {
     /// width: a window's, the one with the focused workspace.
     fn screen(&self, place: Place) -> Option<(String, f32)> {
         match place {
-            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) => {
+            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) | Place::Toasts(id) => {
                 self.screens.borrow().get(&id).map(|(name, w, _)| (name.clone(), *w))
             }
             Place::Window => {
@@ -554,13 +584,21 @@ impl Bar {
                 tracing::debug!(id = notification.id, app = notification.app, ?fate, "notification");
                 match fate {
                     notes::Fate::Gone => self.tell(notify::Ask::Closed(notification.id, notify::Reason::Dismissed)),
-                    notes::Fate::Quiet | notes::Fate::Toast => {
+                    notes::Fate::Quiet => {
                         let most = settings.history;
                         self.notes.add(notification, most);
+                    }
+                    notes::Fate::Toast => {
+                        let most = settings.history;
+                        self.notes.add(notification.clone(), most);
+                        self.toast(ui, notification);
                     }
                 }
             }
             notify::Said::Close(id) => {
+                if self.toasts.has(id) {
+                    self.leave_toast(ui, id);
+                }
                 if self.notes.remove(id).is_some() {
                     self.tell(notify::Ask::Closed(id, notify::Reason::Asked));
                 }
@@ -568,6 +606,226 @@ impl Bar {
             notify::Said::Serving(serving) => self.serving = serving,
         }
         self.changed(ui);
+    }
+
+    /// The screen in focus, as niri has it; else the main one.
+    fn focused_output(&self) -> Option<OutputId> {
+        let screens = self.screens.borrow();
+        let focused = self
+            .niri
+            .workspaces
+            .values()
+            .find(|ws| ws.is_focused)
+            .and_then(|ws| ws.output.clone());
+        focused
+            .and_then(|name| {
+                screens
+                    .iter()
+                    .find(|(_, (known, _, _))| *known == name)
+                    .map(|(id, _)| *id)
+            })
+            .or_else(|| {
+                let mut ids: Vec<OutputId> = screens.keys().copied().collect();
+                ids.sort_by_key(|id| format!("{id:?}"));
+                ids.first().copied()
+            })
+    }
+
+    /// The toasts' column, on the screen they show on, while any is there:
+    /// down the right side below the bar, as it keeps clear of every bar;
+    /// over full-screen windows while a critical one shows.
+    fn toast_surfaces(&self, outputs: &[Output]) -> Vec<(Place, Spec)> {
+        let Some(output) = self.toasts_on.filter(|id| outputs.iter().any(|o| o.id == *id)) else {
+            return Vec::new();
+        };
+        if self.toasts.is_empty() || self.window {
+            return Vec::new();
+        }
+        let over = self.toasts.any_critical() && self.config.notifications.over_fullscreen;
+        let spec = LayerSpec {
+            output,
+            layer: if over { Layer::Overlay } else { Layer::Top },
+            anchor: Anchor::TOP | Anchor::BOTTOM | Anchor::RIGHT,
+            size: (toasts::STRIP as u32, 0),
+            margin: (0, 0, 0, 0),
+            exclusive_zone: 0,
+            keyboard: KeyboardInteractivity::OnDemand,
+            namespace: "yokoso-toasts".into(),
+            through: false,
+        };
+        vec![(Place::Toasts(output), Spec::Layer(spec))]
+    }
+
+    /// A toast for the notification `id`: shown, or waiting its turn.
+    fn toast(&mut self, ui: &mut Ui<Self>, notification: notify::Notification) {
+        let id = notification.id;
+        let critical = notification.urgency == notify::Urgency::Critical;
+        self.toast_notes.insert(id, notification);
+        self.toasts.show(id, critical, self.config.notifications.visible);
+        if self.toasts_on.is_none() {
+            self.toasts_on = self.focused_output();
+        }
+        ui.refresh_surfaces();
+        if let Some(output) = self.toasts_on {
+            ui.dirty(Place::Toasts(output));
+        }
+        if self.toasts.has(id) {
+            self.arm(ui, id);
+        }
+    }
+
+    /// Its time set, from now: as long as it asks, or as long as the config
+    /// says for its urgency; none for one that stays until closed.
+    fn arm(&mut self, ui: &mut Ui<Self>, id: u32) {
+        let Some(notification) = self.toast_notes.get(&id) else {
+            return;
+        };
+        let settings = &self.config.notifications;
+        let seconds = match notification.timeout {
+            notify::Timeout::Never => 0.0,
+            notify::Timeout::After(after) => after.as_secs_f64(),
+            notify::Timeout::Ours => f64::from(match notification.urgency {
+                notify::Urgency::Low => settings.timeout_low,
+                notify::Urgency::Normal => settings.timeout,
+                notify::Urgency::Critical => settings.timeout_critical,
+            }),
+        };
+        self.due.remove(&id);
+        if seconds > 0.0 {
+            self.arm_after(ui, id, seconds);
+        }
+    }
+
+    fn arm_after(&mut self, ui: &mut Ui<Self>, id: u32, seconds: f64) {
+        self.due.insert(id, yokoso_ui::app::monotonic() + seconds);
+        let _ = ui.handle().insert_source(
+            Timer::from_duration(Duration::from_secs_f64(seconds)),
+            move |_, _, app| {
+                let now = yokoso_ui::app::monotonic();
+                let due = app.shell.due.get(&id).is_some_and(|due| now >= due - 0.01);
+                if due && app.shell.toasts.hovered != Some(id) {
+                    app.shell.leave_toast(&mut app.ui, id);
+                }
+                TimeoutAction::Drop
+            },
+        );
+    }
+
+    /// The pointer on a toast: its time stands still; off it, it goes on.
+    fn hover_toast(&mut self, ui: &mut Ui<Self>, id: Option<u32>) {
+        if self.toasts.hovered == id {
+            return;
+        }
+        let now = yokoso_ui::app::monotonic();
+        if let Some(gone) = self.toasts.hovered
+            && let Some(left) = self.left.remove(&gone)
+        {
+            // A moment at least to see it again before it goes.
+            self.arm_after(ui, gone, left.max(1.5));
+        }
+        if let Some(on) = id
+            && let Some(due) = self.due.remove(&on)
+        {
+            self.left.insert(on, due - now);
+        }
+        self.toasts.hovered = id;
+    }
+
+    /// The toast `id` goes; the next waiting one comes; the column goes once
+    /// the last is out of sight.
+    fn leave_toast(&mut self, ui: &mut Ui<Self>, id: u32) {
+        self.due.remove(&id);
+        self.left.remove(&id);
+        self.drafts.remove(&id);
+        if let Some(next) = self.toasts.leave(id) {
+            let critical = self
+                .toast_notes
+                .get(&next)
+                .is_some_and(|n| n.urgency == notify::Urgency::Critical);
+            self.toasts.show(next, critical, self.config.notifications.visible);
+            self.arm(ui, next);
+        }
+        if let Some(output) = self.toasts_on {
+            ui.dirty(Place::Toasts(output));
+        }
+        let _ = ui
+            .handle()
+            .insert_source(Timer::from_duration(Duration::from_millis(100)), |_, _, app| {
+                let shell = &mut app.shell;
+                if shell.toasts.moving() {
+                    return TimeoutAction::ToDuration(Duration::from_millis(100));
+                }
+                let toasts = &shell.toasts;
+                shell
+                    .toast_notes
+                    .retain(|id, _| toasts.list.iter().any(|t| t.id == *id) || toasts.waiting.contains(id));
+                if shell.toasts.is_empty() && shell.toasts_on.is_some() {
+                    shell.toasts_on = None;
+                    app.ui.refresh_surfaces();
+                }
+                TimeoutAction::Drop
+            });
+    }
+
+    /// A toast's action, the default one for a click on it: the app told,
+    /// the toast gone, and the notification with it unless it stays.
+    fn toast_action(&mut self, ui: &mut Ui<Self>, id: u32, key: &str) {
+        self.tell(notify::Ask::Invoke(id, key.to_owned(), None));
+        let resident = self.toast_notes.get(&id).is_some_and(|n| n.resident);
+        self.leave_toast(ui, id);
+        if !resident && self.notes.remove(id).is_some() {
+            self.tell(notify::Ask::Closed(id, notify::Reason::Dismissed));
+        }
+        self.changed(ui);
+    }
+
+    /// Input on the toasts' column: to the toast under the pointer, its
+    /// time standing still while it is there; keys to the one last pressed.
+    fn toasts_input(&mut self, ui: &mut Ui<Self>, place: Place, input: &Input) {
+        let leave = |shell: &mut Self, ui: &mut Ui<Self>| {
+            if let Some(gone) = shell.toasts.hovered
+                && let Some(tree) = shell.toasts.tree_mut(gone)
+            {
+                tree.input(&Input::PointerLeave);
+            }
+            shell.hover_toast(ui, None);
+            ui.dirty(place);
+        };
+        if matches!(input, Input::PointerLeave) {
+            leave(self, ui);
+            return;
+        }
+        let target = match popup::at(input) {
+            Some((x, y)) => match self.toasts.at(x, y) {
+                Some((id, inside_x, inside_y)) => {
+                    if self.toasts.hovered != Some(id) {
+                        leave(self, ui);
+                        self.hover_toast(ui, Some(id));
+                    }
+                    Some((id, popup::shifted(input, x - inside_x, y - inside_y)))
+                }
+                None => {
+                    leave(self, ui);
+                    None
+                }
+            },
+            None => self.toast_keys.map(|id| (id, input.clone())),
+        };
+        if matches!(input, Input::Press { .. }) {
+            self.toast_keys = target.as_ref().map(|(id, _)| *id);
+        }
+        let Some((id, input)) = target else { return };
+        let Some(tree) = self.toasts.tree_mut(id) else { return };
+        let response = tree.input(&input);
+        if response.redraw {
+            ui.dirty(place);
+        }
+        if let Some(wake) = response.wake {
+            ui.wake_after(place, wake);
+        }
+        for message in &response.messages {
+            self.act(ui, place, message);
+        }
     }
 
     /// Tells an app what became of its notification.
@@ -603,7 +861,7 @@ impl Bar {
     /// Does what a part asks, on `place`.
     fn act(&mut self, ui: &mut Ui<Self>, place: Place, msg: &Msg) {
         let output = match place {
-            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) => Some(id),
+            Place::Screen(id) | Place::Popup(id) | Place::Tip(id) | Place::Toasts(id) => Some(id),
             Place::Window => None,
         };
         match msg {
@@ -695,6 +953,23 @@ impl Bar {
                     self.ask_tray(ask);
                 }
                 self.close(ui);
+            }
+            Msg::ToastOpen(id) => self.toast_action(ui, *id, "default"),
+            Msg::ToastAction(id, key) => self.toast_action(ui, *id, key),
+            Msg::ToastClose(id) => self.leave_toast(ui, *id),
+            Msg::ToastDraft(id, text) => {
+                self.drafts.insert(*id, text.clone());
+                if let Some(toast) = self.toasts.list.iter_mut().find(|t| t.id == *id) {
+                    toast.stale = true;
+                }
+                ui.dirty(place);
+            }
+            Msg::ToastReply(id) => {
+                let text = self.drafts.remove(id).unwrap_or_default();
+                if !text.trim().is_empty() {
+                    self.tell(notify::Ask::Reply(*id, text));
+                    self.leave_toast(ui, *id);
+                }
             }
             _ => self.act_plain(msg),
         }
@@ -1101,7 +1376,7 @@ impl Shell for Bar {
             .collect();
         let bar = &self.config.bar;
         if self.hidden {
-            return Vec::new();
+            return self.toast_surfaces(outputs);
         }
         if self.window {
             let spec = WindowSpec {
@@ -1169,11 +1444,16 @@ impl Shell for Bar {
             };
             all.push((Place::Tip(output), Spec::Layer(spec)));
         }
+        all.extend(self.toast_surfaces(outputs));
         all
     }
 
     fn input(&mut self, ui: &mut Ui<Self>, key: Place, input: &Input) {
         self.cause = "input";
+        if let Place::Toasts(_) = key {
+            self.toasts_input(ui, key, input);
+            return;
+        }
         if let Place::Popup(output) = key {
             self.popup_input(ui, output, input);
             return;
@@ -1197,6 +1477,9 @@ impl Shell for Bar {
     }
 
     fn update(&mut self, key: Place, time: &FrameTime) -> bool {
+        if let Place::Toasts(_) = key {
+            return self.toasts.update(time.dt as f32, time.now, &self.theme);
+        }
         if let Place::Tip(output) = key {
             // The bar's own frames move the tooltip; this one only sees it
             // is due, as it may wake first.
@@ -1229,6 +1512,14 @@ impl Shell for Bar {
     }
 
     fn layout(&mut self, key: Place, view: &View, text: &mut Text) {
+        if let Place::Toasts(_) = key {
+            let (notes, drafts, theme) = (&self.toast_notes, &self.drafts, &self.theme);
+            self.toasts.layout(view, text, theme, |id| {
+                let draft = drafts.get(&id).map_or("", String::as_str);
+                notes.get(&id).map(|n| toasts::view(n, draft, theme))
+            });
+            return;
+        }
         if let Place::Popup(_) = key {
             let content = self
                 .popup
@@ -1298,6 +1589,10 @@ impl Shell for Bar {
 
     fn render(&self, key: Place, frame: &mut Frame) {
         let theme = &self.theme;
+        if let Place::Toasts(_) = key {
+            self.toasts.render(frame, theme);
+            return;
+        }
         if let Place::Popup(_) = key {
             if let Some(open) = &self.popup {
                 open.panel.render(frame, theme);
@@ -1331,7 +1626,21 @@ impl Shell for Bar {
         }
     }
 
+    fn input_region(&self, key: Place) -> Option<Vec<Rect>> {
+        match key {
+            Place::Toasts(_) => Some(self.toasts.rects()),
+            _ => None,
+        }
+    }
+
     fn wake(&self, key: Place) -> Option<Duration> {
+        if let Place::Toasts(_) = key {
+            return if self.toasts.moving() {
+                Some(Duration::ZERO)
+            } else {
+                self.toasts.wake()
+            };
+        }
         if let Place::Popup(_) = key {
             return self.popup.as_ref().and_then(|open| open.panel.wake());
         }
@@ -1437,6 +1746,9 @@ impl crate::ipc::Answer for Bar {
                     "serving": self.serving,
                     "quiet": self.notes.quiet,
                     "unread": self.notes.unread,
+                    "toasts": self.toasts.list.iter().filter(|t| !t.leaving).map(|t| t.id).collect::<Vec<_>>(),
+                    "waiting": self.toasts.waiting,
+                    "toast_rects": self.toasts.rects().iter().map(|r| [r.x, r.y, r.w, r.h]).collect::<Vec<_>>(),
                     "list": self.notes.list.iter().map(|n| json!({
                         "id": n.id, "app": n.app, "summary": n.summary, "body": n.body,
                         "urgency": n.urgency, "actions": n.actions, "reply": n.reply,
