@@ -120,6 +120,10 @@ pub struct State {
     pub pop_wait: f32,
     /// A pressed group's: the fingers' pixels not yet a step.
     pub wheel: f32,
+    /// A gliding element's place as it shows, x, y, width and height, and
+    /// whether it was ever placed.
+    pub place: [Spring; 4],
+    pub placed: bool,
 }
 
 impl Default for State {
@@ -152,6 +156,8 @@ impl Default for State {
             pop: Spring::new(1.0),
             pop_wait: 0.0,
             wheel: 0.0,
+            place: [Spring::pixels(0.0); 4],
+            placed: false,
         }
     }
 }
@@ -347,6 +353,9 @@ impl<M: Clone> Tree<M> {
                 }
             }
             moving |= state.pop.step(dt, &pop);
+            for spring in &mut state.place {
+                moving |= spring.step(dt, &feel);
+            }
         }
         // A tooltip shows once the pointer has rested long enough.
         if let Some((id, since)) = self.tip
@@ -439,6 +448,18 @@ impl<M: Clone> Tree<M> {
             });
             seen.insert(id);
             let state = self.states.entry(id).or_default();
+            if el.glide {
+                // Placed the first time; from there on, it glides.
+                let placed = state.placed;
+                for (spring, to) in state.place.iter_mut().zip([rect.x, rect.y, rect.w, rect.h]) {
+                    if placed {
+                        spring.to(to);
+                    } else {
+                        spring.snap(to);
+                    }
+                }
+                state.placed = true;
+            }
             let mut comes = None;
             if fresh && let Some(parent) = parent.filter(|parent| staggers[*parent]) {
                 let turn = turns.entry(parent).or_insert(0);
@@ -963,7 +984,13 @@ impl<M: Clone> Tree<M> {
                 clip = want;
                 frame.clip(clip);
             }
-            kinds::paint(el, node.rect, state, laid, focused, frame, theme);
+            let rect = if el.glide && state.placed {
+                let [x, y, w, h] = state.place.map(|spring| spring.value);
+                Rect::new(x, y, w, h)
+            } else {
+                node.rect
+            };
+            kinds::paint(el, rect, state, laid, focused, frame, theme);
             // Fields and rolling text clip their own: the element's clip comes
             // back after.
             frame.clip(clip);
@@ -999,7 +1026,7 @@ impl<M: Clone> Tree<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::el::{Kind, Size, Type};
+    use crate::el::{Ink, Kind, Size, Type};
     use crate::theme::Theme;
 
     fn measure(el: &El<()>, _: Option<f32>) -> (f32, f32) {
@@ -1107,6 +1134,40 @@ mod tests {
         };
         assert!(tree.input(&Input::Scroll(fingers.clone())).messages.is_empty());
         assert_eq!(tree.input(&Input::Scroll(fingers)).messages, vec![Msg::Wheel(-1.0)]);
+    }
+
+    #[test]
+    fn a_gliding_block_moves_to_its_new_place_and_others_jump() {
+        let column = |wide: f32| {
+            El::<()>::row(
+                0.0,
+                vec![
+                    El::block(Ink::Primary, 2.0)
+                        .width(Size::Fixed(wide))
+                        .height(Size::Fixed(10.0))
+                        .glide(),
+                    El::block(Ink::Primary, 2.0)
+                        .width(Size::Fixed(wide))
+                        .height(Size::Fixed(10.0)),
+                ],
+            )
+        };
+        let mut tree = Tree::<()>::default();
+        let space = Rect::new(0.0, 0.0, 300.0, 100.0);
+        let width = |tree: &Tree<()>, at: usize| tree.state(tree.nodes()[at].id).unwrap().place[2].value;
+        tree.set(column(10.0));
+        tree.layout_with(space, &mut measure);
+        assert_eq!(width(&tree, 1), 10.0, "placed at once the first time");
+        tree.set(column(30.0));
+        tree.layout_with(space, &mut measure);
+        assert_eq!(width(&tree, 1), 10.0, "still where it was");
+        assert!(tree.update(1.0 / 60.0, 0.0, &Theme::default()));
+        let between = width(&tree, 1);
+        assert!(between > 10.0 && between < 30.0, "{between}");
+        while tree.update(1.0 / 240.0, 0.0, &Theme::default()) {}
+        assert_eq!(width(&tree, 1), 30.0);
+        // The other never glides: it has no place of its own.
+        assert!(!tree.state(tree.nodes()[2].id).unwrap().placed);
     }
 
     #[test]

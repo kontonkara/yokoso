@@ -334,6 +334,7 @@ pub fn paint<M>(
             }
         }
         Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
+        Kind::Block { ink: color, radius } => frame.fill(rect, *radius, ink(*color, theme)),
         Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
         Kind::Press(press) => paint_press(press, rect, state, focused, frame, theme),
         Kind::List(list) => paint_list(list, rect, state, paragraph, focused, frame, theme),

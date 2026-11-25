@@ -263,6 +263,11 @@ pub enum Kind<M> {
     Menu(MenuEl<M>),
     /// Room and nothing else.
     Spacer,
+    /// A plain shape in a color: a column of a map, a mark.
+    Block {
+        ink: Ink,
+        radius: f32,
+    },
     Text(TextEl),
     /// Disabled without a message to send.
     Button {
@@ -299,6 +304,9 @@ pub struct El<M> {
     pub children: Vec<El<M>>,
     /// Its children, as they first show, come in one after another.
     pub stagger: bool,
+    /// Laid out somewhere new, it moves there on the small things' spring
+    /// rather than jumps.
+    pub glide: bool,
 }
 
 impl<M> El<M> {
@@ -311,6 +319,7 @@ impl<M> El<M> {
             padding: Edges::default(),
             children: Vec::new(),
             stagger: false,
+            glide: false,
         }
     }
 
@@ -336,6 +345,11 @@ impl<M> El<M> {
 
     pub fn spacer() -> Self {
         Self::new(Kind::Spacer).width(Size::Fill(1.0)).height(Size::Fill(1.0))
+    }
+
+    /// A plain shape in `ink`, rounded by `radius`; its size as set.
+    pub fn block(ink: Ink, radius: f32) -> Self {
+        Self::new(Kind::Block { ink, radius })
     }
 
     pub fn text(text: impl Into<String>, ty: Type) -> Self {
@@ -618,6 +632,12 @@ impl<M> El<M> {
     }
 
     /// Its children, as they first show, come in one after another.
+    /// Laid out somewhere new, it moves there rather than jumps.
+    pub fn glide(mut self) -> Self {
+        self.glide = true;
+        self
+    }
+
     pub fn stagger(mut self) -> Self {
         self.stagger = true;
         self
