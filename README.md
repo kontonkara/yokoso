@@ -77,7 +77,8 @@ overlay = false   # frame times over every surface
 As a user service: `dist/yokoso.service` (the package installs it), part of
 `graphical-session.target`. Failing three times within a minute, it stays
 down and `yokoso-fallback.service` runs `$XDG_CONFIG_HOME/yokoso/fallback`, a
-script of your own that brings back what yokoso took over, if there is one.
+script of your own that brings back what yokoso took over, if there is one:
+once, when it gives up, not at each crash (systemd 254 or later).
 
 ## The bar
 
