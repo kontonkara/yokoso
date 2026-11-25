@@ -4,6 +4,11 @@ Documentation=https://github.com/kontonkara/yokoso
 PartOf=graphical-session.target
 After=graphical-session.target
 Requisite=graphical-session.target
+# Failing three times within a minute, it stays down, and what it took over
+# comes back: see yokoso-fallback.service.
+StartLimitIntervalSec=60
+StartLimitBurst=3
+OnFailure=yokoso-fallback.service
 
 [Service]
 Type=simple

@@ -1,0 +1,12 @@
+# After yokoso has failed for good: runs $XDG_CONFIG_HOME/yokoso/fallback,
+# a script of your own that brings back what yokoso took over (another bar,
+# say), so the desktop is never left without one. Without the script it
+# does nothing.
+[Unit]
+Description=What yokoso took over, back after it failed
+Documentation=https://github.com/kontonkara/yokoso
+ConditionPathExists=%E/yokoso/fallback
+
+[Service]
+Type=oneshot
+ExecStart=%E/yokoso/fallback

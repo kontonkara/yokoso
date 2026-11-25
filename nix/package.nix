@@ -40,6 +40,7 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     install -Dm644 dist/yokoso.service $out/lib/systemd/user/yokoso.service
     substituteInPlace $out/lib/systemd/user/yokoso.service --replace-fail /usr/bin/yokoso $out/bin/yokoso
+    install -Dm644 dist/yokoso-fallback.service $out/lib/systemd/user/yokoso-fallback.service
   '';
 
   # EGL and GLES are opened at run time, through libglvnd; fontconfig too.
