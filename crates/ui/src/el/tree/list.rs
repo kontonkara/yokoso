@@ -257,6 +257,7 @@ mod tests {
     fn key(keysym: Keysym) -> Input {
         Input::Key(Key {
             keysym,
+            code: 0,
             text: None,
             state: KeyState::Pressed,
             mods: Mods::default(),

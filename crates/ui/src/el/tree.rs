@@ -2,6 +2,7 @@
 //! element's id, rect and role after layout, and what it keeps between
 //! rebuilds — its springs and the like — by its id.
 
+mod field;
 mod list;
 
 use std::collections::{HashMap, HashSet};
@@ -83,6 +84,16 @@ pub struct State {
     pub touched: f64,
     pub max_scroll: f32,
     pub hover_row: Option<usize>,
+    /// A field's: whether it is being edited, its cursor and selection, how
+    /// far its text is scrolled, whether its caret shows, when it was last
+    /// touched, its last click (when and where) and Caps Lock.
+    pub editing: bool,
+    pub edit: super::edit::Edit,
+    pub scroll_x: f32,
+    pub caret_on: bool,
+    pub activity: f64,
+    pub clicked: (f64, f32),
+    pub caps: bool,
 }
 
 impl Default for State {
@@ -100,6 +111,13 @@ impl Default for State {
             touched: 0.0,
             max_scroll: 0.0,
             hover_row: None,
+            editing: false,
+            edit: super::edit::Edit::default(),
+            scroll_x: 0.0,
+            caret_on: true,
+            activity: 0.0,
+            clicked: (0.0, 0.0),
+            caps: false,
         }
     }
 }
@@ -120,6 +138,10 @@ pub struct Response<M> {
     pub wake: Option<std::time::Duration>,
     /// Escape went unused here: the shell unwinds a level.
     pub escaped: bool,
+    /// Text to put on the clipboard.
+    pub copy: Option<String>,
+    /// The clipboard's text is wanted, to come back as `Input::Paste`.
+    pub paste: bool,
 }
 
 pub struct Tree<M> {
@@ -142,6 +164,10 @@ pub struct Tree<M> {
     pub focus: Option<Id>,
     /// The focus ring shows: a key was pressed since the last click.
     pub focus_visible: bool,
+    /// The modifiers as the last key had them: Shift for a click.
+    mods: crate::input::Mods,
+    /// The focused field's next blink.
+    blink_in: Option<std::time::Duration>,
 }
 
 impl<M> Default for Tree<M> {
@@ -160,6 +186,8 @@ impl<M> Default for Tree<M> {
             focus: None,
             focus_visible: false,
             pending: HashSet::new(),
+            mods: crate::input::Mods::default(),
+            blink_in: None,
         }
     }
 }
@@ -236,7 +264,13 @@ impl<M: Clone> Tree<M> {
             }
         }
         moving |= self.update_lists(dt, theme);
+        self.blink_in = self.blink(now);
         moving
+    }
+
+    /// How long until a frame is wanted though nothing moves: a blink.
+    pub fn wake(&self) -> Option<std::time::Duration> {
+        self.blink_in
     }
 
     /// Lays the description out for `view`, text at its scale.
@@ -265,6 +299,7 @@ impl<M: Clone> Tree<M> {
                 }
             }
         }
+        self.settle_fields();
         self.view = Some(*view);
         self.stale = false;
     }
@@ -337,12 +372,19 @@ impl<M: Clone> Tree<M> {
         let mut redraw = false;
         let mut escaped = false;
         let mut wake = None;
+        let mut copy = None;
+        let mut paste = false;
         let mut messages = Vec::new();
         match input {
             Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
-                // Dragging a slider: its value follows the pointer.
+                // Dragging a slider: its value follows the pointer. In a field,
+                // the selection does.
                 if let Some(change) = self.pressed.and_then(|id| self.slide_to(id, *x)) {
                     messages.push(change);
+                }
+                if let Some(id) = self.pressed.filter(|id| self.field(*id).is_some()) {
+                    self.field_drag(id, *x);
+                    redraw = true;
                 }
                 let now = self.hit(*x, *y);
                 if let Some(id) = now {
@@ -380,6 +422,10 @@ impl<M: Clone> Tree<M> {
                     self.set_spring(Some(id), |s| s.press.to(1.0));
                     redraw = true;
                     messages.extend(self.slide_to(id, *x));
+                    if self.field(id).is_some() {
+                        let shift = self.mods.shift;
+                        self.field_press(id, *x, shift);
+                    }
                 }
             }
             Input::Release { button: BTN_LEFT, x, y } => {
@@ -420,8 +466,27 @@ impl<M: Clone> Tree<M> {
                     }
                 }
             }
+            Input::Paste(text) => {
+                if let Some(id) = self.focus.filter(|id| self.field(*id).is_some()) {
+                    messages.extend(self.field_paste(id, text));
+                    redraw = true;
+                }
+            }
+            Input::Key(key)
+                if key.state != KeyState::Released && self.focus.is_some_and(|id| self.field(id).is_some()) && {
+                    // A field takes its keys first; what it passes on goes on below.
+                    let id = self.focus.expect("checked");
+                    self.mods = key.mods;
+                    let out = self.field_key(id, key);
+                    messages.extend(out.message);
+                    copy = out.copy;
+                    paste = out.paste;
+                    redraw = true;
+                    !out.passed
+                } => {}
             Input::Key(key) if key.state != KeyState::Released => {
                 redraw = true;
+                self.mods = key.mods;
                 let was_visible = self.focus_visible;
                 self.focus_visible = true;
                 let on_list = self.focus.filter(|id| self.list(*id).is_some());
@@ -465,6 +530,8 @@ impl<M: Clone> Tree<M> {
             redraw,
             wake,
             escaped,
+            copy,
+            paste,
         }
     }
 
@@ -501,10 +568,18 @@ impl<M: Clone> Tree<M> {
         if old == id {
             return;
         }
-        self.set_spring(old, |s| s.focus.to(0.0));
+        self.set_spring(old, |s| {
+            s.focus.to(0.0);
+            s.editing = false;
+        });
         let shown = if self.focus_visible { 1.0 } else { 0.0 };
         self.set_spring(id, |s| s.focus.to(shown));
         self.focus = id;
+        // A field focused is a field being edited.
+        if let Some(id) = id.filter(|id| self.field(*id).is_some()) {
+            self.set_spring(Some(id), |s| s.editing = true);
+            self.touch_field(id);
+        }
     }
 
     /// Focus to the next (`by` 1) or the previous (-1) element that takes
@@ -649,6 +724,10 @@ impl<M: Clone> Tree<M> {
                 frame.clip(clip);
             }
             kinds::paint(el, node.rect, state, laid, focused, frame, theme);
+            // A field clips its own text: its element's clip comes back after.
+            if node.role == Role::TextField {
+                frame.clip(clip);
+            }
         }
         frame.clip(None);
         // Tooltips last, over everything.
@@ -771,6 +850,7 @@ mod tests {
     fn key(keysym: Keysym, shift: bool) -> Input {
         Input::Key(crate::input::Key {
             keysym,
+            code: 0,
             text: None,
             state: KeyState::Pressed,
             mods: crate::input::Mods {

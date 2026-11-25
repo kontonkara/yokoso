@@ -3,6 +3,7 @@
 //! keeps between rebuilds lives in the tree, by its id.
 
 pub mod edit;
+pub mod field;
 pub mod kinds;
 pub mod layout;
 pub mod tree;
@@ -121,6 +122,18 @@ pub enum ButtonStyle {
     Text,
 }
 
+pub struct FieldEl<M> {
+    pub text: String,
+    /// What it says while empty.
+    pub placeholder: String,
+    /// Dots for its characters, and nothing to copy.
+    pub password: bool,
+    /// Its text, edited.
+    pub on_change: Option<std::rc::Rc<dyn Fn(String) -> M>>,
+    /// Return.
+    pub on_submit: Option<M>,
+}
+
 pub struct ListEl<M> {
     pub len: usize,
     pub row_height: f32,
@@ -214,6 +227,8 @@ pub enum Kind<M> {
     /// Rows of one height, as many as there are, of which only those in view
     /// are ever built.
     List(ListEl<M>),
+    /// A line of text to edit. Disabled without a message to send.
+    Field(FieldEl<M>),
     /// Room and nothing else.
     Spacer,
     Text(TextEl),
@@ -343,6 +358,37 @@ impl<M> El<M> {
             name,
             ink: Ink::OnSurfaceVariant,
         })
+    }
+
+    /// A line of `text` to edit, `placeholder` while it is empty.
+    pub fn field(
+        text: impl Into<String>,
+        placeholder: impl Into<String>,
+        on_change: Option<impl Fn(String) -> M + 'static>,
+    ) -> Self {
+        Self::new(Kind::Field(FieldEl {
+            text: text.into(),
+            placeholder: placeholder.into(),
+            password: false,
+            on_change: on_change.map(|change| std::rc::Rc::new(change) as std::rc::Rc<dyn Fn(String) -> M>),
+            on_submit: None,
+        }))
+    }
+
+    /// For a field: dots for its characters.
+    pub fn password(mut self) -> Self {
+        if let Kind::Field(field) = &mut self.kind {
+            field.password = true;
+        }
+        self
+    }
+
+    /// For a field: what Return sends.
+    pub fn on_submit(mut self, message: M) -> Self {
+        if let Kind::Field(field) = &mut self.kind {
+            field.on_submit = Some(message);
+        }
+        self
     }
 
     /// A list of `len` rows `row_height` high, `row` building each one.

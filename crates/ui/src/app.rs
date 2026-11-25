@@ -311,8 +311,8 @@ impl<K> Surface<K> {
 
 /// What the shell can ask of the process.
 pub struct Ui<S: Shell> {
-    handle: LoopHandle<'static, App<S>>,
-    qh: QueueHandle<App<S>>,
+    pub(crate) handle: LoopHandle<'static, App<S>>,
+    pub(crate) qh: QueueHandle<App<S>>,
     registry: RegistryState,
     output_state: OutputState,
     seat: SeatState,
@@ -1172,6 +1172,7 @@ impl<S: Shell> App<S> {
         let Some(key) = self.ui.focus else { return };
         let input = Input::Key(Key {
             keysym: event.keysym,
+            code: event.raw_code,
             text: event
                 .utf8
                 .filter(|text| !text.is_empty() && !text.chars().any(char::is_control)),

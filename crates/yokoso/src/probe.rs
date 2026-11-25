@@ -201,6 +201,10 @@ impl Shell for Probe {
                 ),
                 ScrollSource::Continuous => format!("continuous: {:.1} {:.1} px", scroll.x, scroll.y),
             },
+            Input::Paste(pasted) => {
+                self.typed.push_str(pasted);
+                format!("pasted {} bytes", pasted.len())
+            }
             Input::KeyboardEnter => "keyboard here".into(),
             Input::KeyboardLeave => "keyboard gone".into(),
             Input::Key(k) => {

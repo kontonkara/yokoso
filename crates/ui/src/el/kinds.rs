@@ -19,6 +19,7 @@ pub fn role<M>(kind: &Kind<M>) -> Role {
         Kind::Tile(_) => Role::Tile,
         Kind::Tooltip { .. } => Role::Tooltip,
         Kind::List(_) => Role::List,
+        Kind::Field(_) => Role::TextField,
         _ => Role::Group,
     }
 }
@@ -31,6 +32,7 @@ pub fn interactive<M>(kind: &Kind<M>) -> bool {
     ) || matches!(kind, Kind::Slider(slider) if slider.on_change.is_some())
         || matches!(kind, Kind::Tile(tile) if tile.on_press.is_some())
         || matches!(kind, Kind::Tooltip { .. } | Kind::List(_))
+        || matches!(kind, Kind::Field(field) if field.on_change.is_some())
 }
 
 /// Whether the keyboard reaches it: what takes the pointer but a tooltip,
@@ -116,6 +118,7 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
         }
         Kind::Toggle { .. } => (TRACK.0.min(max.unwrap_or(f32::MAX)), TRACK.1),
         Kind::Icon { .. } => (theme.sizes.icon, theme.sizes.icon),
+        Kind::Field(_) => (240.0f32.min(max.unwrap_or(f32::MAX)), super::field::height(theme)),
         Kind::Tile(tile) => {
             let title = text.layout(&tile.title, &tile_title(theme), scale, None, false);
             let width =
@@ -137,6 +140,9 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
 
 /// Its text, laid out for the rect it got: a line or a few.
 pub fn paragraphs<M>(el: &El<M>, rect: Rect, text: &mut Text, theme: &Theme, scale: f32) -> Vec<Paragraph> {
+    if let Kind::Field(field) = &el.kind {
+        return super::field::paragraphs(field, text, theme, scale);
+    }
     if let Kind::Tile(tile) = &el.kind {
         let room = tile_text_room(tile, rect, theme) + 0.5;
         let small = Style {
@@ -280,6 +286,7 @@ pub fn paint<M>(
         Kind::Icon { name, ink: color } => frame.icon(name, rect, ink(*color, theme)),
         Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
         Kind::List(list) => paint_list(list, rect, state, paragraph, focused, frame, theme),
+        Kind::Field(field) => super::field::paint(field, rect, state, paragraphs, focused, state.caps, frame, theme),
         _ => {}
     }
 }

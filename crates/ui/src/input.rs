@@ -28,6 +28,8 @@ pub enum Input {
     KeyboardEnter,
     KeyboardLeave,
     Key(Key),
+    /// Text from the clipboard, as asked for.
+    Paste(String),
 }
 
 /// One pointer frame's worth of scrolling.
@@ -58,6 +60,9 @@ pub enum ScrollSource {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Key {
     pub keysym: Keysym,
+    /// The physical key, its evdev code: shortcuts go by where a key is, so
+    /// Ctrl+C is Ctrl+C in any layout.
+    pub code: u32,
     /// What it types, after the layout and compose (dead keys): None for keys
     /// that type nothing, and for a dead key itself.
     pub text: Option<String>,
