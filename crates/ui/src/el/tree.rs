@@ -534,7 +534,9 @@ impl<M: Clone> Tree<M> {
             }
             kinds::settle(&el.kind, state);
             if kinds::pending(&el.kind) {
+                // It pulses from the next frame on: one is asked for.
                 self.pending.insert(id);
+                self.arrived = true;
             } else {
                 state.phase = 0.0;
             }
@@ -1226,6 +1228,25 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(tree.input(&Input::Scroll(notch)).messages, vec![-10]);
+    }
+
+    #[test]
+    fn what_starts_waiting_asks_for_the_frames_it_pulses_in() {
+        let press = |pending: bool| El::<()>::press(0.0, vec![El::icon("wifi")], Some(())).pending(pending);
+        let mut tree = Tree::<()>::default();
+        let space = Rect::new(0.0, 0.0, 300.0, 100.0);
+        tree.set(press(false));
+        tree.layout_with(space, &mut measure);
+        tree.update(1.0, 0.0, &Theme::default());
+        assert_eq!(tree.wake(), None, "at rest");
+        tree.set(press(true));
+        tree.layout_with(space, &mut measure);
+        assert_eq!(
+            tree.wake(),
+            Some(std::time::Duration::ZERO),
+            "waiting, it asks for a frame"
+        );
+        assert!(tree.update(1.0 / 60.0, 0.0, &Theme::default()), "and pulses on");
     }
 
     #[test]

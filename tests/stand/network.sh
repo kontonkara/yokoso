@@ -21,7 +21,14 @@ shot wifi
 nm Wifi b false
 until_says .network.link '"None"'
 shot off
+# On its way up, it pulses: frames keep coming while it does.
+nm Connecting b true
 nm Wifi b true
+sleep 0.5
+frames=$("$binary" msg stats | jq .frames)
+sleep 0.5
+[ $(($("$binary" msg stats | jq .frames) - frames)) -ge 10 ] || fail "connecting, and no pulse: $(($("$binary" msg stats | jq .frames) - frames)) frames in 0.5 s"
+nm Connecting b false
 until_says .network.name '"Stand"'
 # The strength from one percent to the next draws nothing: it shows only
 # in words, on resting. To fewer arcs, the bar draws.

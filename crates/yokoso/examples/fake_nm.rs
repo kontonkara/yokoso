@@ -4,6 +4,7 @@
 //!
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Wifi b false
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Vpn b true
+//!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Connecting b true
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Strength y 40
 //!   busctl --user call org.freedesktop.NetworkManager /stand stand.Network Burst u 500
 
@@ -23,6 +24,8 @@ const IP4: &str = "/org/freedesktop/NetworkManager/IP4Config/1";
 
 struct State {
     wifi: bool,
+    /// The Wi-Fi on its way up, not up yet.
+    connecting: bool,
     vpn: bool,
     strength: u8,
 }
@@ -49,7 +52,8 @@ impl Root {
 
     #[zbus(property)]
     fn primary_connection(&self) -> OwnedObjectPath {
-        path(if self.0.lock().unwrap().wifi { WIFI } else { "/" })
+        let state = self.0.lock().unwrap();
+        path(if state.wifi && !state.connecting { WIFI } else { "/" })
     }
 
     #[zbus(property)]
@@ -72,6 +76,7 @@ struct Active {
     id: &'static str,
     kind: &'static str,
     wifi: bool,
+    shared: Shared,
 }
 
 #[interface(name = "org.freedesktop.NetworkManager.Connection.Active")]
@@ -93,7 +98,12 @@ impl Active {
 
     #[zbus(property)]
     fn state(&self) -> u32 {
-        2
+        // 1 on its way up, 2 up.
+        if self.wifi && self.shared.lock().unwrap().connecting {
+            1
+        } else {
+            2
+        }
     }
 
     #[zbus(property)]
@@ -172,6 +182,12 @@ impl Stand {
         changed(bus, ROOT, "org.freedesktop.NetworkManager").await;
     }
 
+    /// The Wi-Fi on its way up, or up.
+    async fn connecting(&self, on: bool, #[zbus(connection)] bus: &Connection) {
+        self.0.lock().unwrap().connecting = on;
+        changed(bus, ROOT, "org.freedesktop.NetworkManager").await;
+    }
+
     /// The Wi-Fi's strength, in percent.
     async fn strength(&self, value: u8, #[zbus(connection)] bus: &Connection) {
         self.0.lock().unwrap().strength = value;
@@ -191,6 +207,7 @@ fn main() -> zbus::Result<()> {
     zbus::block_on(async {
         let state = Arc::new(Mutex::new(State {
             wifi: true,
+            connecting: false,
             vpn: false,
             strength: 72,
         }));
@@ -201,12 +218,14 @@ fn main() -> zbus::Result<()> {
             id: "Stand",
             kind: "802-11-wireless",
             wifi: true,
+            shared: state.clone(),
         };
         server.at(WIFI, wifi).await?;
         let vpn = Active {
             id: "myvpn",
             kind: "tun",
             wifi: false,
+            shared: state.clone(),
         };
         server.at(VPN, vpn).await?;
         server.at(DEVICE, Device).await?;
