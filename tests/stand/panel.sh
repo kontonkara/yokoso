@@ -55,3 +55,17 @@ sleep 1
 "$binary" msg page buttons
 sleep 0.2
 [ "$("$binary" msg dump | jq -r .panel_visible)" = false ] || fail "the panel stayed on another page"
+# The clock at rest after a tick and the clock while the panel moves are
+# drawn alike: the hours and minutes stand still to the pixel.
+"$binary" msg page panel
+sleep 0.5
+read -r kx ky kw kh <<EOT
+$("$binary" msg dump | jq -r '.clock | map(floor) | "\(16 + .[0]) \(16 + .[1]) \(.[2] * 0.6 | floor) \(.[3])"')
+EOT
+sleep "$(awk "BEGIN { print 1.7 - $(date +%N) / 1e9 }")"
+shot clock-rest
+"$binary" msg panel >/dev/null
+sleep 0.08
+shot clock-moving
+moved=$(magick compare -metric AE "$out/clock-rest.png" "$out/clock-moving.png" -crop "${kw}x${kh}+$kx+$ky" null: 2>&1 | cut -d' ' -f1)
+[ "$moved" = 0 ] || fail "the clock shifts as the panel moves ($moved pixels)"

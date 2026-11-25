@@ -324,7 +324,7 @@ impl Demo {
                 )
                 .ink(Ink::OnSurfaceVariant)
                 .width(Size::Fixed(420.0)),
-                El::text(clock(), Type::Headline).weight(500.0).tabular().rolling(),
+                El::text(clock(), Type::Headline).weight(500.0).tabular().rolling().key("clock"),
                 El::button(
                     if self.panel.open { "Close" } else { "Quick settings" },
                     ButtonStyle::Tonal,
@@ -855,7 +855,7 @@ impl Shell for Demo {
     }
 
     fn wake(&self, _: Place) -> Option<std::time::Duration> {
-        self.tree.wake()
+        [self.tree.wake(), self.panel.wake()].into_iter().flatten().min()
     }
 
     fn update(&mut self, _: Place, time: &FrameTime) -> bool {
@@ -959,6 +959,7 @@ impl crate::ipc::Answer for Demo {
                 "panels": self.panels,
                 "panel_shape": rect(self.panel.shape()),
                 "panel_content": rect(self.panel.content_rect()),
+                "clock": self.tree.rect_of("clock").map(rect),
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),

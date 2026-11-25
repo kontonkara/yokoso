@@ -262,7 +262,9 @@ pub fn paint<M>(
     let colors = &theme.colors;
     let paragraph = paragraphs.first();
     match &el.kind {
-        Kind::Text(t) if t.rolling && paragraphs.len() > 1 => paint_rolling(t, rect, state, paragraphs, frame, theme),
+        Kind::Text(t) if t.rolling && paragraphs.len() > 1 && state.roll.is_moving() => {
+            paint_rolling(t, rect, state, paragraphs, frame, theme)
+        }
         Kind::Text(t) => {
             if let Some(paragraph) = paragraph {
                 // Centered up and down: a line in a taller box.
@@ -670,17 +672,33 @@ fn paint_rolling(t: &TextEl, rect: Rect, state: &State, paragraphs: &[Paragraph]
     let old_text = state.was.as_deref().unwrap_or_default();
     let count = t.text.chars().count();
     if paragraphs.len() == 1 + 2 * count {
+        let whole = &paragraphs[0];
         let (new, old) = paragraphs[1..].split_at(count);
-        let mut x = rect.x;
-        for ((a, b), (now, before)) in t.text.chars().zip(old_text.chars()).zip(new.iter().zip(old)) {
-            if a == b {
-                frame.text(now, x, y, color);
-            } else {
-                frame.text(before, x, y - roll * line, color.alpha((1.0 - roll).clamp(0.0, 1.0)));
-                frame.text(now, x, y + (1.0 - roll) * line, color);
+        // The same characters come from the whole line, just where and as
+        // they are drawn at rest: one piece of it per run of them.
+        let line_clip = frame.current_clip();
+        let mut same: Option<(f32, f32)> = None;
+        let flush = |frame: &mut Frame, run: Option<(f32, f32)>| {
+            if let Some((left, right)) = run {
+                frame.clip_within(Rect::new(rect.x + left, y, right - left, line));
+                frame.text(whole, rect.x, y, color);
+                frame.clip(line_clip);
             }
-            x += now.width();
+        };
+        let chars = t.text.char_indices().zip(old_text.chars()).zip(new.iter().zip(old));
+        for (((at, a), b), (now, before)) in chars {
+            let left = whole.caret(at).x;
+            let right = whole.caret(at + a.len_utf8()).x.max(left);
+            if a == b {
+                same = Some(same.map_or((left, right), |(from, _)| (from, right)));
+                continue;
+            }
+            flush(frame, same.take());
+            let x = rect.x + left;
+            frame.text(before, x, y - roll * line, color.alpha((1.0 - roll).clamp(0.0, 1.0)));
+            frame.text(now, x, y + (1.0 - roll) * line, color);
         }
+        flush(frame, same);
     } else if let [now, before] = paragraphs {
         frame.text(
             before,
