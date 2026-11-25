@@ -151,6 +151,12 @@ pub trait Shell: Sized + 'static {
     /// Render: paints `key`. The state is only read here.
     fn render(&self, key: Self::Key, frame: &mut Frame);
 
+    /// After a frame of `key`: how long until it wants another though nothing
+    /// moves, as a caret that blinks. None for never.
+    fn wake(&self, _key: Self::Key) -> Option<std::time::Duration> {
+        None
+    }
+
     /// The user closed the window `key`. Quits, unless the shell says else.
     fn closed(&mut self, ui: &mut Ui<Self>, _key: Self::Key) {
         ui.quit();
@@ -269,6 +275,8 @@ struct Surface<K> {
     history: Vec<Rect>,
     /// The buffer size the last frame was drawn at.
     drawn: (i32, i32),
+    /// When a wake is set for it, monotonic seconds.
+    wake_at: Option<f64>,
 }
 
 enum Role {
@@ -528,6 +536,7 @@ impl<S: Shell> Ui<S> {
             fps: 0.0,
             history: Vec::new(),
             drawn: (0, 0),
+            wake_at: None,
             frames: 0,
             cpu: 0.0,
         })
@@ -661,6 +670,21 @@ impl<S: Shell> Ui<S> {
         }
         surface.frames += 1;
         self.stats.frames += 1;
+        // A wake it asks for, unless an earlier one is set already.
+        if let Some(after) = shell.wake(key) {
+            let at = monotonic() + after.as_secs_f64();
+            if surface.wake_at.is_none_or(|set| set > at + 0.002) {
+                surface.wake_at = Some(at);
+                let timer = calloop::timer::Timer::from_duration(after);
+                let _ = self.handle.insert_source(timer, move |_, _, app| {
+                    if let Some(surface) = app.ui.surfaces.iter_mut().find(|s| s.key == key) {
+                        surface.wake_at = None;
+                        surface.dirty = true;
+                    }
+                    calloop::timer::TimeoutAction::Drop
+                });
+            }
+        }
         surface.cpu = started.elapsed().as_secs_f64();
         self.stats.last_frame = surface.cpu;
         Ok(())
