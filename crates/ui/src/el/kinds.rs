@@ -137,7 +137,7 @@ pub fn measure<M>(el: &El<M>, max: Option<f32>, text: &mut Text, theme: &Theme, 
             (laid.width().ceil().min(max.unwrap_or(f32::MAX)), laid.height().ceil())
         }
         Kind::Toggle { .. } => (TRACK.0.min(max.unwrap_or(f32::MAX)), TRACK.1),
-        Kind::Icon { .. } => (theme.sizes.icon, theme.sizes.icon),
+        Kind::Icon { .. } | Kind::Picture(_) => (theme.sizes.icon, theme.sizes.icon),
         Kind::Field(_) => (240.0f32.min(max.unwrap_or(f32::MAX)), super::field::height(theme)),
         Kind::Menu(menu) => super::menu::measure(menu, text, theme, scale, max),
         Kind::Tile(tile) => {
@@ -337,6 +337,13 @@ pub fn paint<M>(
         }
         Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
         Kind::Block { ink: color, radius } => frame.fill(rect, *radius, ink(*color, theme)),
+        Kind::Picture(picture) => {
+            // Whole, as large as fits, in the middle.
+            let fit = (rect.w / picture.width as f32).min(rect.h / picture.height as f32);
+            let (w, h) = (picture.width as f32 * fit, picture.height as f32 * fit);
+            let at = Rect::new(rect.x + (rect.w - w) / 2.0, rect.y + (rect.h - h) / 2.0, w, h);
+            frame.picture(picture, at);
+        }
         Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
         Kind::Press(press) => paint_press(press, rect, state, focused, frame, theme),
         Kind::List(list) => paint_list(list, rect, state, paragraph, focused, frame, theme),

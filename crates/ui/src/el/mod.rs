@@ -245,6 +245,8 @@ pub enum Kind<M> {
         style: CardStyle,
         gap: f32,
     },
+    /// A picture from outside, as an icon: kept whole, as large as fits.
+    Picture(crate::picture::Picture),
     /// An icon of the shell's own set, by name.
     Icon {
         name: &'static str,
@@ -405,6 +407,11 @@ impl<M> El<M> {
         }
         all.extend(children);
         Self::new(Kind::Card { style, gap }).with(all)
+    }
+
+    /// A picture, as large as an icon unless sized.
+    pub fn picture(picture: crate::picture::Picture) -> Self {
+        Self::new(Kind::Picture(picture))
     }
 
     pub fn icon(name: &'static str) -> Self {

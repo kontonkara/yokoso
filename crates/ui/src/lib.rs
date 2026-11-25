@@ -11,6 +11,7 @@ pub mod icons;
 pub mod input;
 pub mod motion;
 pub mod paint;
+pub mod picture;
 pub mod scale;
 pub mod text;
 pub mod theme;

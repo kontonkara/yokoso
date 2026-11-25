@@ -24,4 +24,6 @@ fontique = { version = "0.13.0", default-features = false, features = ["fontconf
 swash = "0.2.10"
 material-colors = { version = "0.5.0", default-features = false, features = ["std"] }
 resvg = { version = "0.50.0", default-features = false }
+# PNG for pictures, through the same tiny-skia resvg draws with.
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "png-format"] }
 unicode-segmentation = "1.12.0"

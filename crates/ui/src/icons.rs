@@ -107,9 +107,46 @@ struct Drawn {
 #[derive(Default)]
 pub struct Icons {
     drawn: HashMap<(&'static str, i32), Option<Drawn>>,
+    /// Pictures put in the atlas, by their id.
+    pictures: HashMap<u64, Drawn>,
 }
 
 impl Icons {
+    /// Paints `picture` filling `rect`, buffer pixels: put in the atlas the
+    /// first time at its own size, drawn scaled.
+    pub fn paint_picture(&mut self, painter: &mut Painter, picture: &crate::picture::Picture, rect: Rect) {
+        if rect.w <= 0.0 || rect.h <= 0.0 {
+            return;
+        }
+        let known = self
+            .pictures
+            .get(&picture.id)
+            .copied()
+            .filter(|drawn| drawn.generation == painter.atlas.generation);
+        let drawn = match known {
+            Some(drawn) => drawn,
+            None => {
+                let before = painter.atlas.generation;
+                let width = picture.width as i32;
+                let added = painter.atlas.add(width, picture.height as i32, picture.pixels.to_vec());
+                let Some(uv) = added else {
+                    // The atlas started over: everything in it is gone.
+                    self.pictures.clear();
+                    self.drawn.clear();
+                    return;
+                };
+                let drawn = Drawn {
+                    uv,
+                    size: width,
+                    generation: before,
+                };
+                self.pictures.insert(picture.id, drawn);
+                drawn
+            }
+        };
+        painter.glyph(rect, drawn.uv, Color::WHITE, true);
+    }
+
     /// Paints `name` filling `rect`, buffer pixels, in `color`, `scale` of
     /// its size about its middle: drawn once at its full size, the picture
     /// scaled. An unknown name paints nothing.

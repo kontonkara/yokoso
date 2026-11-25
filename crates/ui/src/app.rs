@@ -246,6 +246,12 @@ impl Frame<'_> {
         self.icons.paint(self.painter, name, rect, color, scale);
     }
 
+    /// `picture` filling `rect`, scaled to it.
+    pub fn picture(&mut self, picture: &crate::picture::Picture, rect: Rect) {
+        let rect = self.snap(rect);
+        self.icons.paint_picture(self.painter, picture, rect);
+    }
+
     /// What is painted from here on shows `alpha` of itself: a part fading
     /// in or out as one.
     pub fn alpha(&mut self, alpha: f32) {
