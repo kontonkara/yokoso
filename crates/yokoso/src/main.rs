@@ -1,5 +1,6 @@
 //! yokoso: a desktop shell for Wayland.
 
+mod bar;
 mod config;
 mod demo;
 mod ipc;
@@ -27,7 +28,7 @@ fn main() -> ExitCode {
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let done = match args.first().map(String::as_str) {
-        None | Some("shell") => probe(args.iter().any(|arg| arg == "--window")),
+        None | Some("shell") => shell(args.iter().any(|arg| arg == "--window")),
         Some("probe") => probe(args.iter().any(|arg| arg == "--window")),
         Some("demo") => demo(args.iter().any(|arg| arg == "--layer")),
         Some("msg") if args.len() > 1 => ipc::send(&args[1..]),
@@ -81,6 +82,29 @@ fn validate(file: Option<&String>) -> Result<(), String> {
         println!("no config in {}: the defaults are in force", config::dir().display());
     }
     Ok(())
+}
+
+/// The shell: the bar on the main screen, or in a window to try it.
+fn shell(window: bool) -> Result<(), String> {
+    let dir = config::dir();
+    let config = config::load(&dir).unwrap_or_else(|error| {
+        tracing::warn!(%error, "config not read: the defaults are in force");
+        config::Config::default()
+    });
+    let mut socket = None;
+    let done = yokoso_ui::app::run(bar::Bar::new(window, config), |app| {
+        socket = Some(ipc::listen(&app.ui)?);
+        bar::Bar::start(&mut app.ui, &app.shell);
+        let sender = app.ui.sender();
+        config::watch(dir, move |loaded| {
+            let _ = sender.send(bar::Message::Config(loaded));
+        })?;
+        Ok(())
+    });
+    if let Some(path) = socket {
+        let _ = std::fs::remove_file(path);
+    }
+    done
 }
 
 /// The probe of stage 0: a card on every output, or in a window.

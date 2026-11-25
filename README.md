@@ -3,7 +3,7 @@
 A desktop shell for Wayland, written in Rust and drawn on the GPU without a
 toolkit. niri first.
 
-**Status:** stage 0, the skeleton. Nothing here is a shell you can use yet;
+**Status:** stage 2, the bar, under way. Not yet a shell to use every day;
 see [SCOPE.md](SCOPE.md) for the road and [ARCHITECTURE.md](ARCHITECTURE.md)
 for how it is built.
 
@@ -22,7 +22,7 @@ run time from `libglvnd` or Mesa.
 ## Run
 
 ```sh
-yokoso shell            # on every output
+yokoso shell            # the bar, on the main screen
 yokoso shell --window   # in a plain window, to try it without the session
 yokoso probe            # the test card of stage 0, on every output (--window too)
 yokoso msg ping         # talk to the running shell
@@ -35,13 +35,29 @@ a broken file is reported with its line and column, and the last good config
 stays.
 
 ```toml
-[probe]
+[bar]
+position = "top"          # or "bottom"
+height = 40
+margin = 8                # how far it floats from the edges
+screens = []              # by description or connector; none: the main one
+left = ["workspaces", "media"]
+center = ["clock"]
+right = ["privacy", "tray", "layout", "network", "sound", "battery"]
+
+[bar.clock]
+format = "%H:%M"          # strftime
+date = false
+date_format = "%a %-d %b"
+
+[probe]                   # the test card of `yokoso probe`
 accent = "#f3a17a"
 radius = 8
 
 [debug]
 overlay = false   # frame times over every surface
 ```
+
+`yokoso msg bar show`, `hide` or `toggle` puts the bar away and back.
 
 `yokoso msg` talks to the running shell: `ping`, `stats`, `dump`, `reload`,
 `overlay [on|off]`, `move [seconds]`.

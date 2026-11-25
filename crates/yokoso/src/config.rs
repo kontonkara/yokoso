@@ -14,8 +14,102 @@ use yokoso_ui::Color;
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub bar: Bar,
     pub probe: Probe,
     pub debug: Debug,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Bar {
+    pub position: Edge,
+    /// Logical pixels: its height, and how far it floats from the edges.
+    pub height: f32,
+    pub margin: f32,
+    /// The screens it is on, by their description or connector; none for
+    /// the main one: the built-in screen, else the first.
+    pub screens: Vec<String>,
+    /// Its parts, at its start, in its middle and at its end.
+    pub left: Vec<Module>,
+    pub center: Vec<Module>,
+    pub right: Vec<Module>,
+    /// With a panel open, the pointer on another part opens that one's.
+    pub hover_switch: bool,
+    pub clock: Clock,
+}
+
+impl Default for Bar {
+    fn default() -> Self {
+        Self {
+            position: Edge::Top,
+            height: 40.0,
+            margin: 8.0,
+            screens: Vec::new(),
+            left: vec![Module::Workspaces, Module::Media],
+            center: vec![Module::Clock],
+            right: vec![
+                Module::Privacy,
+                Module::Tray,
+                Module::Layout,
+                Module::Network,
+                Module::Sound,
+                Module::Battery,
+            ],
+            hover_switch: true,
+            clock: Clock::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Edge {
+    #[default]
+    Top,
+    Bottom,
+}
+
+/// A part of the bar.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum Module {
+    Workspaces,
+    Media,
+    Clock,
+    Privacy,
+    Tray,
+    Layout,
+    Network,
+    Sound,
+    Battery,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct Clock {
+    /// As strftime has it: "%H:%M", "%-I:%M %p".
+    #[serde(deserialize_with = "strftime")]
+    pub format: String,
+    /// The date beside the time.
+    pub date: bool,
+    #[serde(deserialize_with = "strftime")]
+    pub date_format: String,
+}
+
+fn strftime<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let format = String::deserialize(deserializer)?;
+    crate::bar::clock::check(&format).map_err(serde::de::Error::custom)?;
+    Ok(format)
+}
+
+impl Default for Clock {
+    fn default() -> Self {
+        Self {
+            format: "%H:%M".into(),
+            date: false,
+            date_format: "%a %-d %b".into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -181,6 +275,26 @@ mod tests {
         let config = load(&dir).unwrap();
         assert_eq!(config.probe.accent, Color::hex("#ff0000").unwrap());
         assert_eq!(config.probe.radius, 12.0);
+    }
+
+    #[test]
+    fn the_bar_takes_its_parts_by_name_and_names_one_it_does_not_know() {
+        let dir = dir_with(
+            "bar",
+            &[(
+                "config.toml",
+                "[bar]\nposition = \"bottom\"\nleft = [\"clock\"]\n[bar.clock]\nformat = \"%H:%M:%S\"\n",
+            )],
+        );
+        let bar = load(&dir).unwrap().bar;
+        assert_eq!(bar.position, Edge::Bottom);
+        assert_eq!(bar.left, vec![Module::Clock]);
+        assert_eq!(bar.clock.format, "%H:%M:%S");
+        assert_eq!(bar.right, Bar::default().right, "the rest stays as it was");
+        let dir = dir_with("bar-typo", &[("config.toml", "[bar]\nright = [\"clok\"]\n")]);
+        assert!(load(&dir).unwrap_err().contains("clok"));
+        let dir = dir_with("bar-format", &[("config.toml", "[bar.clock]\nformat = \"%H:%Q\"\n")]);
+        assert!(load(&dir).unwrap_err().contains("strftime"));
     }
 
     #[test]
