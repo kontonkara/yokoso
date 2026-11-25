@@ -88,6 +88,23 @@ impl<M: Clone> Panel<M> {
         }
     }
 
+    /// Open already: it goes on to `to`, as grown from `button`, its content
+    /// coming in anew. Closed, it opens.
+    pub fn retarget(&mut self, button: Rect, to: Rect) {
+        if !self.open {
+            self.toggle(button, to);
+            return;
+        }
+        self.from = button;
+        self.to = to;
+        self.x.to(to.x);
+        self.y.to(to.y);
+        self.w.to(to.w);
+        self.h.to(to.h);
+        self.tree = Tree::default();
+        self.content.snap(0.0);
+    }
+
     /// How far the shape has grown, 0 at its button to 1 open.
     fn progress(&self) -> f32 {
         let along = |now: f32, from: f32, to: f32| {
