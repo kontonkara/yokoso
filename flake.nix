@@ -35,6 +35,7 @@
             jq
             wlrctl
             wtype
+            wl-clipboard
             dbus
           ];
           buildInputs = with pkgs; [
