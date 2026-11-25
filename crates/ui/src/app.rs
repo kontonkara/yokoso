@@ -60,6 +60,14 @@ pub struct Output {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct OutputId(u32);
 
+impl OutputId {
+    /// An output that is not there: for tests of what goes where.
+    #[doc(hidden)]
+    pub fn for_tests(id: u32) -> Self {
+        Self(id)
+    }
+}
+
 /// What kind of surface the shell wants, and where.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Spec {
