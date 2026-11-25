@@ -1026,12 +1026,21 @@ impl<M: Clone> Tree<M> {
         let base_alpha = frame.current_alpha();
         let base_offset = frame.offset();
         let mut shown: Vec<f32> = Vec::with_capacity(self.nodes.len());
+        // What each passes on to what it holds: as much as it shows, less
+        // and more again while a press waits on the system, its icon and
+        // words pulsing.
+        let mut passed: Vec<f32> = Vec::with_capacity(self.nodes.len());
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
             let focused = state.focus.value > 0.0;
             let laid = self.paragraphs.get(id).map_or(&[][..], Vec::as_slice);
-            let here = state.appear.value.clamp(0.0, 1.0) * node.parent.map_or(1.0, |parent| shown[parent]);
+            let here = state.appear.value.clamp(0.0, 1.0) * node.parent.map_or(1.0, |parent| passed[parent]);
             shown.push(here);
+            let pulse = match &el.kind {
+                Kind::Press(press) if press.pending => 0.65 + 0.35 * (state.phase * std::f32::consts::TAU * 1.2).cos(),
+                _ => 1.0,
+            };
+            passed.push(here * pulse);
             if here < 1.0 {
                 frame.alpha(base_alpha * here);
                 frame.set_offset(base_offset.0, base_offset.1 + (1.0 - here) * 14.0);

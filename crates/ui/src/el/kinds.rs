@@ -695,11 +695,6 @@ fn paint_press<M>(
     if press.selected {
         frame.fill(rect, radius, colors.secondary_container);
     }
-    // Waiting on the system, a layer under what it holds pulses.
-    if press.pending {
-        let pulse = 0.5 + 0.5 * (state.phase * std::f32::consts::TAU * 1.2).cos();
-        frame.fill(rect, radius, colors.primary.alpha(0.06 + 0.12 * pulse));
-    }
     // Only what a click does something to lights up under the pointer: a
     // group that hears the wheel alone stays as it is.
     let clicks = press.on_press.is_some() || press.on_middle.is_some() || press.on_secondary.is_some();
