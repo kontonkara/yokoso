@@ -213,6 +213,12 @@ impl Frame<'_> {
         self.icons.paint(self.painter, name, rect, color);
     }
 
+    /// What is painted from here on shows `alpha` of itself: a part fading
+    /// in or out as one.
+    pub fn alpha(&mut self, alpha: f32) {
+        self.painter.set_alpha(alpha);
+    }
+
     /// What is painted from here on shows only in `rect`, or everywhere.
     pub fn clip(&mut self, rect: Option<Rect>) {
         let rect = rect.map(|rect| self.snap(rect));

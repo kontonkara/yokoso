@@ -91,6 +91,8 @@ pub struct Painter {
     // Where in the batch each clip starts, and the rect it keeps what follows
     // in: None for none.
     clips: Vec<(usize, Option<Rect>)>,
+    /// How much of what is pushed shows: everything fades together.
+    alpha: f32,
     pub atlas: Atlas,
 }
 
@@ -132,13 +134,14 @@ impl Painter {
                 screen,
                 batch: Vec::new(),
                 clips: Vec::new(),
+                alpha: 1.0,
                 atlas: Atlas::new(gl)?,
             })
         }
     }
 
     fn push(&mut self, rect: Rect, color: Color, shape: [f32; 4], uv: Uv) {
-        let [r, g, b, a] = color.premultiplied();
+        let [r, g, b, a] = color.alpha(self.alpha).premultiplied();
         self.batch
             .extend_from_slice(&[rect.x, rect.y, rect.w, rect.h, r, g, b, a]);
         self.batch.extend_from_slice(&shape);
@@ -170,6 +173,11 @@ impl Painter {
     pub fn glyph(&mut self, rect: Rect, uv: Uv, color: Color, colored: bool) {
         let kind = if colored { IMAGE } else { MASK };
         self.push(rect, color, [0.0, 0.0, kind, 0.0], uv);
+    }
+
+    /// What is pushed from here on shows `alpha` of itself, until set again.
+    pub fn set_alpha(&mut self, alpha: f32) {
+        self.alpha = alpha.clamp(0.0, 1.0);
     }
 
     /// What is pushed from here on shows only in `rect`, or everywhere with
@@ -247,6 +255,7 @@ impl Painter {
         }
         self.batch.clear();
         self.clips.clear();
+        self.alpha = 1.0;
     }
 }
 
