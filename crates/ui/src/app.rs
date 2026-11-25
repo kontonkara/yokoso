@@ -229,8 +229,13 @@ impl Frame<'_> {
 
     /// The icon `name` filling `rect`, in `color`.
     pub fn icon(&mut self, name: &str, rect: Rect, color: Color) {
+        self.icon_scaled(name, rect, color, 1.0);
+    }
+
+    /// The same, `scale` of its size about its middle: an icon that pops.
+    pub fn icon_scaled(&mut self, name: &str, rect: Rect, color: Color, scale: f32) {
         let rect = self.snap(rect);
-        self.icons.paint(self.painter, name, rect, color);
+        self.icons.paint(self.painter, name, rect, color, scale);
     }
 
     /// What is painted from here on shows `alpha` of itself: a part fading

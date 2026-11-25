@@ -1,7 +1,8 @@
 //! Glyphs and icons in one RGBA texture, packed on shelves. A mask keeps its
 //! coverage in alpha over white; a colored glyph keeps its own colors,
 //! premultiplied. Nothing of it stays on the CPU: what is added waits only
-//! for the next upload.
+//! for the next upload. Sampled linearly: what sits on whole pixels
+//! looks as drawn, and an icon scaled in motion stays smooth.
 //!
 //! When it is full it starts over: everything in it is forgotten at once and
 //! drawn into it again as it is asked for.
@@ -29,8 +30,8 @@ impl Atlas {
             let texture = gl.create_texture()?;
             gl.bind_texture(glow::TEXTURE_2D, Some(texture));
             for (name, value) in [
-                (glow::TEXTURE_MIN_FILTER, glow::NEAREST),
-                (glow::TEXTURE_MAG_FILTER, glow::NEAREST),
+                (glow::TEXTURE_MIN_FILTER, glow::LINEAR),
+                (glow::TEXTURE_MAG_FILTER, glow::LINEAR),
                 (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE),
                 (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE),
             ] {

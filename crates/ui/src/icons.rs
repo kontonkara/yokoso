@@ -70,9 +70,10 @@ pub struct Icons {
 }
 
 impl Icons {
-    /// Paints `name` filling `rect`, buffer pixels, in `color`. An unknown
-    /// name paints nothing.
-    pub fn paint(&mut self, painter: &mut Painter, name: &str, rect: Rect, color: Color) {
+    /// Paints `name` filling `rect`, buffer pixels, in `color`, `scale` of
+    /// its size about its middle: drawn once at its full size, the picture
+    /// scaled. An unknown name paints nothing.
+    pub fn paint(&mut self, painter: &mut Painter, name: &str, rect: Rect, color: Color, scale: f32) {
         let size = rect.w.min(rect.h).round() as i32;
         if size <= 0 {
             return;
@@ -104,14 +105,16 @@ impl Icons {
             }
         };
         if let Some(drawn) = drawn {
-            let x = (rect.x + (rect.w - drawn.size as f32) / 2.0).round();
-            let y = (rect.y + (rect.h - drawn.size as f32) / 2.0).round();
-            painter.glyph(
-                Rect::new(x, y, drawn.size as f32, drawn.size as f32),
-                drawn.uv,
-                color,
-                false,
-            );
+            let full = drawn.size as f32;
+            let x = (rect.x + (rect.w - full) / 2.0).round();
+            let y = (rect.y + (rect.h - full) / 2.0).round();
+            let side = full * scale.max(0.0);
+            let at = if scale == 1.0 {
+                Rect::new(x, y, full, full)
+            } else {
+                Rect::new(x + (full - side) / 2.0, y + (full - side) / 2.0, side, side)
+            };
+            painter.glyph(at, drawn.uv, color, false);
         }
     }
 }
