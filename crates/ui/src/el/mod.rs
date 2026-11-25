@@ -271,6 +271,8 @@ pub enum Kind<M> {
     Block {
         ink: Ink,
         radius: f32,
+        /// Only its edge, this wide; filled for 0.
+        line: f32,
     },
     Text(TextEl),
     /// Disabled without a message to send.
@@ -353,7 +355,12 @@ impl<M> El<M> {
 
     /// A plain shape in `ink`, rounded by `radius`; its size as set.
     pub fn block(ink: Ink, radius: f32) -> Self {
-        Self::new(Kind::Block { ink, radius })
+        Self::new(Kind::Block { ink, radius, line: 0.0 })
+    }
+
+    /// The edge of a block alone, `line` wide inside it.
+    pub fn outline(ink: Ink, radius: f32, line: f32) -> Self {
+        Self::new(Kind::Block { ink, radius, line })
     }
 
     pub fn text(text: impl Into<String>, ty: Type) -> Self {

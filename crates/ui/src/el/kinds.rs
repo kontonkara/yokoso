@@ -336,7 +336,17 @@ pub fn paint<M>(
             }
         }
         Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
-        Kind::Block { ink: color, radius } => frame.fill(rect, *radius, ink(*color, theme)),
+        Kind::Block {
+            ink: color,
+            radius,
+            line,
+        } => {
+            if *line > 0.0 {
+                frame.ring(rect, *radius, *line, ink(*color, theme));
+            } else {
+                frame.fill(rect, *radius, ink(*color, theme));
+            }
+        }
         Kind::Picture(picture) => {
             // Whole, as large as fits, in the middle.
             let fit = (rect.w / picture.width as f32).min(rect.h / picture.height as f32);

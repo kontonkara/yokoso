@@ -49,36 +49,55 @@ pub fn ink(battery: &Battery, theme: &Theme) -> Ink {
     }
 }
 
+/// The battery drawn of shapes, filled as far as it is charged: a body, its
+/// nub to the right, the fill inside with room around it. Each on whole
+/// pixels at any scale, as an icon drawn whole can't be beside a fill.
+fn shape(level: f32, ink: Ink) -> El<Msg> {
+    const BODY: f32 = 21.0;
+    const TALL: f32 = 12.0;
+    const INSET: f32 = 3.0;
+    let at = |el: El<Msg>, left: f32, top: f32| {
+        El::row(0.0, vec![el]).padding(Edges {
+            left,
+            top,
+            ..Edges::default()
+        })
+    };
+    let room = BODY - 2.0 * INSET;
+    El::stack(vec![
+        El::outline(ink, 3.0, 1.5)
+            .width(Size::Fixed(BODY))
+            .height(Size::Fixed(TALL)),
+        at(
+            El::block(ink, 1.0).width(Size::Fixed(2.0)).height(Size::Fixed(6.0)),
+            BODY + 1.0,
+            3.0,
+        ),
+        at(
+            El::block(ink, 1.0)
+                .width(Size::Fixed((room * level).max(2.0)))
+                .height(Size::Fixed(TALL - 2.0 * INSET))
+                .glide(),
+            INSET,
+            INSET,
+        ),
+    ])
+    .width(Size::Fixed(BODY + 3.0))
+    .height(Size::Fixed(TALL))
+}
+
 /// The part; None without a battery.
 pub fn view(power: &Power, theme: &Theme, pad: Edges, on_click: Option<Msg>) -> Option<El<Msg>> {
     let Power::Battery(battery) = power else {
         return None;
     };
-    let size = theme.sizes.icon;
     let ink = ink(battery, theme);
-    // The fill, inside the outline's body: from 4.5 to 17 across, 9 to 15
-    // down, of the icon's 24.
-    let unit = size / 24.0;
-    let full = 12.5 * unit;
     let level = (battery.percentage as f32 / 100.0).clamp(0.0, 1.0);
-    let fill = El::row(
-        0.0,
-        vec![
-            El::block(ink, unit)
-                .width(Size::Fixed((full * level).max(unit)))
-                .height(Size::Fixed(6.0 * unit))
-                .glide(),
-        ],
-    )
-    .padding(Edges {
-        left: 4.5 * unit,
-        top: 9.0 * unit,
-        ..Edges::default()
-    });
-    let mut parts = vec![El::stack(vec![El::icon("battery").ink(ink), fill])];
+    let mut parts = Vec::new();
     if matches!(battery.charge, Charge::Charging) {
         parts.push(El::icon("bolt").ink(ink));
     }
+    parts.push(shape(level, ink));
     parts.push(
         El::text(format!("{:.0}%", battery.percentage), Type::Body)
             .weight(600.0)
@@ -86,7 +105,7 @@ pub fn view(power: &Power, theme: &Theme, pad: Edges, on_click: Option<Msg>) -> 
             .ink(ink),
     );
     Some(
-        El::press(4.0, parts, on_click)
+        El::press(6.0, parts, on_click)
             .key("battery")
             .padding(pad)
             .height(Size::Fill(1.0))
