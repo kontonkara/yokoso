@@ -101,6 +101,35 @@ impl Picture {
         }
     }
 
+    /// The same picture `width` by `height`: halved by averaging while it is
+    /// twice as large or more, then filtered to the size. A picture shrunk by
+    /// the GPU at once loses its thin lines to the sampling.
+    pub fn resized(&self, width: u32, height: u32) -> Option<Self> {
+        use resvg::tiny_skia::{FilterQuality, Pixmap, PixmapPaint, Transform};
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let (mut w, mut h) = (self.width, self.height);
+        let mut pixels = self.pixels.to_vec();
+        while w >= 2 * width && h >= 2 * height {
+            pixels = halved(&pixels, w, h);
+            w /= 2;
+            h /= 2;
+        }
+        if (w, h) == (width, height) {
+            return Self::from_rgba(w, h, pixels);
+        }
+        let source = Pixmap::from_vec(pixels, resvg::tiny_skia::IntSize::from_wh(w, h)?)?;
+        let mut out = Pixmap::new(width, height)?;
+        let paint = PixmapPaint {
+            quality: FilterQuality::Bicubic,
+            ..PixmapPaint::default()
+        };
+        let scale = Transform::from_scale(width as f32 / w as f32, height as f32 / h as f32);
+        out.draw_pixmap(0, 0, source.as_ref(), &paint, scale, None);
+        Self::from_rgba(width, height, out.take())
+    }
+
     fn from_pixmap(pixmap: resvg::tiny_skia::Pixmap) -> Option<Self> {
         let (width, height) = (pixmap.width(), pixmap.height());
         if width > LARGEST || height > LARGEST {
@@ -110,9 +139,46 @@ impl Picture {
     }
 }
 
+/// `pixels`, `w` by `h` RGBA, half as large each way: each pixel the mean
+/// of the four it stands for.
+fn halved(pixels: &[u8], w: u32, h: u32) -> Vec<u8> {
+    let (half_w, half_h) = (w / 2, h / 2);
+    let at = |x: u32, y: u32, c: usize| u32::from(pixels[((y * w + x) * 4) as usize + c]);
+    let mut out = Vec::with_capacity((half_w * half_h * 4) as usize);
+    for y in 0..half_h {
+        for x in 0..half_w {
+            for c in 0..4 {
+                let sum = at(2 * x, 2 * y, c)
+                    + at(2 * x + 1, 2 * y, c)
+                    + at(2 * x, 2 * y + 1, c)
+                    + at(2 * x + 1, 2 * y + 1, c);
+                out.push(((sum + 2) / 4) as u8);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_picture_shrinks_by_halves_then_to_its_size() {
+        // 4 by 4: a white left half, a clear right half.
+        let pixels: Vec<u8> = (0..16)
+            .flat_map(|i| if i % 4 < 2 { [255; 4] } else { [0; 4] })
+            .collect();
+        let picture = Picture::from_rgba(4, 4, pixels).unwrap();
+        let half = picture.resized(2, 2).unwrap();
+        assert_eq!(
+            *half.pixels,
+            [255, 255, 255, 255, 0, 0, 0, 0, 255, 255, 255, 255, 0, 0, 0, 0]
+        );
+        let odd = picture.resized(3, 3).unwrap();
+        assert_eq!((odd.width, odd.height), (3, 3));
+        assert!(picture.resized(0, 2).is_none());
+    }
 
     #[test]
     fn a_tray_pixmap_turns_into_premultiplied_rgba() {

@@ -129,8 +129,8 @@ struct Drawn {
 #[derive(Default)]
 pub struct Icons {
     drawn: HashMap<(&'static str, i32), Option<Drawn>>,
-    /// Pictures put in the atlas, by their id.
-    pictures: HashMap<u64, Drawn>,
+    /// Pictures put in the atlas, by their id and the size drawn at.
+    pictures: HashMap<(u64, u32, u32), Drawn>,
 }
 
 impl Icons {
@@ -140,17 +140,26 @@ impl Icons {
         if rect.w <= 0.0 || rect.h <= 0.0 {
             return;
         }
+        // Made the size it is drawn, whole pixels: none left to the sampler.
+        let size = (rect.w.round().max(1.0) as u32, rect.h.round().max(1.0) as u32);
+        let key = (picture.id, size.0, size.1);
         let known = self
             .pictures
-            .get(&picture.id)
+            .get(&key)
             .copied()
             .filter(|drawn| drawn.generation == painter.atlas.generation);
         let drawn = match known {
             Some(drawn) => drawn,
             None => {
                 let before = painter.atlas.generation;
-                let width = picture.width as i32;
-                let added = painter.atlas.add(width, picture.height as i32, picture.pixels.to_vec());
+                let sized = if (picture.width, picture.height) == size {
+                    None
+                } else {
+                    picture.resized(size.0, size.1)
+                };
+                let made = sized.as_ref().unwrap_or(picture);
+                let width = made.width as i32;
+                let added = painter.atlas.add(width, made.height as i32, made.pixels.to_vec());
                 let Some(uv) = added else {
                     // The atlas started over: everything in it is gone.
                     self.pictures.clear();
@@ -162,7 +171,7 @@ impl Icons {
                     size: width,
                     generation: before,
                 };
-                self.pictures.insert(picture.id, drawn);
+                self.pictures.insert(key, drawn);
                 drawn
             }
         };
