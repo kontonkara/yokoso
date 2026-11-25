@@ -31,10 +31,11 @@ pub enum Page {
     Toggles,
     Sliders,
     Cards,
+    Lists,
 }
 
 impl Page {
-    const ALL: [Page; 4] = [Page::Buttons, Page::Toggles, Page::Sliders, Page::Cards];
+    const ALL: [Page; 5] = [Page::Buttons, Page::Toggles, Page::Sliders, Page::Cards, Page::Lists];
 
     fn name(self) -> &'static str {
         match self {
@@ -42,6 +43,7 @@ impl Page {
             Page::Toggles => "Toggles",
             Page::Sliders => "Sliders",
             Page::Cards => "Cards and tiles",
+            Page::Lists => "Lists",
         }
     }
 }
@@ -62,6 +64,10 @@ pub enum Msg {
     Tile(usize),
     /// A tile's way into its details.
     More(usize),
+    Select(usize),
+    Open(usize),
+    /// The list with its rows, or with none.
+    Empty,
 }
 
 /// The demo's tiles: icon, name, and whether they wait on a slow system.
@@ -93,6 +99,9 @@ pub struct Demo {
     tiles_pending: [bool; 4],
     /// Whose details were asked for last.
     details: Option<usize>,
+    selected: Option<usize>,
+    opened: Option<usize>,
+    empty: bool,
 }
 
 const WIDTH: u32 = 960;
@@ -117,6 +126,9 @@ impl Demo {
             tiles: [true, false, false, true],
             tiles_pending: [false; 4],
             details: None,
+            selected: None,
+            opened: None,
+            empty: false,
         }
     }
 
@@ -133,6 +145,9 @@ impl Demo {
             Msg::Brightness(value) => self.brightness = value,
             Msg::Fine(value) => self.fine = value,
             Msg::More(at) => self.details = Some(at),
+            Msg::Select(row) => self.selected = Some(row),
+            Msg::Open(row) => self.opened = Some(row),
+            Msg::Empty => self.empty = !self.empty,
             Msg::Tile(at) if TILES[at].2 => {
                 self.tiles_pending[at] = true;
                 let answer = Timer::from_duration(Duration::from_millis(1200));
@@ -159,6 +174,55 @@ impl Demo {
             }
         }
         self.stale = true;
+    }
+
+    /// The lists page: ten thousand rows, or none.
+    fn lists(&self) -> El<Msg> {
+        let sizes = &self.theme.sizes;
+        let len = if self.empty { 0 } else { 10_000 };
+        let list = El::list(len, sizes.control + 8.0, |at| {
+            El::row(
+                12.0,
+                vec![
+                    El::icon(if at % 3 == 0 { "bell" } else { "check" }),
+                    El::text(format!("Row {}", at + 1), Type::Body).width(Size::Fill(1.0)),
+                    El::text(format!("{:05}", (at * 7919) % 100_000), Type::Small)
+                        .ink(Ink::OnSurfaceVariant)
+                        .tabular(),
+                ],
+            )
+            .padding(Edges::xy(12.0, 0.0))
+        })
+        .choosing(self.selected, Msg::Select, Msg::Open)
+        .empty("Nothing here")
+        .fill();
+        let said = match (self.selected, self.opened) {
+            (_, Some(row)) => format!("Opened row {}", row + 1),
+            (Some(row), None) => format!("Chosen row {}; Return opens it", row + 1),
+            (None, None) => "Scroll, click a row, or Tab here and use the arrows".into(),
+        };
+        El::column(
+            sizes.gap,
+            vec![
+                El::row(
+                    sizes.gap,
+                    vec![
+                        El::text("Lists", Type::Title).weight(600.0),
+                        El::button(
+                            if self.empty { "Fill it" } else { "Empty it" },
+                            ButtonStyle::Outlined,
+                            Some(Msg::Empty),
+                        ),
+                    ],
+                ),
+                El::text(said, Type::Body).ink(Ink::OnSurfaceVariant),
+                El::card(CardStyle::Filled, None, 0.0, vec![list])
+                    .padding(Edges::all(4.0))
+                    .fill(),
+            ],
+        )
+        .align(Align::Start)
+        .height(Size::Fill(1.0))
     }
 
     /// The cards and tiles page: a card of each style, and a grid of tiles.
@@ -370,6 +434,7 @@ impl Demo {
             Page::Toggles => self.toggles(),
             Page::Sliders => self.sliders(),
             Page::Cards => self.cards(),
+            Page::Lists => self.lists(),
         };
         El::column(
             sizes.gap,
@@ -496,6 +561,10 @@ impl crate::ipc::Answer for Demo {
                 "tiles": self.tiles,
                 "tiles_pending": self.tiles_pending,
                 "details": self.details,
+                "selected": self.selected,
+                "scroll": self.tree.nodes().iter().find(|node| node.role == yokoso_ui::el::tree::Role::List)
+                    .and_then(|node| self.tree.state(node.id)).map(|state| state.scroll.value),
+                "opened": self.opened,
             })),
             Some(other) => Err(format!("no such command: {other}")),
             None => Err("no command".into()),
