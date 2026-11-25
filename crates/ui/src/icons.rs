@@ -24,6 +24,35 @@ const SET: &[(&str, &str)] = &[
         "wifi",
         r#"<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2" fill="black" stroke="none"/>"#,
     ),
+    // Less of the Wi-Fi, by strength: over the whole one, faint.
+    (
+        "wifi-2",
+        r#"<path d="M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2" fill="black" stroke="none"/>"#,
+    ),
+    (
+        "wifi-1",
+        r#"<path d="M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.5" r="1.2" fill="black" stroke="none"/>"#,
+    ),
+    (
+        "wifi-0",
+        r#"<circle cx="12" cy="19.5" r="1.2" fill="black" stroke="none"/>"#,
+    ),
+    (
+        "wifi-off",
+        r#"<path d="M2.5 9a14 14 0 0 1 4.5-2.9M11 5.1a14 14 0 0 1 10.5 3.9M5.5 12.5a9.5 9.5 0 0 1 4-2.3M8.5 16a5 5 0 0 1 7 0M3 3l18 18"/>"#,
+    ),
+    (
+        "ethernet",
+        r#"<path d="M5 8.5h14v9.5H5zM9 8.5V5.5h6v3M9 14v2M12 14v2M15 14v2"/>"#,
+    ),
+    (
+        "airplane",
+        r#"<path d="M12 2.5c-.9 0-1.5.9-1.5 2v5.2L3 14v2l7.5-2.4v4.8L8.5 20v1.5L12 20.5l3.5 1V20l-2-1.6v-4.8L21 16v-2l-7.5-4.3V4.5c0-1.1-.6-2-1.5-2z"/>"#,
+    ),
+    (
+        "shield",
+        r#"<path d="M12 3l7 3v5.5c0 4.3-3 7.8-7 9.5-4-1.7-7-5.2-7-9.5V6z"/>"#,
+    ),
     ("bluetooth", r#"<path d="M7 7l10 10-5 5V2l5 5L7 17"/>"#),
     (
         "moon",
@@ -154,7 +183,14 @@ mod tests {
         for (name, body) in SET {
             let mask = draw(body, 24).unwrap_or_else(|| panic!("{name} did not draw"));
             let covered = mask.as_chunks::<4>().0.iter().filter(|p| p[3] > 128).count();
-            assert!(covered > 20 && covered < 24 * 24 / 2, "{name}: {covered}");
+            // A level, as "wifi-1", is a part drawn over its whole: little
+            // of it is enough.
+            let least = if name.ends_with(|c: char| c.is_ascii_digit()) {
+                2
+            } else {
+                20
+            };
+            assert!(covered > least && covered < 24 * 24 / 2, "{name}: {covered}");
         }
     }
 }
