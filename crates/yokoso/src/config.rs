@@ -39,6 +39,7 @@ pub struct Bar {
     pub battery: Part,
     pub network: Network,
     pub sound: Sound,
+    pub privacy: Part,
 }
 
 impl Default for Bar {
@@ -63,6 +64,7 @@ impl Default for Bar {
             battery: Part::default(),
             network: Network::default(),
             sound: Sound::default(),
+            privacy: Part::default(),
         }
     }
 }

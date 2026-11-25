@@ -50,6 +50,8 @@ pub enum Use {
 pub struct Heard {
     pub sound: Sound,
     pub using: Vec<Use>,
+    /// The default input, the microphone: whether it is muted.
+    pub mic: Sound,
 }
 
 /// Everything `pw-dump` has said so far, by object.
@@ -134,13 +136,24 @@ impl Dump {
 
     /// The default output now.
     pub fn sound(&self) -> Sound {
+        self.default_of("Audio/Sink", "default.audio.sink")
+    }
+
+    /// The default input now: the microphone.
+    pub fn mic(&self) -> Sound {
+        self.default_of("Audio/Source", "default.audio.source")
+    }
+
+    /// The default node of `class`, as metadata `key` names it, else the
+    /// first there is.
+    fn default_of(&self, class: &str, key: &str) -> Sound {
         let sinks: Vec<&Value> = self
             .nodes()
-            .filter(|node| node.pointer("/info/props/media.class").and_then(Value::as_str) == Some("Audio/Sink"))
+            .filter(|node| node.pointer("/info/props/media.class").and_then(Value::as_str) == Some(class))
             .collect();
         let wanted = self
             .defaults
-            .get("default.audio.sink")
+            .get(key)
             .and_then(|value| value.get("name"))
             .and_then(Value::as_str);
         fn name_of<'a>(node: &&'a Value) -> Option<&'a str> {
@@ -207,6 +220,7 @@ pub fn listen(send: impl Fn(Heard) -> bool + Send + 'static) {
                             let sound = Heard {
                                 sound: dump.sound(),
                                 using: dump.using(),
+                                mic: dump.mic(),
                             };
                             if last.as_ref() != Some(&sound) {
                                 if !send(sound.clone()) {
@@ -269,6 +283,28 @@ pub fn change_volume(percent: f32, max: f32) {
 /// The default output muted, or heard again.
 pub fn toggle_mute() {
     wpctl(vec!["set-mute".into(), "@DEFAULT_AUDIO_SINK@".into(), "toggle".into()]);
+}
+
+/// The microphone muted, or heard again.
+pub fn toggle_mic() {
+    wpctl(vec![
+        "set-mute".into(),
+        "@DEFAULT_AUDIO_SOURCE@".into(),
+        "toggle".into(),
+    ]);
+}
+
+/// The microphone `percent` louder, or quieter for less than none, up to
+/// its full level.
+pub fn change_mic(percent: f32) {
+    let sign = if percent >= 0.0 { "+" } else { "-" };
+    wpctl(vec![
+        "set-volume".into(),
+        "-l".into(),
+        "1.0".into(),
+        "@DEFAULT_AUDIO_SOURCE@".into(),
+        format!("{}%{sign}", percent.abs().round()),
+    ]);
 }
 
 #[cfg(test)]
@@ -365,5 +401,17 @@ mod tests {
         dump.take(vec![json!({ "id": 70, "info": null })]);
         let Sound::Out(out) = dump.sound() else { panic!() };
         assert_eq!(out.name, "speakers");
+    }
+
+    #[test]
+    fn the_microphone_is_the_default_input_apart_from_the_outputs() {
+        let mut dump = Dump::default();
+        let mut mic = sink(80, "mic", 1.0, true);
+        mic["info"]["props"]["media.class"] = json!("Audio/Source");
+        dump.take(vec![sink(65, "speakers", 1.0, false), mic]);
+        let Sound::Out(input) = dump.mic() else { panic!() };
+        assert_eq!((input.name.as_str(), input.muted), ("mic", true));
+        let Sound::Out(output) = dump.sound() else { panic!() };
+        assert_eq!(output.name, "speakers");
     }
 }

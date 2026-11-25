@@ -61,6 +61,9 @@ max = 100                 # how loud the wheel goes; up to 150
 [bar.battery]
 on_click = []
 
+[bar.privacy]             # a click mutes the microphone, the wheel turns it
+on_click = []             # the middle button
+
 [probe]                   # the test card of `yokoso probe`
 accent = "#f3a17a"
 radius = 8
@@ -87,8 +90,10 @@ map of their columns, media, the clock, who records (microphone, camera,
 the screen shared), the tray, the keyboard layout, the network, the sound
 and the battery. A click on the clock opens a calendar, a right click on a
 tray icon its menu; with a panel open, the pointer on another part with one
-opens that one. The wheel turns the workspaces, the layout, the volume and
-the calendar's months; the middle button mutes the sound and skips a track.
+opens that one. A click on the microphone mutes it. The wheel turns the
+workspaces, the layout, the volume, the microphone and the calendar's
+months; the middle button mutes the sound and skips a track. Tooltips show
+just past the bar, on a strip the pointer goes through.
 
 Its services are niri's event stream, UPower, NetworkManager, MPRIS and the
 StatusNotifierItem tray on D-Bus, and PipeWire through `pw-dump --monitor`

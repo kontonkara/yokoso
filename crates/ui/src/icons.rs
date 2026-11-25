@@ -101,6 +101,10 @@ const SET: &[(&str, &str)] = &[
         r#"<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>"#,
     ),
     (
+        "mic-off",
+        r#"<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M3.5 3.5l17 17"/>"#,
+    ),
+    (
         "camera",
         r#"<rect x="3" y="7" width="12.5" height="10" rx="2"/><path d="M15.5 10.5l5-3v9l-5-3z"/>"#,
     ),

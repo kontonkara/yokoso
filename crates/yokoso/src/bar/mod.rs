@@ -61,6 +61,9 @@ pub enum Msg {
     /// The volume by wheel steps, up louder; muted or heard again.
     Volume(f32),
     Mute,
+    /// The microphone by wheel steps, up louder; muted or heard again.
+    MicVolume(f32),
+    MicMute,
     /// To a tray item, by its address.
     TrayActivate(String),
     TraySecondary(String),
@@ -120,6 +123,8 @@ pub struct Bar {
     sound: pw::Sound,
     /// What records now.
     using: Vec<pw::Use>,
+    /// The microphone, for whether it is muted.
+    mic: pw::Sound,
     tray: Vec<sni::Item>,
     /// Where what the tray is asked goes.
     tray_asks: Option<async_channel::Sender<sni::Ask>>,
@@ -162,6 +167,7 @@ impl Bar {
             net: nm::Net::default(),
             sound: pw::Sound::default(),
             using: Vec::new(),
+            mic: pw::Sound::default(),
             tray: Vec::new(),
             tray_asks: None,
             media: None,
@@ -308,6 +314,7 @@ impl Bar {
             Module::Battery => &bar.battery.on_click,
             Module::Network => &bar.network.on_click,
             Module::Sound => &bar.sound.on_click,
+            Module::Privacy => &bar.privacy.on_click,
             _ => &[],
         }
     }
@@ -744,6 +751,8 @@ impl Bar {
                 pw::change_volume(steps * sound.step, sound.max);
             }
             Msg::Mute => pw::toggle_mute(),
+            Msg::MicVolume(steps) => pw::change_mic(steps * self.config.bar.sound.step),
+            Msg::MicMute => pw::toggle_mic(),
             Msg::PlayPause | Msg::NextTrack => {
                 if let (Some(player), Some(asks)) = (&self.media, &self.media_asks) {
                     let name = player.name.clone();
@@ -796,7 +805,14 @@ impl Bar {
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
             Module::Media => media::view(self.media.as_ref(), &self.theme, pad),
-            Module::Privacy => privacy::view(&self.using, self.niri.casts, &self.theme, round),
+            Module::Privacy => privacy::view(
+                &self.using,
+                self.niri.casts,
+                matches!(&self.mic, pw::Sound::Out(mic) if mic.muted),
+                &self.theme,
+                round,
+                self.opens(module),
+            ),
             Module::Tray => tray::view(&self.tray, self.theme.sizes.icon, self.open_part().as_deref()),
             Module::Sound => Some(sound::view(&self.sound, &self.theme, round, self.opens(module))),
             Module::Network => Some(network::view(
@@ -935,9 +951,10 @@ impl Shell for Bar {
                 }
             }
             Message::Sound(heard) => {
-                if heard.sound != self.sound || heard.using != self.using {
+                if heard.sound != self.sound || heard.using != self.using || heard.mic != self.mic {
                     self.sound = heard.sound;
                     self.using = heard.using;
+                    self.mic = heard.mic;
                     self.changed(ui);
                 }
             }
