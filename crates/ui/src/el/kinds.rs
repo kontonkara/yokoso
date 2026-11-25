@@ -12,7 +12,7 @@ use crate::{
 pub fn role<M>(kind: &Kind<M>) -> Role {
     match kind {
         Kind::Text(_) => Role::Text,
-        Kind::Button { .. } => Role::Button,
+        Kind::Button { .. } | Kind::Press(_) => Role::Button,
         Kind::Toggle { .. } => Role::Toggle,
         Kind::Slider(_) => Role::Slider,
         Kind::Card { .. } => Role::Card,
@@ -35,6 +35,7 @@ pub fn interactive<M>(kind: &Kind<M>) -> bool {
         || matches!(kind, Kind::Tooltip { .. } | Kind::List(_))
         || matches!(kind, Kind::Field(field) if field.on_change.is_some())
         || matches!(kind, Kind::Menu(menu) if menu.on_pick.is_some())
+        || matches!(kind, Kind::Press(press) if press.on_press.is_some() || press.on_middle.is_some() || press.on_secondary.is_some() || press.on_scroll.is_some())
 }
 
 /// Whether the keyboard reaches it: what takes the pointer but a tooltip,
@@ -334,6 +335,7 @@ pub fn paint<M>(
         }
         Kind::Icon { name, ink: color } => frame.icon_scaled(name, rect, ink(*color, theme), state.pop.value),
         Kind::Tile(tile) => paint_tile(tile, rect, state, paragraphs, focused, frame, theme),
+        Kind::Press(press) => paint_press(press, rect, state, focused, frame, theme),
         Kind::List(list) => paint_list(list, rect, state, paragraph, focused, frame, theme),
         Kind::Field(field) => super::field::paint(field, rect, state, paragraphs, focused, state.caps, frame, theme),
         Kind::Menu(menu) => super::menu::paint(menu, rect, state, paragraphs, focused, frame, theme),
@@ -658,6 +660,29 @@ pub fn paint_tooltip(rect: Rect, bounds: Rect, state: &State, paragraph: &Paragr
     let bubble = Rect::new(x, y, w, h);
     frame.fill(bubble, 4.0, colors.inverse_surface.alpha(shown));
     frame.text(paragraph, x + pad_x, y + pad_y, colors.inverse_on_surface.alpha(shown));
+}
+
+/// A pressed group: a pill, filled when chosen, with a button's hover and
+/// press over it; what is in it paints itself.
+fn paint_press<M>(
+    press: &super::PressEl<M>,
+    rect: Rect,
+    state: &State,
+    focused: bool,
+    frame: &mut Frame,
+    theme: &Theme,
+) {
+    let colors = &theme.colors;
+    let press_value = state.press.value.clamp(0.0, 1.2);
+    let radius = (rect.h / 2.0).min(theme.sizes.radius) * (1.0 - 0.25 * press_value);
+    if press.selected {
+        frame.fill(rect, radius, colors.secondary_container);
+    }
+    let layer = state.hover.value * state::HOVER + press_value * state::PRESS;
+    frame.fill(rect, radius, colors.on_surface.alpha(layer.clamp(0.0, 1.0)));
+    if focused {
+        ring(frame, rect, radius, state, theme);
+    }
 }
 
 /// Text mid-roll: each changed character goes up and out as its new one

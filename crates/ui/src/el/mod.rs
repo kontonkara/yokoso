@@ -177,6 +177,24 @@ pub struct TileEl<M> {
     pub on_more: Option<M>,
 }
 
+/// A group that is pressed as one: a bar's part, a tray icon, a day of a
+/// calendar. Its children sit in a row, centered across it; it has the
+/// hover and the press of a button, and hears the middle and right buttons
+/// and the wheel where it is told what to send for them.
+pub struct PressEl<M> {
+    pub gap: f32,
+    /// A click or Return.
+    pub on_press: Option<M>,
+    pub on_middle: Option<M>,
+    /// The right button: a menu, as a rule.
+    pub on_secondary: Option<M>,
+    /// The wheel, in steps, up and right more: a notch is one; fingers make
+    /// one of every few pixels.
+    pub on_scroll: Option<std::rc::Rc<dyn Fn(f32) -> M>>,
+    /// Shown as chosen: the button of the panel open now.
+    pub selected: bool,
+}
+
 pub struct SliderEl<M> {
     pub value: f32,
     pub min: f32,
@@ -265,6 +283,8 @@ pub enum Kind<M> {
     /// A control center's tile: a setting with its state, and a way into
     /// its details.
     Tile(TileEl<M>),
+    /// A group pressed as one.
+    Press(PressEl<M>),
     #[doc(hidden)]
     _Message(std::marker::PhantomData<M>),
 }
@@ -459,6 +479,51 @@ impl<M> El<M> {
     pub fn empty(mut self, text: impl Into<String>) -> Self {
         if let Kind::List(list) = &mut self.kind {
             list.empty = text.into();
+        }
+        self
+    }
+
+    /// A group pressed as one, its `children` in a row `gap` apart.
+    pub fn press(gap: f32, children: Vec<El<M>>, on_press: Option<M>) -> Self {
+        Self::new(Kind::Press(PressEl {
+            gap,
+            on_press,
+            on_middle: None,
+            on_secondary: None,
+            on_scroll: None,
+            selected: false,
+        }))
+        .with(children)
+    }
+
+    /// For a pressed group: what the middle button sends.
+    pub fn on_middle(mut self, message: M) -> Self {
+        if let Kind::Press(press) = &mut self.kind {
+            press.on_middle = Some(message);
+        }
+        self
+    }
+
+    /// For a pressed group: what the right button sends.
+    pub fn on_secondary(mut self, message: M) -> Self {
+        if let Kind::Press(press) = &mut self.kind {
+            press.on_secondary = Some(message);
+        }
+        self
+    }
+
+    /// For a pressed group: what the wheel sends, by steps, up and right more.
+    pub fn on_scroll(mut self, message: impl Fn(f32) -> M + 'static) -> Self {
+        if let Kind::Press(press) = &mut self.kind {
+            press.on_scroll = Some(std::rc::Rc::new(message));
+        }
+        self
+    }
+
+    /// For a pressed group: shown as chosen.
+    pub fn selected(mut self, selected: bool) -> Self {
+        if let Kind::Press(press) = &mut self.kind {
+            press.selected = selected;
         }
         self
     }

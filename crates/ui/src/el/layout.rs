@@ -35,7 +35,7 @@ pub fn natural<M>(el: &El<M>, max_width: Option<f32>, measure: &mut impl Measure
     };
     let inner_max = fixed_w.or(max_width).map(|w| (w - pad.horizontal()).max(0.0));
     let (w, h) = match &el.kind {
-        Kind::Row { gap, .. } => {
+        Kind::Row { gap, .. } | Kind::Press(super::PressEl { gap, .. }) => {
             let mut w = 0.0f32;
             for child in &el.children {
                 w += natural(child, None, measure).0;
@@ -94,6 +94,7 @@ fn place<M>(el: &El<M>, rect: Rect, measure: &mut impl Measure<M>, out: &mut Vec
     );
     match &el.kind {
         Kind::Row { gap, align } => line(el, inner, *gap, *align, true, measure, out),
+        Kind::Press(press) => line(el, inner, press.gap, Align::Center, true, measure, out),
         Kind::Column { gap, align } => line(el, inner, *gap, *align, false, measure, out),
         Kind::Card { gap, .. } => line(el, inner, *gap, Align::Stretch, false, measure, out),
         Kind::List(list) => {

@@ -29,6 +29,10 @@ const TOOLTIP_DELAY: std::time::Duration = std::time::Duration::from_millis(600)
 
 /// The evdev code of the left button.
 const BTN_LEFT: u32 = 0x110;
+const BTN_RIGHT: u32 = 0x111;
+const BTN_MIDDLE: u32 = 0x112;
+/// Fingers on a pressed group make a step of every this many pixels.
+const FINGER_STEP: f32 = 30.0;
 
 /// An element's id: its key, or its place under its parent, under its
 /// parent's id. Stable while the element is where it was.
@@ -114,6 +118,8 @@ pub struct State {
     /// to pop.
     pub pop: Spring,
     pub pop_wait: f32,
+    /// A pressed group's: the fingers' pixels not yet a step.
+    pub wheel: f32,
 }
 
 impl Default for State {
@@ -145,6 +151,7 @@ impl Default for State {
             roll: Spring::new(1.0),
             pop: Spring::new(1.0),
             pop_wait: 0.0,
+            wheel: 0.0,
         }
     }
 }
@@ -583,6 +590,32 @@ impl<M: Clone> Tree<M> {
                         }
                     }
                 }
+                Input::Release {
+                    button: button @ (BTN_MIDDLE | BTN_RIGHT),
+                    x,
+                    y,
+                } => {
+                    // The other buttons go to a pressed group, as a click does.
+                    if let Some(id) = self.hovered.filter(|id| self.hit(*x, *y) == Some(*id))
+                        && let Some(press) = self.press_el(id)
+                    {
+                        let sent = if *button == BTN_MIDDLE {
+                            press.on_middle.clone()
+                        } else {
+                            press.on_secondary.clone()
+                        };
+                        messages.extend(sent);
+                    }
+                }
+                Input::Scroll(scroll)
+                    if self
+                        .hovered
+                        .and_then(|id| self.press_el(id))
+                        .is_some_and(|p| p.on_scroll.is_some()) =>
+                {
+                    let id = self.hovered.expect("checked");
+                    messages.extend(self.press_scroll(id, scroll));
+                }
                 Input::Scroll(scroll) => {
                     if let Some(id) = self.hovered
                         && self.list(id).is_some()
@@ -848,6 +881,7 @@ impl<M: Clone> Tree<M> {
             Kind::Tile(tile) if more && tile.on_more.is_some() => tile.on_more.clone(),
             Kind::Tile(tile) if !tile.pending => tile.on_press.clone(),
             super::Kind::Button { on_press, .. } => on_press.clone(),
+            super::Kind::Press(press) => press.on_press.clone(),
             super::Kind::Toggle {
                 on_toggle,
                 pending: false,
@@ -855,6 +889,37 @@ impl<M: Clone> Tree<M> {
             } => on_toggle.clone(),
             _ => None,
         }
+    }
+
+    /// The pressed group `id`, if it is one.
+    fn press_el(&self, id: Id) -> Option<&super::PressEl<M>> {
+        let el = self.el.as_ref()?;
+        let mut all = Vec::new();
+        walk(el, ROOT, None, &mut all);
+        all.into_iter().find_map(|(el, found, _)| match &el.kind {
+            Kind::Press(press) if found == id => Some(press),
+            _ => None,
+        })
+    }
+
+    /// The wheel over the pressed group `id`: what it sends for the steps,
+    /// up and right more. A notch is a step; fingers make one of every few
+    /// pixels, what is left kept for the next.
+    fn press_scroll(&mut self, id: Id, scroll: &crate::input::Scroll) -> Option<M> {
+        let steps = if scroll.steps_x != 0.0 || scroll.steps_y != 0.0 {
+            scroll.steps_x - scroll.steps_y
+        } else {
+            let state = self.states.get_mut(&id)?;
+            state.wheel += scroll.x - scroll.y;
+            let whole = (state.wheel / FINGER_STEP).trunc();
+            state.wheel -= whole * FINGER_STEP;
+            whole
+        };
+        if steps == 0.0 {
+            return None;
+        }
+        let on_scroll = self.press_el(id)?.on_scroll.clone()?;
+        Some(on_scroll(steps))
     }
 
     fn set_spring(&mut self, id: Option<Id>, change: impl FnOnce(&mut State)) {
@@ -987,6 +1052,61 @@ mod tests {
         tree.set(El::column(0.0, vec![El::spacer()]));
         tree.layout_with(space, &mut measure);
         assert_eq!(tree.states.len(), 2);
+    }
+
+    #[test]
+    fn a_pressed_group_hears_each_button_and_the_wheel() {
+        use crate::input::{Scroll, ScrollSource};
+        #[derive(Clone, Debug, PartialEq)]
+        enum Msg {
+            Click,
+            Middle,
+            Menu,
+            Wheel(f32),
+        }
+        let mut tree = Tree::<Msg>::default();
+        tree.set(El::row(
+            0.0,
+            vec![
+                El::press(
+                    4.0,
+                    vec![El::icon("bell"), El::text("12", Type::Body)],
+                    Some(Msg::Click),
+                )
+                .on_middle(Msg::Middle)
+                .on_secondary(Msg::Menu)
+                .on_scroll(Msg::Wheel)
+                .width(Size::Fixed(60.0))
+                .height(Size::Fixed(30.0)),
+            ],
+        ));
+        tree.layout_with(Rect::new(0.0, 0.0, 200.0, 100.0), &mut |_: &El<Msg>, _| (16.0, 16.0));
+        // Its children sit in it, centered across it.
+        let (group, icon) = (tree.nodes()[1].rect, tree.nodes()[2].rect);
+        assert!(group.contains(icon.x, icon.y) && icon.y > group.y);
+        // Clicks land on the group, not on what is in it.
+        let (x, y) = (group.x + 20.0, group.y + 15.0);
+        tree.input(&Input::PointerMove { x, y });
+        let mut click = |button: u32| {
+            tree.input(&Input::Press { button, x, y });
+            tree.input(&Input::Release { button, x, y }).messages
+        };
+        assert_eq!(click(BTN_LEFT), vec![Msg::Click]);
+        assert_eq!(click(BTN_MIDDLE), vec![Msg::Middle]);
+        assert_eq!(click(BTN_RIGHT), vec![Msg::Menu]);
+        // A notch up is a step up; fingers make a step of a few pixels.
+        let notch = Scroll {
+            steps_y: -1.0,
+            ..Default::default()
+        };
+        assert_eq!(tree.input(&Input::Scroll(notch)).messages, vec![Msg::Wheel(1.0)]);
+        let fingers = Scroll {
+            source: ScrollSource::Finger,
+            y: 20.0,
+            ..Default::default()
+        };
+        assert!(tree.input(&Input::Scroll(fingers.clone())).messages.is_empty());
+        assert_eq!(tree.input(&Input::Scroll(fingers)).messages, vec![Msg::Wheel(-1.0)]);
     }
 
     #[test]
