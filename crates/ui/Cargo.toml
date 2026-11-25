@@ -23,3 +23,4 @@ parley = "0.13.0"
 fontique = { version = "0.13.0", default-features = false, features = ["fontconfig-dlopen"] }
 swash = "0.2.10"
 material-colors = { version = "0.5.0", default-features = false, features = ["std"] }
+resvg = { version = "0.50.0", default-features = false }

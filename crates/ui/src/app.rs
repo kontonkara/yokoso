@@ -39,6 +39,7 @@ pub use smithay_client_toolkit::shell::wlr_layer::{Anchor, KeyboardInteractivity
 use crate::{
     geometry::{Color, Rect},
     gpu::{Gpu, Target},
+    icons::Icons,
     input::{Input, Key, KeyState, Keysym, Mods, Scroll, ScrollSource},
     paint::Painter,
     scale::{Scaled, Scaling},
@@ -160,6 +161,7 @@ pub trait Shell: Sized + 'static {
 pub struct Frame<'a> {
     painter: &'a mut Painter,
     text: &'a mut Text,
+    icons: &'a mut Icons,
     view: View,
 }
 
@@ -197,6 +199,12 @@ impl Frame<'_> {
             let scale = self.view.scale;
             self.text.draw(self.painter, paragraph, x * scale, y * scale, color);
         }
+    }
+
+    /// The icon `name` filling `rect`, in `color`.
+    pub fn icon(&mut self, name: &str, rect: Rect, color: Color) {
+        let rect = self.snap(rect);
+        self.icons.paint(self.painter, name, rect, color);
     }
 
     /// What is painted from here on shows only in `rect`, or everywhere.
@@ -313,6 +321,7 @@ pub struct Ui<S: Shell> {
     gpu: Gpu,
     painter: Painter,
     text: Text,
+    icons: Icons,
     /// The atlas generation the frames so far were drawn with.
     atlas_generation: u64,
     outputs: Vec<(Output, wl_output::WlOutput)>,
@@ -615,6 +624,7 @@ impl<S: Shell> Ui<S> {
         let mut frame = Frame {
             painter: &mut self.painter,
             text: &mut self.text,
+            icons: &mut self.icons,
             view,
         };
         shell.render(key, &mut frame);
@@ -727,6 +737,7 @@ pub fn run<S: Shell>(shell: S, start: impl FnOnce(&mut App<S>) -> Result<(), Str
         gpu,
         painter,
         text: Text::new(),
+        icons: Icons::default(),
         atlas_generation: 0,
         outputs: Vec::new(),
         surfaces: Vec::new(),

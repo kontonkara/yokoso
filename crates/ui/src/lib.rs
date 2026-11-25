@@ -6,6 +6,7 @@ pub mod atlas;
 pub mod el;
 pub mod geometry;
 pub mod gpu;
+pub mod icons;
 pub mod input;
 pub mod motion;
 pub mod paint;
