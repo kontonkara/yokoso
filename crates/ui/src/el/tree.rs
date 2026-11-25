@@ -4,15 +4,18 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{El, Ink, Kind, TextEl, Type, layout};
+use super::{El, kinds, layout};
 use crate::{
     app::{Frame, View},
-    geometry::{Color, Rect},
+    geometry::Rect,
     input::Input,
     motion::{Part, Spring},
-    text::{Paragraph, Style, Text},
+    text::{Paragraph, Text},
     theme::Theme,
 };
+
+/// The evdev code of the left button.
+const BTN_LEFT: u32 = 0x110;
 
 /// An element's id: its key, or its place under its parent, under its
 /// parent's id. Stable while the element is where it was.
@@ -129,42 +132,6 @@ fn mix(parent: Id, name: u64) -> Id {
     x ^ (x >> 31)
 }
 
-fn role<M>(kind: &Kind<M>) -> Role {
-    match kind {
-        Kind::Text(_) => Role::Text,
-        _ => Role::Group,
-    }
-}
-
-/// Text's style from the theme's tokens.
-pub fn style(text: &TextEl, theme: &Theme) -> Style {
-    let sizes = &theme.sizes;
-    let size = match text.ty {
-        Type::Body => sizes.body,
-        Type::Label => sizes.label,
-        Type::Small => sizes.small,
-        Type::Title => sizes.title,
-        Type::Headline => sizes.headline,
-    };
-    Style {
-        size,
-        weight: text.weight,
-        family: None,
-        tabular: text.tabular,
-    }
-}
-
-pub fn ink(ink: Ink, theme: &Theme) -> Color {
-    let colors = &theme.colors;
-    match ink {
-        Ink::OnSurface => colors.on_surface,
-        Ink::OnSurfaceVariant => colors.on_surface_variant,
-        Ink::Primary => colors.primary,
-        Ink::Error => colors.error,
-        Ink::Own(color) => color,
-    }
-}
-
 impl<M: Clone> Tree<M> {
     /// The shell's new description: laid out before the next paint.
     pub fn set(&mut self, el: El<M>) {
@@ -200,25 +167,16 @@ impl<M: Clone> Tree<M> {
     /// Lays the description out for `view`, text at its scale.
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme) {
         let scale = view.scale;
-        self.layout_with(
-            Rect::new(0.0, 0.0, view.width, view.height),
-            &mut |el: &El<M>, max| match &el.kind {
-                Kind::Text(t) => {
-                    let wrap = if t.ellipsis { None } else { max };
-                    let laid = text.layout(&t.text, &style(t, theme), scale, wrap, false);
-                    (laid.width().ceil().min(max.unwrap_or(f32::MAX)), laid.height().ceil())
-                }
-                _ => (0.0, 0.0),
-            },
-        );
+        self.layout_with(Rect::new(0.0, 0.0, view.width, view.height), &mut |el: &El<M>, max| {
+            kinds::measure(el, max, text, theme, scale)
+        });
         // Text laid out once more, at the width it got.
         self.paragraphs.clear();
         if let Some(el) = &self.el {
             let mut all = Vec::new();
             walk(el, ROOT, None, &mut all);
             for ((el, id, _), node) in all.iter().zip(&self.nodes) {
-                if let Kind::Text(t) = &el.kind {
-                    let paragraph = text.layout(&t.text, &style(t, theme), scale, Some(node.rect.w + 0.5), t.ellipsis);
+                if let Some(paragraph) = kinds::paragraph(el, node.rect, text, theme, scale) {
                     self.paragraphs.insert(*id, paragraph);
                 }
             }
@@ -241,9 +199,9 @@ impl<M: Clone> Tree<M> {
             self.nodes.push(Node {
                 id,
                 rect,
-                role: role(&el.kind),
+                role: kinds::role(&el.kind),
                 parent,
-                interactive: false,
+                interactive: kinds::interactive(&el.kind),
             });
         }
         // What is gone forgets its state.
@@ -269,6 +227,7 @@ impl<M: Clone> Tree<M> {
     /// hears what the elements make of it.
     pub fn input(&mut self, input: &Input) -> Response<M> {
         let mut redraw = false;
+        let mut messages = Vec::new();
         match input {
             Input::PointerEnter { x, y } | Input::PointerMove { x, y } => {
                 let now = self.hit(*x, *y);
@@ -284,11 +243,37 @@ impl<M: Clone> Tree<M> {
                 self.set_spring(gone, |s| s.hover.to(0.0));
                 redraw = true;
             }
+            Input::Press { button: BTN_LEFT, .. } => {
+                if let Some(id) = self.hovered {
+                    self.pressed = Some(id);
+                    self.set_spring(Some(id), |s| s.press.to(1.0));
+                    redraw = true;
+                }
+            }
+            Input::Release { button: BTN_LEFT, x, y } => {
+                if let Some(id) = self.pressed.take() {
+                    self.set_spring(Some(id), |s| s.press.to(0.0));
+                    redraw = true;
+                    // A click is a press and a release on the same element.
+                    if self.hit(*x, *y) == Some(id) {
+                        messages.extend(self.activate(id));
+                    }
+                }
+            }
             _ => {}
         }
-        Response {
-            messages: Vec::new(),
-            redraw,
+        Response { messages, redraw }
+    }
+
+    /// What the element `id` sends when it is used: a button's message.
+    fn activate(&self, id: Id) -> Option<M> {
+        let el = self.el.as_ref()?;
+        let mut all = Vec::new();
+        walk(el, ROOT, None, &mut all);
+        let (el, _, _) = all.into_iter().find(|(_, found, _)| *found == id)?;
+        match &el.kind {
+            super::Kind::Button { on_press, .. } => on_press.clone(),
+            _ => None,
         }
     }
 
@@ -304,13 +289,8 @@ impl<M: Clone> Tree<M> {
         let mut all = Vec::new();
         walk(el, ROOT, None, &mut all);
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
-            if let Kind::Text(t) = &el.kind
-                && let Some(paragraph) = self.paragraphs.get(id)
-            {
-                // Centered in its rect up and down: a line in a taller box.
-                let y = node.rect.y + ((node.rect.h - paragraph.height()) / 2.0).max(0.0);
-                frame.text(paragraph, node.rect.x, y, ink(t.ink, theme));
-            }
+            let Some(state) = self.states.get(id) else { continue };
+            kinds::paint(el, node.rect, state, self.paragraphs.get(id), false, frame, theme);
         }
     }
 }
@@ -318,7 +298,7 @@ impl<M: Clone> Tree<M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::el::{Size, Type};
+    use crate::el::{Kind, Size, Type};
 
     fn measure(el: &El<()>, _: Option<f32>) -> (f32, f32) {
         match &el.kind {
@@ -370,6 +350,52 @@ mod tests {
         tree.set(El::column(0.0, vec![El::spacer()]));
         tree.layout_with(space, &mut measure);
         assert_eq!(tree.states.len(), 2);
+    }
+
+    #[test]
+    fn a_click_is_a_press_and_a_release_on_the_same_button() {
+        use crate::el::ButtonStyle;
+        let mut tree = Tree::<u8>::default();
+        tree.set(El::row(
+            8.0,
+            vec![
+                El::button("one", ButtonStyle::Filled, Some(1))
+                    .width(Size::Fixed(50.0))
+                    .height(Size::Fixed(20.0)),
+                El::button("off", ButtonStyle::Filled, None)
+                    .width(Size::Fixed(50.0))
+                    .height(Size::Fixed(20.0)),
+            ],
+        ));
+        tree.layout_with(Rect::new(0.0, 0.0, 200.0, 20.0), &mut |_: &El<u8>, _| (0.0, 0.0));
+        let at = |x| Input::PointerMove { x, y: 10.0 };
+        tree.input(&at(10.0));
+        tree.input(&Input::Press {
+            button: BTN_LEFT,
+            x: 10.0,
+            y: 10.0,
+        });
+        let done = tree.input(&Input::Release {
+            button: BTN_LEFT,
+            x: 10.0,
+            y: 10.0,
+        });
+        assert_eq!(done.messages, vec![1]);
+        // Pressed on it, released away: nothing.
+        tree.input(&Input::Press {
+            button: BTN_LEFT,
+            x: 10.0,
+            y: 10.0,
+        });
+        tree.input(&at(150.0));
+        let done = tree.input(&Input::Release {
+            button: BTN_LEFT,
+            x: 150.0,
+            y: 10.0,
+        });
+        assert!(done.messages.is_empty());
+        // A disabled button takes no pointer at all.
+        assert_eq!(tree.hit(80.0, 10.0), None);
     }
 
     #[test]

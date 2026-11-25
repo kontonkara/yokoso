@@ -2,6 +2,7 @@
 //! light and built anew when the shell's state changes; what an element
 //! keeps between rebuilds lives in the tree, by its id.
 
+pub mod kinds;
 pub mod layout;
 pub mod tree;
 
@@ -98,6 +99,17 @@ pub struct TextEl {
     pub tabular: bool,
 }
 
+/// How a button looks, from most to least weight.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ButtonStyle {
+    /// The one main action.
+    Filled,
+    #[default]
+    Tonal,
+    Outlined,
+    Text,
+}
+
 /// What an element is.
 pub enum Kind<M> {
     Row {
@@ -113,6 +125,12 @@ pub enum Kind<M> {
     /// Room and nothing else.
     Spacer,
     Text(TextEl),
+    /// Disabled without a message to send.
+    Button {
+        label: String,
+        style: ButtonStyle,
+        on_press: Option<M>,
+    },
     #[doc(hidden)]
     _Message(std::marker::PhantomData<M>),
 }
@@ -172,6 +190,14 @@ impl<M> El<M> {
             ellipsis: false,
             tabular: false,
         }))
+    }
+
+    pub fn button(label: impl Into<String>, style: ButtonStyle, on_press: Option<M>) -> Self {
+        Self::new(Kind::Button {
+            label: label.into(),
+            style,
+            on_press,
+        })
     }
 
     /// Its key: what names it among its siblings, for ones that come and go.
