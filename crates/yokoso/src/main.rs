@@ -5,6 +5,7 @@ mod config;
 mod demo;
 mod icon_theme;
 mod ipc;
+mod mpris;
 mod niri;
 mod nm;
 mod panel;

@@ -6,6 +6,7 @@ mod battery;
 mod calendar;
 pub mod clock;
 mod keyboard;
+mod media;
 mod network;
 mod popup;
 mod sound;
@@ -31,7 +32,7 @@ use yokoso_ui::{
 
 use crate::{
     config::{Config, Edge, Module},
-    niri, nm, pw, sni, upower,
+    mpris, niri, nm, pw, sni, upower,
 };
 
 /// What the bar's services send it.
@@ -42,6 +43,7 @@ pub enum Message {
     Net(nm::Net),
     Sound(pw::Sound),
     Tray(sni::Said),
+    Media(Option<mpris::Playing>),
 }
 
 /// What its parts send when used.
@@ -71,6 +73,9 @@ pub enum Msg {
     MenuPick(i32),
     MenuOpen(i32),
     MenuBack,
+    /// The player shown: played or paused; its next track.
+    PlayPause,
+    NextTrack,
 }
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
@@ -112,6 +117,8 @@ pub struct Bar {
     tray: Vec<sni::Item>,
     /// Where what the tray is asked goes.
     tray_asks: Option<async_channel::Sender<sni::Ask>>,
+    media: Option<mpris::Playing>,
+    media_asks: Option<async_channel::Sender<mpris::Ask>>,
     /// The panel open now, or closing.
     popup: Option<popup::Popup>,
     /// A tray menu asked for, on this screen: it opens as it comes.
@@ -143,6 +150,8 @@ impl Bar {
             sound: pw::Sound::default(),
             tray: Vec::new(),
             tray_asks: None,
+            media: None,
+            media_asks: None,
             popup: None,
             menu_asked: None,
             screens: RefCell::default(),
@@ -162,6 +171,10 @@ impl Bar {
         pw::listen(move |sound| sender.send(Message::Sound(sound)).is_ok());
         let sender = ui.sender();
         bar.tray_asks = Some(sni::listen(move |said| sender.send(Message::Tray(said)).is_ok()));
+        let sender = ui.sender();
+        bar.media_asks = Some(mpris::listen(move |playing| {
+            sender.send(Message::Media(playing)).is_ok()
+        }));
         let first = clock::next_change(&clock::now(), &bar.config.bar.clock);
         let _ = ui
             .handle()
@@ -657,6 +670,17 @@ impl Bar {
                 pw::change_volume(steps * sound.step, sound.max);
             }
             Msg::Mute => pw::toggle_mute(),
+            Msg::PlayPause | Msg::NextTrack => {
+                if let (Some(player), Some(asks)) = (&self.media, &self.media_asks) {
+                    let name = player.name.clone();
+                    let ask = if *msg == Msg::PlayPause {
+                        mpris::Ask::PlayPause(name)
+                    } else {
+                        mpris::Ask::Next(name)
+                    };
+                    let _ = asks.try_send(ask);
+                }
+            }
             Msg::TrayActivate(address) => self.ask_tray(sni::Ask::Activate(address.clone())),
             Msg::TraySecondary(address) => self.ask_tray(sni::Ask::Secondary(address.clone())),
             Msg::TrayScroll(address, steps) => self.ask_tray(sni::Ask::Scroll(address.clone(), steps.round() as i32)),
@@ -689,6 +713,7 @@ impl Bar {
             }
             Module::Layout => keyboard::view(&self.niri, pad),
             Module::Battery => battery::view(&self.power, &self.theme, pad, self.opens(module)),
+            Module::Media => media::view(self.media.as_ref(), &self.theme, pad),
             Module::Tray => tray::view(&self.tray, self.theme.sizes.icon, self.open_part().as_deref()),
             Module::Sound => Some(sound::view(&self.sound, &self.theme, pad, self.opens(module))),
             Module::Network => Some(network::view(
@@ -785,6 +810,12 @@ impl Shell for Bar {
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Media(playing) => {
+                if playing != self.media {
+                    self.media = playing;
+                    self.changed(ui);
+                }
+            }
             Message::Tray(sni::Said::Items(items)) => {
                 if items != self.tray {
                     self.tray = items;
@@ -1085,6 +1116,7 @@ impl crate::ipc::Answer for Bar {
                 "time": self.time,
                 "date": self.date,
                 "layouts": self.niri.layouts.names,
+                "media": self.media.as_ref().map(|p| json!({ "title": p.title, "playing": p.playing })),
                 "popup": self.popup.as_ref().map(|open| json!({
                     "open": open.panel.open,
                     "visible": open.panel.visible(),
@@ -1133,6 +1165,7 @@ impl crate::ipc::Answer for Bar {
                     "battery": surface.tree.rect_of("battery").map(|r| [r.x, r.y, r.w, r.h]),
                     "network": surface.tree.rect_of("network").map(|r| [r.x, r.y, r.w, r.h]),
                     "sound": surface.tree.rect_of("sound").map(|r| [r.x, r.y, r.w, r.h]),
+                    "media": surface.tree.rect_of("media").map(|r| [r.x, r.y, r.w, r.h]),
                     "tray": self.tray.iter().map(|item| surface.tree.rect_of(("tray", item.address.as_str())).map(|r| [r.x, r.y, r.w, r.h])).collect::<Vec<_>>(),
                     "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
                         .iter()
