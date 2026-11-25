@@ -2,6 +2,7 @@
 //! light and built anew when the shell's state changes; what an element
 //! keeps between rebuilds lives in the tree, by its id.
 
+pub mod edit;
 pub mod kinds;
 pub mod layout;
 pub mod tree;
