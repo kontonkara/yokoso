@@ -4,6 +4,7 @@ mod bar;
 mod config;
 mod demo;
 mod ipc;
+mod niri;
 mod panel;
 mod probe;
 

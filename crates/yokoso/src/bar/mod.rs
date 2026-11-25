@@ -3,8 +3,9 @@
 //! changes the frame it hears of a change; at rest it draws nothing.
 
 pub mod clock;
+mod workspaces;
 
-use std::{collections::HashMap, time::Duration};
+use std::{cell::RefCell, collections::HashMap, time::Duration};
 
 use serde_json::{Value, json};
 use yokoso_ui::{
@@ -16,20 +17,30 @@ use yokoso_ui::{
     calloop::timer::{TimeoutAction, Timer},
     el::{Align, Edges, El, Size, Type, tree::Tree},
     input::Input,
+    motion::{Part, Spring},
     text::Text,
     theme::Theme,
 };
 
-use crate::config::{Config, Edge, Module};
+use crate::{
+    config::{Config, Edge, Module},
+    niri,
+};
 
 /// What the bar's services send it.
 pub enum Message {
     Config(Result<Config, String>),
+    Niri(niri::Event),
 }
 
 /// What its parts send when used.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Msg {}
+pub enum Msg {
+    /// To the workspace, to the window, and up (more) or down the workspaces.
+    Workspace(u64),
+    Window(u64),
+    WorkspaceStep(f32),
+}
 
 /// Where a bar is: on a screen, or in a window of its own, to try it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -43,6 +54,8 @@ pub enum Place {
 struct Surface {
     tree: Tree<Msg>,
     built: u64,
+    /// The active workspace's frame as it shows: x, y, width, height.
+    frame: Option<[Spring; 4]>,
 }
 
 pub struct Bar {
@@ -59,6 +72,10 @@ pub struct Bar {
     generation: u64,
     time: String,
     date: Option<String>,
+    niri: niri::State,
+    /// Each screen's connector and logical width, as the surfaces were asked
+    /// for: what a bar there shows depends on it.
+    screens: RefCell<HashMap<OutputId, (String, f32)>>,
 }
 
 /// The window's size, to try the bar beside the session.
@@ -77,11 +94,16 @@ impl Bar {
             generation: 0,
             time,
             date,
+            niri: niri::State::default(),
+            screens: RefCell::default(),
         }
     }
 
-    /// Starts its clock: from now on it wakes only when what it says changes.
+    /// Starts its services, and its clock: from now on it wakes only when
+    /// what it says changes.
     pub fn start(ui: &mut Ui<Self>, bar: &Self) {
+        let sender = ui.sender();
+        niri::listen(move |event| sender.send(Message::Niri(event)).is_ok());
         let first = clock::next_change(&clock::now(), &bar.config.bar.clock);
         let _ = ui
             .handle()
@@ -147,8 +169,48 @@ impl Bar {
         }
     }
 
-    /// A part, as it shows now; None where it has nothing to show.
-    fn module(&self, module: Module) -> Option<El<Msg>> {
+    /// The screen a bar at `place` is about, by connector, and its logical
+    /// width: a window's, the one with the focused workspace.
+    fn screen(&self, place: Place) -> Option<(String, f32)> {
+        match place {
+            Place::Screen(id) => self.screens.borrow().get(&id).cloned(),
+            Place::Window => {
+                let output = self
+                    .niri
+                    .workspaces
+                    .values()
+                    .find(|workspace| workspace.is_focused)
+                    .and_then(|workspace| workspace.output.clone())?;
+                let width = self
+                    .screens
+                    .borrow()
+                    .values()
+                    .find(|(name, _)| *name == output)
+                    .map_or(1920.0, |(_, width)| *width);
+                Some((output, width))
+            }
+        }
+    }
+
+    /// The workspace that is active on `place`'s screen.
+    fn active_workspace(&self, place: Place) -> Option<u64> {
+        let (output, _) = self.screen(place)?;
+        self.niri
+            .workspaces_on(&output)
+            .into_iter()
+            .find(|workspace| workspace.is_active)
+            .map(|workspace| workspace.id)
+    }
+
+    /// Does what a part asks.
+    fn act(&mut self, msg: &Msg) {
+        match msg {
+            Msg::Workspace(_) | Msg::Window(_) | Msg::WorkspaceStep(_) => workspaces::act(msg),
+        }
+    }
+
+    /// A part, as it shows on `place` now; None where it has nothing to show.
+    fn module(&self, place: Place, module: Module) -> Option<El<Msg>> {
         let sizes = &self.theme.sizes;
         let pad = Edges {
             left: sizes.pad * 0.75,
@@ -168,17 +230,25 @@ impl Bar {
                         .height(Size::Fill(1.0)),
                 )
             }
+            Module::Workspaces => {
+                let (output, width) = self.screen(place)?;
+                workspaces::view(&self.niri, &output, width, &self.theme)
+            }
             _ => None,
         }
     }
 
-    /// The whole bar: its start, its middle, and its end, the middle in the
-    /// middle however long the others are.
-    fn view(&self) -> El<Msg> {
+    /// The whole bar on `place`: its start, its middle, and its end, the
+    /// middle in the middle however long the others are.
+    fn view(&self, place: Place) -> El<Msg> {
         let bar = &self.config.bar;
         let gap = self.theme.sizes.gap / 3.0;
-        let parts =
-            |modules: &[Module]| -> Vec<El<Msg>> { modules.iter().filter_map(|module| self.module(*module)).collect() };
+        let parts = |modules: &[Module]| -> Vec<El<Msg>> {
+            modules
+                .iter()
+                .filter_map(|module| self.module(place, *module))
+                .collect()
+        };
         let mut end = vec![El::spacer().width(Size::Fill(1.0))];
         end.extend(parts(&bar.right));
         El::row(
@@ -230,10 +300,19 @@ impl Shell for Bar {
     fn message(&mut self, ui: &mut Ui<Self>, message: Message) {
         match message {
             Message::Config(loaded) => self.apply(ui, loaded),
+            Message::Niri(event) => {
+                if self.niri.apply(event) {
+                    self.changed(ui);
+                }
+            }
         }
     }
 
     fn surfaces(&self, outputs: &[Output]) -> Vec<(Place, Spec)> {
+        *self.screens.borrow_mut() = outputs
+            .iter()
+            .map(|output| (output.id, (output.name.clone(), output.size.0 as f32)))
+            .collect();
         let bar = &self.config.bar;
         if self.hidden {
             return Vec::new();
@@ -280,12 +359,24 @@ impl Shell for Bar {
         if let Some(wake) = response.wake {
             ui.wake_after(key, wake);
         }
+        for message in &response.messages {
+            self.act(message);
+        }
     }
 
     fn update(&mut self, key: Place, time: &FrameTime) -> bool {
-        self.surfaces
-            .get_mut(&key)
-            .is_some_and(|surface| surface.tree.update(time.dt as f32, time.now, &self.theme))
+        let Some(surface) = self.surfaces.get_mut(&key) else {
+            return false;
+        };
+        let dt = time.dt as f32;
+        let mut moving = surface.tree.update(dt, time.now, &self.theme);
+        if let Some(frame) = &mut surface.frame {
+            let feel = self.theme.motion.feel(Part::Micro);
+            for spring in frame {
+                moving |= spring.step(dt, &feel);
+            }
+        }
+        moving
     }
 
     fn layout(&mut self, key: Place, view: &View, text: &mut Text) {
@@ -294,7 +385,8 @@ impl Shell for Bar {
             .surfaces
             .get(&key)
             .is_none_or(|surface| surface.built != self.generation);
-        let content = fresh.then(|| self.view());
+        let content = fresh.then(|| self.view(key));
+        let active = self.active_workspace(key);
         let generation = self.generation;
         let surface = self.surfaces.entry(key).or_default();
         if let Some(content) = content {
@@ -310,19 +402,49 @@ impl Shell for Bar {
         if surface.tree.needs_layout(&inside) {
             surface.tree.layout(&inside, text, &self.theme);
         }
+        // The active workspace's frame: there at once the first time, then
+        // gliding from one workspace to the next.
+        match active.and_then(|id| surface.tree.rect_of(workspaces::key(id))) {
+            Some(to) => {
+                let to = [to.x, to.y, to.w, to.h];
+                match &mut surface.frame {
+                    Some(frame) => {
+                        for (spring, to) in frame.iter_mut().zip(to) {
+                            spring.to(to);
+                        }
+                    }
+                    None => surface.frame = Some(to.map(Spring::pixels)),
+                }
+            }
+            None => surface.frame = None,
+        }
     }
 
     fn render(&self, key: Place, frame: &mut Frame) {
         let view = frame.view();
         let rect = self.rect(key, &view);
-        frame.fill(rect, self.theme.sizes.radius, self.theme.colors.surface_container);
-        if let Some(surface) = self.surfaces.get(&key) {
-            surface.tree.paint(frame, &self.theme);
+        let theme = &self.theme;
+        frame.fill(rect, theme.sizes.radius, theme.colors.surface_container);
+        let Some(surface) = self.surfaces.get(&key) else {
+            return;
+        };
+        surface.tree.paint(frame, theme);
+        if let Some(springs) = &surface.frame {
+            let [x, y, w, h] = springs.map(|spring| spring.value);
+            let at = Rect::new(x, y, w, h);
+            frame.ring(at, (h / 2.0).min(theme.sizes.radius), 1.5, theme.colors.primary);
         }
     }
 
     fn wake(&self, key: Place) -> Option<Duration> {
-        self.surfaces.get(&key).and_then(|surface| surface.tree.wake())
+        let surface = self.surfaces.get(&key)?;
+        // The frame was sent somewhere new at layout: it moves from the next
+        // frame on.
+        let gliding = surface.frame.is_some_and(|frame| frame.iter().any(Spring::is_moving));
+        if gliding {
+            return Some(Duration::ZERO);
+        }
+        surface.tree.wake()
     }
 }
 
@@ -369,6 +491,17 @@ impl crate::ipc::Answer for Bar {
                         "rect": [node.rect.x, node.rect.y, node.rect.w, node.rect.h],
                     })).collect::<Vec<_>>(),
                     "clock": surface.tree.rect_of("clock").map(|r| [r.x, r.y, r.w, r.h]),
+                    "workspaces": self.screen(*place).map(|(output, _)| self.niri.workspaces_on(&output)
+                        .iter()
+                        .map(|ws| json!({
+                            "id": ws.id,
+                            "idx": ws.idx,
+                            "active": ws.is_active,
+                            "columns": self.niri.columns(ws.id).len(),
+                            "rect": surface.tree.rect_of(workspaces::key(ws.id)).map(|r| [r.x, r.y, r.w, r.h]),
+                        }))
+                        .collect::<Vec<_>>()),
+                    "frame": surface.frame.map(|springs| springs.map(|spring| spring.value)),
                 })).collect::<Vec<_>>(),
                 "outputs": ui.outputs().iter().map(|o| json!({
                     "name": o.name, "description": o.description, "size": o.size,
