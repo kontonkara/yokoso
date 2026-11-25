@@ -8,7 +8,7 @@ use smithay_client_toolkit::{
     output::{OutputHandler, OutputState},
     presentation_time::{PresentTime, PresentationTimeHandler, PresentationTimeState},
     reexports::{
-        calloop::{EventLoop, LoopHandle, channel},
+        calloop::{self, EventLoop, LoopHandle, channel},
         calloop_wayland_source::WaylandSource,
         client::{
             Connection, Proxy, QueueHandle, WEnum,
@@ -384,6 +384,16 @@ impl<S: Shell> Ui<S> {
                 fps: s.fps,
             })
             .collect()
+    }
+
+    /// Marks `key` dirty `after` this long: a delay with no frames in it,
+    /// as a tooltip's before it shows.
+    pub fn wake_after(&mut self, key: S::Key, after: std::time::Duration) {
+        let timer = calloop::timer::Timer::from_duration(after);
+        let _ = self.handle.insert_source(timer, move |_, _, app| {
+            app.ui.dirty(key);
+            calloop::timer::TimeoutAction::Drop
+        });
     }
 
     pub fn quit(&mut self) {
