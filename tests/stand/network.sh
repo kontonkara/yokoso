@@ -1,20 +1,35 @@
-# The network as NetworkManager has it, the real one on the system bus, only
-# read: the same connection; the connections the config names count as a
-# VPN, others don't.
+# The network as the network manager says, a fake one on the stand's bus:
+# Wi-Fi by its strength, off, back; a tunnel the config names counts as a
+# VPN. A burst of signals, as a scan sends, leaves the bar following still.
 dump() { "$binary" msg dump; }
-nm() { busctl --system get-property org.freedesktop.NetworkManager "$1" "$2" "$3" | cut -d' ' -f2- | tr -d '"'; }
+nm() { busctl --user call org.freedesktop.NetworkManager /stand stand.Network "$@"; }
+link() { dump | jq -r .network.link; }
+# Waits up to two seconds for `jq-filter` on the dump to say `want`.
+until_says() {
+	for _ in $(seq 20); do
+		[ "$(dump | jq -c "$1")" = "$2" ] && return 0
+		sleep 0.1
+	done
+	fail "$1 is $(dump | jq -c "$1"), not $2"
+}
+printf '[bar.network]\nvpn = ["myvpn"]\n' >"$XDG_CONFIG_HOME/yokoso/config.toml"
 sleep 0.5
 [ "$(dump | jq -c '.bars[0].network')" != null ] || fail "no network part"
-primary=$(nm /org/freedesktop/NetworkManager org.freedesktop.NetworkManager PrimaryConnection)
-if [ "$primary" = / ]; then
-	[ "$(dump | jq -r .network.name)" = "" ] || fail "no connection here, and the bar names one"
-	echo "not connected here: only that checked"
-	return 0
-fi
-want=$(nm "$primary" org.freedesktop.NetworkManager.Connection.Active Id)
-[ "$(dump | jq -r .network.name)" = "$want" ] || fail "the bar says $(dump | jq -r .network.name), NetworkManager $want"
-shot network
-# The primary connection named as a VPN: the bar counts it so at once.
-printf '[bar.network]\nvpn = ["%s"]\n' "$want" >"$XDG_CONFIG_HOME/yokoso/config.toml"
-sleep 0.5
-[ "$(dump | jq -c '.network.vpns')" = "[\"$want\"]" ] || fail "a named connection is not a VPN: $(dump | jq -c .network.vpns)"
+until_says .network.name '"Stand"'
+until_says .network.link '"Wifi { ssid: \"Stand\", strength: 72 }"'
+shot wifi
+nm Wifi b false
+until_says .network.link '"None"'
+shot off
+nm Wifi b true
+until_says .network.name '"Stand"'
+nm Vpn b true
+until_says .network.vpns '["myvpn"]'
+shot vpn
+# A scan's worth of signals while the bar reads: it still hears what comes
+# after.
+nm Burst u 2000
+nm Vpn b false
+until_says .network.vpns '[]'
+nm Wifi b false
+until_says .network.link '"None"'
