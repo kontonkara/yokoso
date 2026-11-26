@@ -18,7 +18,8 @@ pub const HEIGHT: f32 = 52.0;
 /// Room around the pill for its shadow, and how far it rises coming in.
 pub const PAD: f32 = 12.0;
 const RISE: f32 = 12.0;
-const TRACK: f32 = 150.0;
+const TRACK: f32 = 170.0;
+const ICON: f32 = 20.0;
 
 /// What it says.
 #[derive(Clone, Debug, PartialEq)]
@@ -166,35 +167,40 @@ fn view_of(shows: &Shows, theme: &Theme) -> El<Msg> {
             .tabular()
             .weight(600.0)
     };
+    let icon = |name: &'static str, ink: Ink| El::icon(name).ink(ink).width(Size::Fixed(ICON));
+    // A level: the icon at the left edge, the bar, the percent at the right.
+    let level = |name: &'static str, at: f32, ink: Ink| {
+        vec![icon(name, ink), level_bar(at, ink, track), El::spacer(), percent(at)]
+    };
+    // Words: in the middle, cut where they don't fit.
+    let words = |el: El<Msg>| {
+        El::column(0.0, vec![el.ellipsis()])
+            .align(Align::Center)
+            .width(Size::Fill(1.0))
+    };
     let parts = match shows {
-        Shows::Volume { level, muted } => {
-            let icon = match level {
-                _ if *muted || *level <= 0.0 => "volume-x",
+        Shows::Volume { level: at, muted } => {
+            let name = match at {
+                _ if *muted || *at <= 0.0 => "volume-x",
                 l if *l < 0.34 => "volume-0",
                 l if *l < 0.67 => "volume-1",
                 _ => "volume",
             };
-            let ink = if *muted { faint } else { Ink::Primary };
-            vec![El::icon(icon).ink(ink), level_bar(*level, ink, track), percent(*level)]
+            level(name, *at, if *muted { faint } else { Ink::Primary })
         }
-        Shows::Mic { level, muted } => {
-            let ink = if *muted { faint } else { Ink::Primary };
-            vec![
-                El::icon(if *muted { "mic-off" } else { "mic" }).ink(ink),
-                level_bar(*level, ink, track),
-                percent(*level),
-            ]
-        }
-        Shows::Brightness { level } => vec![
-            El::icon("sun").ink(Ink::Primary),
-            level_bar(*level, Ink::Primary, track),
-            percent(*level),
-        ],
+        Shows::Mic { level: at, muted } => level(
+            if *muted { "mic-off" } else { "mic" },
+            *at,
+            if *muted { faint } else { Ink::Primary },
+        ),
+        Shows::Brightness { level: at } => level("sun", *at, Ink::Primary),
+        // The icon's room kept at the right too: the name in the middle.
         Shows::Output { name } => vec![
-            El::icon("volume").ink(Ink::Primary),
-            El::text(name.clone(), Type::Body).weight(600.0).ellipsis(),
+            icon("volume", Ink::Primary),
+            words(El::text(name.clone(), Type::Body).weight(600.0)),
+            El::spacer().width(Size::Fixed(ICON)),
         ],
-        Shows::Layout { name } => vec![El::text(name.clone(), Type::Title).weight(600.0).ellipsis()],
+        Shows::Layout { name } => vec![words(El::text(name.clone(), Type::Title).weight(600.0))],
     };
     El::row(12.0, parts)
         .align(Align::Center)

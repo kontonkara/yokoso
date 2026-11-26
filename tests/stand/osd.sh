@@ -25,6 +25,10 @@ sleep 0.3
 shot volume
 [ "$(dump | jq '[.surfaces[] | select(.key | test("Osd"))] | length')" = 1 ] || fail "no surface for the OSD"
 [ "$(pixel 700 820)" != "$(pixel 100 820)" ] || fail "nothing at the bottom middle"
+# The percent at the pill's right edge, as the icon is at its left: no room
+# left empty there.
+colors=$(magick "$last_shot" -crop 20x20+808+804 -format %k info:)
+[ "$colors" -gt 3 ] || fail "nothing at the pill's right: $colors colors"
 # Gone a moment after the last change, its surface with it.
 until_says null
 # The output moves to the headphones; the brightness changes.
