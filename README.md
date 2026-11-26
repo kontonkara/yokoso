@@ -134,8 +134,8 @@ draws nothing.
 yokoso is the notification server (`org.freedesktop.Notifications`); with
 another one running, it waits and takes over once that one lets go. Toasts
 show at the top right of the screen in focus, below the bar: three at once,
-the rest waiting; while the pointer is on them, their time stands still and
-none comes in or moves from under it. A click is their default action,
+the rest waiting; the one under the pointer stays where it is, its time
+still, the others going and coming below it. A click is their default action,
 their buttons and a reply typed in them go to the app. Critical ones stay
 longer and show over full-screen windows. The
 history is kept for its owner alone in

@@ -34,6 +34,8 @@ pub struct Toast {
     /// Its content to be built anew: new, or replaced.
     pub stale: bool,
     placed: bool,
+    /// Its place in the order they came in.
+    came: u64,
 }
 
 impl Toast {
@@ -50,15 +52,17 @@ impl Toast {
 
 #[derive(Default)]
 pub struct Toasts {
-    /// Newest first.
+    /// Newest first, but for those that came while one was pinned.
     pub list: Vec<Toast>,
     /// What waits for room, oldest first.
     pub waiting: Vec<u32>,
     /// The toast under the pointer, its input to it.
     pub hovered: Option<u32>,
-    /// The pointer on the column, or just off it: their time stands still
-    /// and none comes in, so nothing moves from under it.
-    pub held: bool,
+    /// The toast the pointer is on, or was on a moment ago: it stays where
+    /// it is, those that come meanwhile coming in below it.
+    pub pinned: Option<u32>,
+    /// How many came so far: their order.
+    came: u64,
 }
 
 impl Toasts {
@@ -71,8 +75,8 @@ impl Toasts {
         self.list.iter().filter(|toast| !toast.leaving).count()
     }
 
-    /// One more, or one anew in its place; waits while `most` show, or while
-    /// the pointer is on the column.
+    /// One more, or one anew in its place; waits while `most` show. A new
+    /// one goes on top, or just below the pinned one.
     pub fn show(&mut self, id: u32, critical: bool, most: usize) {
         if let Some(toast) = self.list.iter_mut().find(|toast| toast.id == id && !toast.leaving) {
             toast.stale = true;
@@ -82,12 +86,17 @@ impl Toasts {
         if self.waiting.contains(&id) {
             return;
         }
-        if self.held || self.showing() >= most.max(1) {
+        if self.showing() >= most.max(1) {
             self.waiting.push(id);
             return;
         }
+        let at = self
+            .pinned
+            .and_then(|pinned| self.list.iter().position(|toast| toast.id == pinned && !toast.leaving))
+            .map_or(0, |pinned| pinned + 1);
+        self.came += 1;
         self.list.insert(
-            0,
+            at,
             Toast {
                 id,
                 tree: Tree::default(),
@@ -98,11 +107,12 @@ impl Toasts {
                 critical,
                 stale: true,
                 placed: false,
+                came: self.came,
             },
         );
     }
 
-    /// Out it goes, or out of the queue; the column still held, if it was.
+    /// Out it goes, or out of the queue.
     pub fn leave(&mut self, id: u32) {
         self.waiting.retain(|other| *other != id);
         if let Some(toast) = self.list.iter_mut().find(|toast| toast.id == id && !toast.leaving) {
@@ -112,12 +122,20 @@ impl Toasts {
         if self.hovered == Some(id) {
             self.hovered = None;
         }
+        if self.pinned == Some(id) {
+            self.unpin();
+        }
     }
 
-    /// The next waiting one, where there is room for it: none while the
-    /// column is held.
+    /// None pinned: the newest on top again.
+    pub fn unpin(&mut self) {
+        self.pinned = None;
+        self.list.sort_by_key(|toast| std::cmp::Reverse(toast.came));
+    }
+
+    /// The next waiting one, where there is room for it.
     pub fn next(&mut self, most: usize) -> Option<u32> {
-        let room = !self.held && self.showing() < most.max(1);
+        let room = self.showing() < most.max(1);
         (room && !self.waiting.is_empty()).then(|| self.waiting.remove(0))
     }
 
@@ -155,7 +173,7 @@ impl Toasts {
 
     /// Lays each out, `content` giving what a stale one shows, and sets
     /// where each goes: one under another from the top, the newest first;
-    /// one leaving stays where it is.
+    /// one leaving stays where it is, and so does the pinned one.
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme, content: impl Fn(u32) -> Option<El<Msg>>) {
         let inside = View {
             width: WIDTH,
@@ -178,6 +196,11 @@ impl Toasts {
         let mut y = PAD;
         for toast in &mut self.list {
             if toast.leaving {
+                continue;
+            }
+            if self.pinned == Some(toast.id) && toast.placed {
+                // Where it is, those below it from there.
+                y = toast.y.target + toast.height + GAP;
                 continue;
             }
             if toast.placed {
@@ -359,32 +382,32 @@ mod tests {
     }
 
     #[test]
-    fn none_comes_in_while_the_pointer_is_on_the_column() {
+    fn the_pinned_one_stays_and_the_others_come_and_go_below_it() {
         let mut toasts = Toasts::default();
         for id in 1..=5 {
             toasts.show(id, false, 3);
         }
         assert_eq!(ids(&toasts), [3, 2, 1], "the newest on top");
         assert_eq!(toasts.waiting, [4, 5]);
-        // The pointer on the top one: the others go, none comes in.
-        toasts.held = true;
+        // The pointer on the top one: the others go, the waiting ones come
+        // in below it, nothing above it to push it down.
+        toasts.pinned = Some(3);
         toasts.leave(1);
         toasts.leave(2);
-        assert_eq!(toasts.next(3), None);
-        toasts.show(6, false, 3);
-        assert_eq!(ids(&toasts), [3], "it stays where it was");
-        assert_eq!(toasts.waiting, [4, 5, 6]);
-        // Closed under the pointer: still held.
-        toasts.leave(3);
-        toasts.leave(4);
-        assert_eq!(toasts.waiting, [5, 6], "closed while it waited");
-        assert_eq!(toasts.next(3), None);
-        // The pointer gone: they come, as many as there is room for.
-        toasts.held = false;
         while let Some(next) = toasts.next(3) {
             toasts.show(next, false, 3);
         }
-        assert_eq!(ids(&toasts), [6, 5]);
+        assert_eq!(ids(&toasts), [3, 5, 4]);
+        // Closed while it waited: gone from the queue.
+        toasts.show(6, false, 3);
+        toasts.leave(6);
         assert!(toasts.waiting.is_empty());
+        // Let go: the newest on top again.
+        toasts.unpin();
+        assert_eq!(ids(&toasts), [5, 4, 3]);
+        // Closed while pinned: let go as well.
+        toasts.pinned = Some(4);
+        toasts.leave(4);
+        assert_eq!(toasts.pinned, None);
     }
 }

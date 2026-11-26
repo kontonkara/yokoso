@@ -182,7 +182,7 @@ pub struct Bar {
     drafts: HashMap<u32, String>,
     due: HashMap<u32, f64>,
     left: HashMap<u32, f64>,
-    /// When the toasts' column, the pointer off it, is let go.
+    /// When the pinned toast, the pointer off it, is let go.
     release_at: f64,
     /// The panel open now, or closing.
     popup: Option<popup::Popup>,
@@ -206,7 +206,7 @@ const WINDOW_WIDTH: u32 = 1280;
 
 /// How tall the strip for tooltips is: a line of them, and room.
 const TIP_TALL: f32 = 32.0;
-/// How long the toasts' column stays held, the pointer off it: across the
+/// How long a toast stays pinned, the pointer off it: across the
 /// gap between two it is back.
 const RELEASE: f64 = 0.4;
 
@@ -754,7 +754,7 @@ impl Bar {
         };
         self.due.remove(&id);
         self.left.remove(&id);
-        if seconds > 0.0 && self.toasts.held {
+        if seconds > 0.0 && self.toasts.hovered == Some(id) {
             self.left.insert(id, seconds);
         } else if seconds > 0.0 {
             self.arm_after(ui, id, seconds);
@@ -776,88 +776,67 @@ impl Bar {
         );
     }
 
-    /// The pointer on a toast: the column held, the time of all standing
-    /// still and none coming in, so nothing moves from under it. Off it, a
-    /// moment's grace, as across the gap between two, before it goes on.
+    /// The pointer on a toast: its time stands still, and it is pinned where
+    /// it is, those that come meanwhile coming in below it. Off it, its time
+    /// goes on, a moment at least to see it again before it goes; a moment's
+    /// grace, as across the gap between two, before it is let go.
     fn hover_toast(&mut self, ui: &mut Ui<Self>, id: Option<u32>) {
+        if self.toasts.hovered == id {
+            return;
+        }
+        let now = yokoso_ui::app::monotonic();
+        if let Some(gone) = self.toasts.hovered
+            && let Some(left) = self.left.remove(&gone)
+        {
+            self.arm_after(ui, gone, left.max(1.5));
+        }
+        if let Some(on) = id
+            && let Some(due) = self.due.remove(&on)
+        {
+            self.left.insert(on, (due - now).max(0.0));
+        }
         self.toasts.hovered = id;
         if id.is_some() {
-            if !self.toasts.held {
-                self.toasts.held = true;
-                let now = yokoso_ui::app::monotonic();
-                for (toast, due) in self.due.drain() {
-                    self.left.insert(toast, (due - now).max(0.0));
-                }
-            }
+            self.toasts.pinned = id;
             return;
         }
-        if !self.toasts.held {
-            return;
-        }
-        self.release_at = yokoso_ui::app::monotonic() + RELEASE;
+        self.release_at = now + RELEASE;
         let _ = ui
             .handle()
             .insert_source(Timer::from_duration(Duration::from_secs_f64(RELEASE)), |_, _, app| {
                 let shell = &mut app.shell;
                 let now = yokoso_ui::app::monotonic();
-                if shell.toasts.held && shell.toasts.hovered.is_none() && now >= shell.release_at - 0.01 {
-                    shell.release_toasts(&mut app.ui);
+                if shell.toasts.pinned.is_some() && shell.toasts.hovered.is_none() && now >= shell.release_at - 0.01 {
+                    shell.toasts.unpin();
+                    if let Some(output) = shell.toasts_on {
+                        app.ui.dirty(Place::Toasts(output));
+                    }
                 }
                 TimeoutAction::Drop
             });
     }
 
-    /// The column let go: each toast's time goes on, a moment at least to
-    /// see it again before it goes; those waiting come in.
-    fn release_toasts(&mut self, ui: &mut Ui<Self>) {
-        self.toasts.held = false;
-        for (toast, left) in std::mem::take(&mut self.left) {
-            if self.toasts.has(toast) {
-                self.arm_after(ui, toast, left.max(1.5));
-            }
-        }
-        self.fill_toasts(ui, false);
-        if let Some(output) = self.toasts_on {
-            ui.dirty(Place::Toasts(output));
-        }
-    }
-
-    /// Those waiting, as many as there is room for; while the column is
-    /// held, only `even_held`, their time standing still with the rest.
-    fn fill_toasts(&mut self, ui: &mut Ui<Self>, even_held: bool) {
+    /// Those waiting, as many as there is room for.
+    fn fill_toasts(&mut self, ui: &mut Ui<Self>) {
         let most = self.config.notifications.visible;
-        let held = self.toasts.held;
-        self.toasts.held &= !even_held;
-        let mut came = Vec::new();
         while let Some(next) = self.toasts.next(most) {
             let critical = self
                 .toast_notes
                 .get(&next)
                 .is_some_and(|n| n.urgency == notify::Urgency::Critical);
             self.toasts.show(next, critical, most);
-            came.push(next);
-        }
-        self.toasts.held = held;
-        for id in came {
-            self.arm(ui, id);
+            self.arm(ui, next);
         }
     }
 
-    /// The toast `id` goes; the next waiting one comes, unless the column is
-    /// held and it went by itself; the column goes once the last is out of
-    /// sight.
+    /// The toast `id` goes; the next waiting one comes; the column goes once
+    /// the last is out of sight.
     fn leave_toast(&mut self, ui: &mut Ui<Self>, id: u32) {
-        self.drop_toast(ui, id, false);
-    }
-
-    /// As `leave_toast`; `closed` by a hand, the next comes even while the
-    /// column is held: what the pointer was on is gone anyway.
-    fn drop_toast(&mut self, ui: &mut Ui<Self>, id: u32, closed: bool) {
         self.due.remove(&id);
         self.left.remove(&id);
         self.drafts.remove(&id);
         self.toasts.leave(id);
-        self.fill_toasts(ui, closed);
+        self.fill_toasts(ui);
         if let Some(output) = self.toasts_on {
             ui.dirty(Place::Toasts(output));
         }
@@ -885,7 +864,7 @@ impl Bar {
     fn toast_action(&mut self, ui: &mut Ui<Self>, id: u32, key: &str) {
         self.tell(notify::Ask::Invoke(id, key.to_owned(), None));
         let resident = self.toast_notes.get(&id).is_some_and(|n| n.resident);
-        self.drop_toast(ui, id, true);
+        self.leave_toast(ui, id);
         if !resident && self.notes.remove(id).is_some() {
             self.tell(notify::Ask::Closed(id, notify::Reason::Dismissed));
         }
@@ -1181,7 +1160,7 @@ impl Bar {
             }
             Msg::ToastOpen(id) => self.toast_action(ui, *id, "default"),
             Msg::ToastAction(id, key) => self.toast_action(ui, *id, key),
-            Msg::ToastClose(id) => self.drop_toast(ui, *id, true),
+            Msg::ToastClose(id) => self.leave_toast(ui, *id),
             Msg::ToastDraft(id, text) => {
                 self.drafts.insert(*id, text.clone());
                 if let Some(toast) = self.toasts.list.iter_mut().find(|t| t.id == *id) {
@@ -1193,7 +1172,7 @@ impl Bar {
                 let text = self.drafts.remove(id).unwrap_or_default();
                 if !text.trim().is_empty() {
                     self.tell(notify::Ask::Reply(*id, text));
-                    self.drop_toast(ui, *id, true);
+                    self.leave_toast(ui, *id);
                 }
             }
             _ => self.act_plain(msg),

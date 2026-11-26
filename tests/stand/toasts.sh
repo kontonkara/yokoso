@@ -1,7 +1,7 @@
 # Toasts: one shows at the top right below the bar and goes in its time, its
 # column with it; three show and the rest wait their turn; the close button
-# lets the next come; the pointer on one stops its time, and holds the
-# column: none goes or comes in from under it; a click and a typed reply
+# lets the next come; the pointer on one stops its time and keeps it where
+# it is, the others going and coming below it; a click and a typed reply
 # reach the app. A second toast shows all of itself, not clipped.
 dump() { "$binary" msg dump; }
 notes() { dump | jq -c ".notifications$1"; }
@@ -82,18 +82,21 @@ click
 sleep 0.4
 grep -A2 'member=ActionInvoked' "$out/signals.log" | grep -q '"default"' || fail "no default action heard"
 until_says .toasts '[]'
-# The pointer on the top one of five: the column held, none goes or comes in
-# from under it; off it, they go on and the rest come.
+# The pointer on the top one of five: it stays where it is, its time still;
+# the others go in theirs, and the two waiting come in below it.
 for n in 1 2 3 4 5; do notify Queue 0 "" "Number $n" "" 0 0 1500 >/dev/null; done
 sleep 0.5
-held=$(notes '| [.toasts, .waiting]')
-[ "$(notes '.waiting | length')" = 2 ] || fail "not two waiting: $held"
+[ "$(notes '.waiting | length')" = 2 ] || fail "not two waiting: $(notes '| [.toasts, .waiting]')"
+first=$(notes '.toasts[0]')
+at=$(notes '.toast_rects[0]')
 read -r x y <<EOT
 $(in_toast 0 200 30)
 EOT
 move "$x" "$y"
-sleep 2.5
-[ "$(notes '| [.toasts, .waiting]')" = "$held" ] || fail "the column moved under the pointer: $held, then $(notes '| [.toasts, .waiting]')"
-move 200 500
 until_says .waiting '[]'
+sleep 0.5
+[ "$(notes '.toasts[0]')" = "$first" ] || fail "another on top under the pointer: $(notes .toasts)"
+[ "$(notes '.toast_rects[0]')" = "$at" ] || fail "it moved under the pointer: $at, then $(notes '.toast_rects[0]')"
+[ "$(notes '.toasts | length')" = 3 ] || fail "the two waiting are not in: $(notes .toasts)"
+move 200 500
 until_says .toasts '[]'
