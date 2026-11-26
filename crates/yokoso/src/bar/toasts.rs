@@ -54,8 +54,11 @@ pub struct Toasts {
     pub list: Vec<Toast>,
     /// What waits for room, oldest first.
     pub waiting: Vec<u32>,
-    /// The toast under the pointer: its time stands still.
+    /// The toast under the pointer, its input to it.
     pub hovered: Option<u32>,
+    /// The pointer on the column, or just off it: their time stands still
+    /// and none comes in, so nothing moves from under it.
+    pub held: bool,
 }
 
 impl Toasts {
@@ -68,7 +71,8 @@ impl Toasts {
         self.list.iter().filter(|toast| !toast.leaving).count()
     }
 
-    /// One more, or one anew in its place; waits while `most` show.
+    /// One more, or one anew in its place; waits while `most` show, or while
+    /// the pointer is on the column.
     pub fn show(&mut self, id: u32, critical: bool, most: usize) {
         if let Some(toast) = self.list.iter_mut().find(|toast| toast.id == id && !toast.leaving) {
             toast.stale = true;
@@ -78,7 +82,7 @@ impl Toasts {
         if self.waiting.contains(&id) {
             return;
         }
-        if self.showing() >= most.max(1) {
+        if self.held || self.showing() >= most.max(1) {
             self.waiting.push(id);
             return;
         }
@@ -98,16 +102,28 @@ impl Toasts {
         );
     }
 
-    /// Out it goes; the next waiting one comes, if any. True if it was there.
-    pub fn leave(&mut self, id: u32) -> Option<u32> {
+    /// Out it goes, or out of the queue; the column still held, if it was.
+    pub fn leave(&mut self, id: u32) {
         self.waiting.retain(|other| *other != id);
-        let toast = self.list.iter_mut().find(|toast| toast.id == id && !toast.leaving)?;
-        toast.leaving = true;
-        toast.slide.to(0.0);
+        if let Some(toast) = self.list.iter_mut().find(|toast| toast.id == id && !toast.leaving) {
+            toast.leaving = true;
+            toast.slide.to(0.0);
+        }
         if self.hovered == Some(id) {
             self.hovered = None;
         }
-        (!self.waiting.is_empty()).then(|| self.waiting.remove(0))
+    }
+
+    /// The next waiting one, where there is room for it: none while the
+    /// column is held.
+    pub fn next(&mut self, most: usize) -> Option<u32> {
+        let room = !self.held && self.showing() < most.max(1);
+        (room && !self.waiting.is_empty()).then(|| self.waiting.remove(0))
+    }
+
+    /// Shown, or waiting its turn.
+    pub fn knows(&self, id: u32) -> bool {
+        self.has(id) || self.waiting.contains(&id)
     }
 
     pub fn has(&self, id: u32) -> bool {
@@ -327,4 +343,48 @@ pub fn view(notification: &Notification, draft: &str, theme: &Theme) -> El<Msg> 
     .key(("toast", id))
     .padding(Edges::all(14.0))
     .width(Size::Fixed(WIDTH))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(toasts: &Toasts) -> Vec<u32> {
+        toasts
+            .list
+            .iter()
+            .filter(|toast| !toast.leaving)
+            .map(|toast| toast.id)
+            .collect()
+    }
+
+    #[test]
+    fn none_comes_in_while_the_pointer_is_on_the_column() {
+        let mut toasts = Toasts::default();
+        for id in 1..=5 {
+            toasts.show(id, false, 3);
+        }
+        assert_eq!(ids(&toasts), [3, 2, 1], "the newest on top");
+        assert_eq!(toasts.waiting, [4, 5]);
+        // The pointer on the top one: the others go, none comes in.
+        toasts.held = true;
+        toasts.leave(1);
+        toasts.leave(2);
+        assert_eq!(toasts.next(3), None);
+        toasts.show(6, false, 3);
+        assert_eq!(ids(&toasts), [3], "it stays where it was");
+        assert_eq!(toasts.waiting, [4, 5, 6]);
+        // Closed under the pointer: still held.
+        toasts.leave(3);
+        toasts.leave(4);
+        assert_eq!(toasts.waiting, [5, 6], "closed while it waited");
+        assert_eq!(toasts.next(3), None);
+        // The pointer gone: they come, as many as there is room for.
+        toasts.held = false;
+        while let Some(next) = toasts.next(3) {
+            toasts.show(next, false, 3);
+        }
+        assert_eq!(ids(&toasts), [6, 5]);
+        assert!(toasts.waiting.is_empty());
+    }
 }
