@@ -169,12 +169,22 @@ pub struct ListEl<M> {
     pub on_activate: Option<std::rc::Rc<dyn Fn(usize) -> M>>,
     /// What it says when it has no rows.
     pub empty: String,
+    /// Each row's own key, where rows are known by what they show and not
+    /// by where they are: moved, a row glides to its new place; new, it
+    /// comes out from under the one above it; gone, it fades away under it.
+    pub keys: Option<std::rc::Rc<dyn Fn(usize) -> u64>>,
     /// Set by the tree before layout: the first row among its children, and
     /// how far it is scrolled, pixels, and whether it has more than fits:
     /// a scrollbar then, in a lane of its own at the right.
     pub first: usize,
     pub scroll: f32,
     pub bar: bool,
+    /// Set by the tree too: each child's place down the whole list, from its
+    /// top unscrolled, and each one's key. The first `ghosts` children are
+    /// rows already gone, fading.
+    pub places: Vec<f32>,
+    pub shown_keys: Vec<u64>,
+    pub ghosts: usize,
 }
 
 pub struct TileEl<M> {
@@ -525,10 +535,23 @@ impl<M> El<M> {
             on_select: None,
             on_activate: None,
             empty: String::new(),
+            keys: None,
             first: 0,
             scroll: 0.0,
             bar: false,
+            places: Vec::new(),
+            shown_keys: Vec::new(),
+            ghosts: 0,
         }))
+    }
+
+    /// For a list: each row known by `key`, what it shows, so rows glide as
+    /// they move, come in and fade away.
+    pub fn keyed(mut self, key: impl Fn(usize) -> u64 + 'static) -> Self {
+        if let Kind::List(list) = &mut self.kind {
+            list.keys = Some(std::rc::Rc::new(key));
+        }
+        self
     }
 
     /// For a list: which row is chosen, and what it sends as rows are

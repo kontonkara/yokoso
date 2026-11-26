@@ -97,6 +97,20 @@ pub struct State {
     pub hover_row: Option<usize>,
     /// Where in its scrollbar's thumb the pointer holds it, while it drags it.
     pub grab: Option<f32>,
+    /// Its scrollbar: how much of it shows, how wide it is, and when the
+    /// list last scrolled.
+    pub bar_shown: Spring,
+    pub bar_wide: Spring,
+    pub bar_at: f64,
+    /// A keyed list's: its rows that move or fade, by key; the keys it had
+    /// when last described, and whether it was ever described.
+    pub rows: HashMap<u64, RowMotion>,
+    pub keys: Vec<u64>,
+    pub keyed: bool,
+    /// A row's: how much of it shows as it comes in or fades away, and
+    /// whether it is already gone, to be seen but not touched.
+    pub fade: f32,
+    pub ghost: bool,
     /// A field's: whether it is being edited, its cursor and selection, how
     /// far its text is scrolled, whether its caret shows, when it was last
     /// touched, its last click (when and where) and Caps Lock.
@@ -144,6 +158,14 @@ impl Default for State {
             max_scroll: 0.0,
             hover_row: None,
             grab: None,
+            bar_shown: Spring::new(BAR_REST),
+            bar_wide: Spring::new(0.0),
+            bar_at: f64::NEG_INFINITY,
+            rows: HashMap::new(),
+            keys: Vec::new(),
+            keyed: false,
+            fade: 1.0,
+            ghost: false,
             editing: false,
             edit: super::edit::Edit::default(),
             scroll_x: 0.0,
@@ -164,6 +186,20 @@ impl Default for State {
         }
     }
 }
+
+/// A keyed list's row on its way: where it shows down the list, unscrolled,
+/// how much of it, its place in the list, and whether it is gone already.
+#[derive(Clone, Copy, Debug)]
+pub struct RowMotion {
+    pub y: Spring,
+    pub shown: Spring,
+    pub at: usize,
+    pub ghost: bool,
+}
+
+/// A scrollbar at rest shows this much; on a list pointed at or scrolled,
+/// more, and most held or with the pointer in its lane.
+pub const BAR_REST: f32 = 0.25;
 
 impl State {
     fn springs(&mut self) -> [&mut Spring; 4] {
@@ -227,6 +263,12 @@ pub struct Tree<M> {
     origin: (f32, f32),
     /// Where the pointer is on it, if it is.
     pointer: Option<(f32, f32)>,
+    /// The rows lists had built before the description was new, by list,
+    /// and whether it is new since the lists were last built.
+    spare: HashMap<Id, Vec<(u64, El<M>)>>,
+    described: bool,
+    /// A scrollbar fades once it has rested a while: a frame then.
+    bar_wake: Option<std::time::Duration>,
 }
 
 impl<M> Default for Tree<M> {
@@ -254,6 +296,9 @@ impl<M> Default for Tree<M> {
             theme: Theme::default(),
             origin: (0.0, 0.0),
             pointer: None,
+            spare: HashMap::new(),
+            described: false,
+            bar_wake: None,
         }
     }
 }
@@ -265,6 +310,22 @@ fn walk<'a, M>(el: &'a El<M>, id: Id, parent: Option<usize>, out: &mut Vec<(&'a 
     for (index, child) in el.children.iter().enumerate() {
         let name = child.key.unwrap_or(index as u64 ^ 0x5bd1_e995);
         walk(child, mix(id, name), Some(here), out);
+    }
+}
+
+/// The rows each list in `el` has built, taken out by its id, with their
+/// keys; a list that has built none keeps what was taken before.
+fn harvest<M>(el: &mut El<M>, id: Id, out: &mut HashMap<Id, Vec<(u64, El<M>)>>) {
+    if let Kind::List(list) = &mut el.kind {
+        if !el.children.is_empty() {
+            let keys = std::mem::take(&mut list.shown_keys);
+            out.insert(id, keys.into_iter().zip(std::mem::take(&mut el.children)).collect());
+        }
+        return;
+    }
+    for (index, child) in el.children.iter_mut().enumerate() {
+        let name = child.key.unwrap_or(index as u64 ^ 0x5bd1_e995);
+        harvest(child, mix(id, name), out);
     }
 }
 
@@ -280,8 +341,13 @@ fn mix(parent: Id, name: u64) -> Id {
 impl<M: Clone> Tree<M> {
     /// The shell's new description: laid out before the next paint.
     pub fn set(&mut self, el: El<M>) {
+        // The rows its lists had built, for those gone to fade away.
+        if let Some(mut old) = self.el.take() {
+            harvest(&mut old, ROOT, &mut self.spare);
+        }
         self.el = Some(el);
         self.stale = true;
+        self.described = true;
     }
 
     pub fn nodes(&self) -> &[Node] {
@@ -433,18 +499,21 @@ impl<M: Clone> Tree<M> {
                 moving |= spring.step(dt, &feel);
             }
         }
-        moving |= self.update_lists(dt, theme);
+        moving |= self.update_lists(dt, now, theme);
         self.blink_in = self.blink(now);
         moving
     }
 
     /// How long until a frame is wanted though nothing moves: at once for
-    /// what has just come in, else a blink.
+    /// what has just come in, else a blink, or a scrollbar's fade.
     pub fn wake(&self) -> Option<std::time::Duration> {
         if self.arrived {
             return Some(std::time::Duration::ZERO);
         }
-        self.blink_in
+        match (self.blink_in, self.bar_wake) {
+            (Some(blink), Some(bar)) => Some(blink.min(bar)),
+            (blink, bar) => blink.or(bar),
+        }
     }
 
     /// Lays the description out for `view`, text at its scale.
@@ -496,6 +565,8 @@ impl<M: Clone> Tree<M> {
         // What is coming in now, and after how long: a staggered child, and
         // all that is new inside it.
         let mut entering: Vec<Option<f32>> = Vec::with_capacity(staggers.len());
+        // Rows already gone, and all inside them: seen, not touched.
+        let mut inert: Vec<bool> = Vec::with_capacity(staggers.len());
         for ((el, id, parent), rect) in all.into_iter().zip(rects) {
             let fresh = !self.states.contains_key(&id);
             let clip = parent.and_then(|parent| clips[parent]);
@@ -505,6 +576,8 @@ impl<M: Clone> Tree<M> {
             });
             seen.insert(id);
             let state = self.states.entry(id).or_default();
+            let gone = state.ghost || parent.is_some_and(|parent| inert[parent]);
+            inert.push(gone);
             if el.glide {
                 // Placed the first time; from there on, it glides.
                 let placed = state.placed;
@@ -551,8 +624,8 @@ impl<M: Clone> Tree<M> {
                 rect,
                 role: kinds::role(&el.kind),
                 parent,
-                interactive: kinds::interactive(&el.kind),
-                focusable: kinds::focusable(&el.kind),
+                interactive: kinds::interactive(&el.kind) && !gone,
+                focusable: kinds::focusable(&el.kind) && !gone,
                 clip,
             });
         }
@@ -610,6 +683,8 @@ impl<M: Clone> Tree<M> {
             Input::PointerLeave => self.pointer = None,
             _ => {}
         }
+        // A scrollbar the pointer came to, or left, shows so from now.
+        redraw |= self.bar_aim(crate::app::monotonic());
         // An open menu takes all input; the release of the press that
         // closed one is swallowed.
         let theme = self.theme.clone();
@@ -1054,28 +1129,32 @@ impl<M: Clone> Tree<M> {
         let outer = frame.current_clip();
         let mut clip = outer;
         let mut popups = Vec::new();
-        // How far each element has come in: its own way, times its parent's.
+        // How far each element has come in, its own way times its parent's:
+        // as far as it has risen to its place.
         let base_alpha = frame.current_alpha();
         let base_offset = frame.offset();
-        let mut shown: Vec<f32> = Vec::with_capacity(self.nodes.len());
-        // What each passes on to what it holds: as much as it shows, less
-        // and more again while a press waits on the system, its icon and
-        // words pulsing.
+        let mut risen: Vec<f32> = Vec::with_capacity(self.nodes.len());
+        // What each passes on to what it holds: as much as it shows, a row
+        // coming in or fading away less, and less and more again while a
+        // press waits on the system, its icon and words pulsing.
         let mut passed: Vec<f32> = Vec::with_capacity(self.nodes.len());
         for ((el, id, _), node) in all.iter().zip(&self.nodes) {
             let Some(state) = self.states.get(id) else { continue };
             let focused = state.focus.value > 0.0;
             let laid = self.paragraphs.get(id).map_or(&[][..], Vec::as_slice);
-            let here = state.appear.value.clamp(0.0, 1.0) * node.parent.map_or(1.0, |parent| passed[parent]);
-            shown.push(here);
+            let came = state.appear.value.clamp(0.0, 1.0) * node.parent.map_or(1.0, |parent| risen[parent]);
+            risen.push(came);
+            let here = state.appear.value.clamp(0.0, 1.0)
+                * state.fade.clamp(0.0, 1.0)
+                * node.parent.map_or(1.0, |parent| passed[parent]);
             let pulse = match &el.kind {
                 Kind::Press(press) if press.pending => 0.65 + 0.35 * (state.phase * std::f32::consts::TAU * 1.2).cos(),
                 _ => 1.0,
             };
             passed.push(here * pulse);
-            if here < 1.0 {
+            if here < 1.0 || came < 1.0 {
                 frame.alpha(base_alpha * here);
-                frame.set_offset(base_offset.0, base_offset.1 + (1.0 - here) * 14.0);
+                frame.set_offset(base_offset.0, base_offset.1 + (1.0 - came) * 14.0);
             } else {
                 frame.alpha(base_alpha);
                 frame.set_offset(base_offset.0, base_offset.1);

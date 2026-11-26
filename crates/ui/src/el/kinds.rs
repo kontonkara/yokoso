@@ -644,15 +644,14 @@ fn paint_list<M>(
         frame.fill(row_rect(row), radius, colors.on_surface.alpha(state::HOVER));
     }
     // A thin bar in its lane at the right, where there is more than fits:
-    // plainer while the pointer is on the list, plainest held.
+    // faint at rest, plainer on a list pointed at or scrolled, plainest and
+    // wider held or with the pointer in its lane.
     if list.bar {
         let thumb = super::thumb(rect, list.scroll, state.max_scroll);
-        let shown = if state.grab.is_some() {
-            0.9
-        } else {
-            0.35 + 0.35 * state.hover.value
-        };
-        frame.fill(thumb, 2.0, colors.on_surface_variant.alpha(shown));
+        let width = thumb.w * (1.0 + state.bar_wide.value.clamp(0.0, 1.0));
+        let thumb = Rect::new(thumb.x + (thumb.w - width) / 2.0, thumb.y, width, thumb.h);
+        let shown = state.bar_shown.value.clamp(0.0, 1.0);
+        frame.fill(thumb, width / 2.0, colors.on_surface_variant.alpha(shown));
     }
     if let Some(paragraph) = paragraph {
         let x = rect.x + (rect.w - paragraph.width()) / 2.0;

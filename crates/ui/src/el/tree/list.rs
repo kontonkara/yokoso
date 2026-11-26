@@ -4,12 +4,12 @@
 
 use std::collections::HashMap;
 
-use super::{Id, ROOT, State, Tree, mix};
+use super::{Id, ROOT, RowMotion, State, Tree, mix};
 use crate::{
     el::{BAR_LANE, El, Kind, ListEl, Size, thumb},
     geometry::Rect,
     input::{Keysym, Scroll, ScrollSource},
-    motion::Part,
+    motion::{Part, Spring},
     theme::Theme,
 };
 
@@ -19,40 +19,222 @@ const ROWS_A_NOTCH: f32 = 3.0;
 const FLING_DECAY: f32 = 3.0;
 /// Below this speed, pixels a second, a fling stops.
 const FLING_STOP: f32 = 30.0;
+/// Scrolled, a list's scrollbar stays plainer this long, seconds.
+const BAR_HOLD: f64 = 0.9;
+
+/// What expanding the lists takes: where each element was last laid out,
+/// what each keeps, the rows each list had built before the description
+/// was new, and whether it is new.
+pub(super) struct Expand<'a, M> {
+    pub rects: &'a HashMap<Id, Rect>,
+    pub states: &'a mut HashMap<Id, State>,
+    pub spare: &'a mut HashMap<Id, Vec<(u64, El<M>)>>,
+    pub described: bool,
+}
 
 /// Before layout: every list's children become the rows in view, from where
-/// it is scrolled, in the rect it had last time.
-pub(super) fn expand<M>(el: &mut El<M>, id: Id, rects: &HashMap<Id, Rect>, states: &mut HashMap<Id, State>) {
+/// it is scrolled, in the rect it had last time; a keyed list's rows on
+/// their way where they show now, and those gone that still fade.
+pub(super) fn expand<M>(el: &mut El<M>, id: Id, cx: &mut Expand<'_, M>) {
     if let Kind::List(list) = &mut el.kind {
-        let rect = rects.get(&id).copied();
-        let state = states.entry(id).or_default();
+        // The rows it had: as the description before had them, when it is
+        // new; else as they were built last time.
+        let before: Vec<(u64, El<M>)> = if cx.described {
+            cx.spare.remove(&id).unwrap_or_default()
+        } else {
+            let keys = std::mem::take(&mut list.shown_keys);
+            keys.into_iter().zip(std::mem::take(&mut el.children)).collect()
+        };
+        let rect = cx.rects.get(&id).copied();
         let height = rect.map_or(600.0, |rect| rect.h);
+        let row_height = list.row_height.max(1.0);
+        let state = cx.states.entry(id).or_default();
         state.max_scroll = (list.len as f32 * list.row_height - height).max(0.0);
-        let scroll = state.scroll.value.clamp(0.0, state.max_scroll);
-        if scroll != state.scroll.value {
-            state.scroll.snap(scroll);
+        let keys = list.keys.clone();
+        if let Some(keys) = &keys
+            && cx.described
+        {
+            reorder(state, keys.as_ref(), list.len, row_height, &before);
+        }
+        // Past its end as its rows close up, a keyed list goes back on its
+        // spring with them; else it is put back at once.
+        let max = state.max_scroll;
+        let gliding = keys.is_some() && (!state.rows.is_empty() || state.scroll.is_moving());
+        if gliding && !state.flinging && state.grab.is_none() {
+            if state.scroll.target > max {
+                state.scroll.to(max);
+            }
+        } else if state.scroll.value != state.scroll.value.clamp(0.0, max) {
+            state.scroll.snap(state.scroll.value.clamp(0.0, max));
             state.fling = 0.0;
         }
-        let row_height = list.row_height.max(1.0);
+        let scroll = state.scroll.value.max(0.0);
         let first = (scroll / row_height).floor() as usize;
         let count = (height / row_height).ceil() as usize + 1;
         let last = (first + count).min(list.len);
+        let in_view = |y: f32| y + row_height > scroll && y < scroll + height;
+        let mut shown: Vec<usize> = (first..last).collect();
+        // Rows on their way that show now, though their place is out of view.
+        shown.extend(
+            state
+                .rows
+                .values()
+                .filter(|row| {
+                    !row.ghost && row.at < list.len && !(first..last).contains(&row.at) && in_view(row.y.value)
+                })
+                .map(|row| row.at),
+        );
+        shown.sort_unstable();
+        shown.dedup();
         list.first = first;
         list.scroll = scroll;
-        list.bar = state.max_scroll > 0.0;
-        let row = list.row.clone();
-        el.children = (first..last)
-            .map(|at| {
-                row(at)
-                    .key(("row", at))
-                    .width(Size::Fill(1.0))
-                    .height(Size::Fixed(row_height))
-            })
-            .collect();
+        list.bar = max > 0.0;
+        let mut children = Vec::new();
+        let mut places = Vec::new();
+        let mut shown_keys = Vec::new();
+        // Each row's place, how much of it shows, and whether it is gone.
+        let mut looks = Vec::new();
+        // Rows gone, first, under the rest, as long as they fade.
+        for (key, row) in before {
+            if let Some(motion) = state.rows.get(&key).filter(|motion| motion.ghost) {
+                places.push(motion.y.value);
+                looks.push((motion.shown.value, true));
+                shown_keys.push(key);
+                children.push(row);
+            }
+        }
+        list.ghosts = children.len();
+        let build = list.row.clone();
+        for at in shown {
+            let key = keys.as_ref().map_or(at as u64, |keys| keys(at));
+            let motion = state.rows.get(&key).filter(|motion| !motion.ghost);
+            places.push(motion.map_or(at as f32 * row_height, |motion| motion.y.value));
+            looks.push((motion.map_or(1.0, |motion| motion.shown.value), false));
+            shown_keys.push(key);
+            let row = build(at);
+            let row = if keys.is_some() {
+                row.key(("row", key))
+            } else {
+                row.key(("row", at))
+            };
+            children.push(row.width(Size::Fill(1.0)).height(Size::Fixed(row_height)));
+        }
+        list.places = places;
+        list.shown_keys = shown_keys;
+        el.children = children;
+        for (child, (fade, ghost)) in el.children.iter().zip(looks) {
+            let row = cx.states.entry(mix(id, child.key.unwrap_or_default())).or_default();
+            row.fade = fade;
+            row.ghost = ghost;
+        }
     }
     for (index, child) in el.children.iter_mut().enumerate() {
         let name = child.key.unwrap_or(index as u64 ^ 0x5bd1_e995);
-        expand(child, mix(id, name), rects, states);
+        expand(child, mix(id, name), cx);
+    }
+}
+
+/// A keyed list described anew with `len` rows: what moved glides to its
+/// place, what is new comes out from under the row above it that was
+/// there, and what is gone, where it showed among `before`, fades away
+/// under the row above it that stays.
+fn reorder<M>(state: &mut State, keys: &dyn Fn(usize) -> u64, len: usize, row_height: f32, before: &[(u64, El<M>)]) {
+    let new: Vec<u64> = (0..len).map(keys).collect();
+    if !state.keyed {
+        // Described the first time: all is where it is.
+        state.keyed = true;
+        state.keys = new;
+        return;
+    }
+    if new == state.keys {
+        return;
+    }
+    let old = std::mem::replace(&mut state.keys, new.clone());
+    let old_at: HashMap<u64, usize> = old.iter().enumerate().map(|(at, key)| (*key, at)).collect();
+    let new_at: HashMap<u64, usize> = new.iter().enumerate().map(|(at, key)| (*key, at)).collect();
+    let rows = &mut state.rows;
+    // Where a row that was there shows now.
+    let now = |rows: &HashMap<u64, RowMotion>, key: &u64| {
+        rows.get(key)
+            .map(|row| row.y.value)
+            .or_else(|| old_at.get(key).map(|at| *at as f32 * row_height))
+    };
+    for (at, key) in old.iter().enumerate() {
+        if new_at.contains_key(key) {
+            continue;
+        }
+        if !before.iter().any(|(had, _)| had == key) {
+            rows.remove(key);
+            continue;
+        }
+        let from = now(rows, key).unwrap_or(at as f32 * row_height);
+        let to = old[..at]
+            .iter()
+            .rev()
+            .find_map(|above| new_at.get(above))
+            .map_or(from, |above| *above as f32 * row_height);
+        let row = rows.entry(*key).or_insert(RowMotion {
+            y: Spring::pixels(from),
+            shown: Spring::new(1.0),
+            at,
+            ghost: true,
+        });
+        row.ghost = true;
+        row.y.to(to);
+        row.shown.to(0.0);
+    }
+    for (at, key) in new.iter().enumerate() {
+        let to = at as f32 * row_height;
+        if let Some(row) = rows.get_mut(key) {
+            row.ghost = false;
+            row.at = at;
+            row.y.to(to);
+            row.shown.to(1.0);
+        } else if let Some(was) = old_at.get(key) {
+            if *was != at {
+                let mut y = Spring::pixels(*was as f32 * row_height);
+                y.to(to);
+                rows.insert(
+                    *key,
+                    RowMotion {
+                        y,
+                        shown: Spring::new(1.0),
+                        at,
+                        ghost: false,
+                    },
+                );
+            }
+        } else {
+            let from = new[..at]
+                .iter()
+                .rev()
+                .find_map(|above| old_at.contains_key(above).then(|| now(rows, above)).flatten())
+                .unwrap_or(to);
+            let mut y = Spring::pixels(from);
+            y.to(to);
+            let mut shown = Spring::new(0.0);
+            shown.to(1.0);
+            rows.insert(
+                *key,
+                RowMotion {
+                    y,
+                    shown,
+                    at,
+                    ghost: false,
+                },
+            );
+        }
+    }
+}
+
+/// How far a list in `rect`, scrolled `scroll` of `max`, scrolls for its
+/// thumb, held `grab` down from its top, to be at `y`.
+fn bar_scroll(rect: Rect, scroll: f32, max: f32, grab: f32, y: f32) -> f32 {
+    let room = rect.h - thumb(rect, scroll, max).h;
+    if room > 0.0 {
+        ((y - grab - rect.y) / room).clamp(0.0, 1.0) * max
+    } else {
+        0.0
     }
 }
 
@@ -70,8 +252,16 @@ impl<M: Clone> Tree<M> {
     pub(super) fn expand_lists(&mut self) {
         let rects: HashMap<Id, Rect> = self.nodes.iter().map(|node| (node.id, node.rect)).collect();
         if let Some(el) = &mut self.el {
-            expand(el, ROOT, &rects, &mut self.states);
+            let mut cx = Expand {
+                rects: &rects,
+                states: &mut self.states,
+                spare: &mut self.spare,
+                described: self.described,
+            };
+            expand(el, ROOT, &mut cx);
         }
+        self.described = false;
+        self.spare.clear();
     }
 
     /// The list `id`, and the rect it is in.
@@ -112,8 +302,8 @@ impl<M: Clone> Tree<M> {
     }
 
     /// A press on the list `id` at `x`, `y`: in its scrollbar's lane, the
-    /// thumb taken where it is pressed, or brought there by its middle. True
-    /// when it was in the lane.
+    /// thumb taken where it is pressed; or brought there by its middle, the
+    /// list gliding to it. True when it was in the lane.
     pub(super) fn bar_press(&mut self, id: Id, x: f32, y: f32) -> bool {
         let Some((list, rect)) = self.list(id) else {
             return false;
@@ -127,8 +317,14 @@ impl<M: Clone> Tree<M> {
         };
         let at = thumb(rect, scroll, state.max_scroll);
         let on = y >= at.y && y < at.bottom();
-        state.grab = Some(if on { y - at.y } else { at.h / 2.0 });
-        self.bar_drag(id, y);
+        let grab = if on { y - at.y } else { at.h / 2.0 };
+        state.grab = Some(grab);
+        state.fling = 0.0;
+        state.flinging = false;
+        state.bar_at = crate::app::monotonic();
+        if !on {
+            state.scroll.to(bar_scroll(rect, scroll, state.max_scroll, grab, y));
+        }
         true
     }
 
@@ -145,16 +341,10 @@ impl<M: Clone> Tree<M> {
         let Some(grab) = state.grab else {
             return false;
         };
-        let max = state.max_scroll;
-        let room = rect.h - thumb(rect, scroll, max).h;
-        let to = if room > 0.0 {
-            ((y - grab - rect.y) / room).clamp(0.0, 1.0) * max
-        } else {
-            0.0
-        };
         state.fling = 0.0;
         state.flinging = false;
-        state.scroll.snap(to);
+        state.bar_at = crate::app::monotonic();
+        state.scroll.snap(bar_scroll(rect, scroll, state.max_scroll, grab, y));
         true
     }
 
@@ -178,6 +368,7 @@ impl<M: Clone> Tree<M> {
         let Some(state) = self.states.get_mut(&id) else {
             return false;
         };
+        state.bar_at = crate::app::monotonic();
         let max = state.max_scroll;
         let before = state.scroll.value;
         match scroll.source {
@@ -254,14 +445,18 @@ impl<M: Clone> Tree<M> {
         message
     }
 
-    /// Every list's scroll moved `dt` seconds on: its spring, and its fling.
-    /// True while one still moves; marks the tree for layout when one did.
-    pub(super) fn update_lists(&mut self, dt: f32, theme: &Theme) -> bool {
+    /// Every list's scroll moved `dt` seconds on: its spring, and its fling;
+    /// its rows on their way, and its scrollbar. True while one still moves;
+    /// marks the tree for layout when one did.
+    pub(super) fn update_lists(&mut self, dt: f32, now: f64, theme: &Theme) -> bool {
         // Scrolled, a list comes to where it was sent and no further: a
-        // bounce there reads as the content wobbling.
+        // bounce there reads as the content wobbling. Its rows glide the
+        // same way, and fade on the small things' spring.
         let mut feel = theme.motion.feel(Part::Lists);
         feel.params.damping = feel.params.damping.max(1.0);
-        let mut moving = false;
+        let mut fade = theme.motion.feel(Part::Micro);
+        fade.params.damping = fade.params.damping.max(1.0);
+        let mut moving = self.bar_aim(now);
         let mut moved = false;
         for state in self.states.values_mut() {
             let before = state.scroll.value;
@@ -277,11 +472,63 @@ impl<M: Clone> Tree<M> {
                 moving |= state.flinging;
             }
             moving |= state.scroll.step(dt, &feel);
-            moved |= state.scroll.value != before;
+            if state.scroll.value != before {
+                moved = true;
+                state.bar_at = now;
+            }
+            if !state.rows.is_empty() {
+                for row in state.rows.values_mut() {
+                    row.y.step(dt, &feel);
+                    row.shown.step(dt, &fade);
+                }
+                // At rest, a row is where it is; gone, it is gone.
+                state.rows.retain(|_, row| row.y.is_moving() || row.shown.is_moving());
+                moving |= !state.rows.is_empty();
+                moved = true;
+            }
+            moving |= state.bar_shown.step(dt, &fade);
+            moving |= state.bar_wide.step(dt, &fade);
         }
         if moved {
             self.stale = true;
         }
+        moving
+    }
+
+    /// Each list's scrollbar aimed: widest and plainest held or with the
+    /// pointer in its lane, plainer on a list pointed at or just scrolled,
+    /// faint else. True when one is to move.
+    pub(super) fn bar_aim(&mut self, now: f64) -> bool {
+        let mut moving = false;
+        let mut soonest: Option<f64> = None;
+        for node in self.nodes.iter().filter(|node| node.role == super::Role::List) {
+            let Some(state) = self.states.get_mut(&node.id) else {
+                continue;
+            };
+            let over = self.pointer.filter(|(x, y)| node.rect.contains(*x, *y));
+            let in_lane = over.is_some_and(|(x, _)| x >= node.rect.right() - BAR_LANE);
+            let wide = state.grab.is_some() || in_lane;
+            let lately = now - state.bar_at < BAR_HOLD;
+            if lately {
+                let due = state.bar_at + BAR_HOLD - now;
+                soonest = Some(soonest.map_or(due, |soonest| soonest.min(due)));
+            }
+            let shown = if wide {
+                0.9
+            } else if over.is_some() || lately {
+                0.6
+            } else {
+                super::BAR_REST
+            };
+            let wide = if wide { 1.0 } else { 0.0 };
+            if state.bar_shown.target != shown || state.bar_wide.target != wide {
+                state.bar_shown.to(shown);
+                state.bar_wide.to(wide);
+            }
+            moving |= state.bar_shown.is_moving() || state.bar_wide.is_moving();
+        }
+        // Just scrolled, a bar fades once it has rested a while: a frame then.
+        self.bar_wake = soonest.map(|due| std::time::Duration::from_secs_f64(due.max(0.0) + 0.01));
         moving
     }
 }
@@ -434,7 +681,8 @@ mod tests {
             y: 98.0,
         });
         assert!(done.messages.is_empty(), "letting go is no click");
-        // A press low in the lane brings the thumb there: the end.
+        // A press low in the lane brings the thumb there, the end, the list
+        // gliding there rather than jumping.
         lay(&mut tree);
         tree.input(&Input::PointerMove { x: 295.0, y: 195.0 });
         tree.input(&Input::Press {
@@ -442,7 +690,146 @@ mod tests {
             x: 295.0,
             y: 195.0,
         });
+        let state = tree.state(list).unwrap();
+        assert_eq!((state.scroll.value, state.scroll.target), (900.0, 1800.0));
+        tree.update(1.0 / 60.0, 0.0, &Theme::default());
+        let partway = tree.state(list).unwrap().scroll.value;
+        assert!(partway > 900.0 && partway < 1800.0, "on its way: {partway}");
+        while tree.update(1.0 / 60.0, 0.0, &Theme::default()) {}
         assert_eq!(tree.state(list).unwrap().scroll.value, 1800.0);
+    }
+
+    #[test]
+    fn the_scrollbar_is_faint_at_rest_plainer_pointed_at_and_wide_in_its_lane() {
+        let mut tree = tree(None);
+        let list = tree.nodes()[1].id;
+        let settle = |tree: &mut Tree<Msg>| while tree.update(1.0 / 60.0, f64::MAX, &Theme::default()) {};
+        let bar = |tree: &Tree<Msg>| {
+            let state = tree.state(list).unwrap();
+            (state.bar_shown.value, state.bar_wide.value)
+        };
+        settle(&mut tree);
+        assert_eq!(bar(&tree), (super::super::BAR_REST, 0.0));
+        tree.input(&Input::PointerMove { x: 100.0, y: 50.0 });
+        settle(&mut tree);
+        assert_eq!(bar(&tree), (0.6, 0.0));
+        tree.input(&Input::PointerMove { x: 295.0, y: 50.0 });
+        settle(&mut tree);
+        assert_eq!(bar(&tree), (0.9, 1.0));
+        tree.input(&Input::PointerLeave);
+        settle(&mut tree);
+        assert_eq!(bar(&tree), (super::super::BAR_REST, 0.0));
+    }
+
+    /// Rows of a keyed list, by name, in a list 200 high: each a button.
+    fn named(names: &[&'static str]) -> El<Msg> {
+        let names = names.to_vec();
+        let keys = names.clone();
+        El::column(
+            0.0,
+            vec![
+                El::list(names.len(), 20.0, move |at| {
+                    El::press(
+                        0.0,
+                        vec![El::text(names[at], crate::el::Type::Body)],
+                        Some(Msg::Open(at)),
+                    )
+                })
+                .keyed(move |at| {
+                    use std::hash::{Hash, Hasher};
+                    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                    keys[at].hash(&mut hasher);
+                    hasher.finish()
+                })
+                .height(Size::Fixed(200.0)),
+            ],
+        )
+    }
+
+    /// Each row shown now: its name, where it is, how much of it shows, and
+    /// whether it takes the pointer.
+    fn rows(tree: &Tree<Msg>) -> Vec<(String, f32, f32, bool)> {
+        let el = tree.el.as_ref().unwrap();
+        let list = &el.children[0];
+        let base = tree.nodes()[1].id;
+        list.children
+            .iter()
+            .map(|row| {
+                let name = match &row.children[0].kind {
+                    crate::el::Kind::Text(text) => text.text.clone(),
+                    _ => String::new(),
+                };
+                let id = super::mix(base, row.key.unwrap());
+                let node = tree.nodes().iter().find(|node| node.id == id).unwrap();
+                (name, node.rect.y, tree.state(id).unwrap().fade, node.interactive)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_row_gone_fades_away_under_the_one_above_and_those_below_close_up() {
+        let mut tree = Tree::default();
+        tree.set(named(&["a", "b", "c", "d"]));
+        lay(&mut tree);
+        tree.set(named(&["a", "c", "d"]));
+        lay(&mut tree);
+        // At first all is where it was: b still there, fading, untouchable.
+        let first = rows(&tree);
+        assert_eq!(first[0].0, "b");
+        assert_eq!((first[0].1, first[0].2, first[0].3), (20.0, 1.0, false));
+        let at: Vec<(&str, f32)> = first[1..].iter().map(|row| (row.0.as_str(), row.1)).collect();
+        assert_eq!(at, vec![("a", 0.0), ("c", 40.0), ("d", 60.0)]);
+        // On its way: b fades going under a; c and d come up.
+        tree.update(1.0 / 30.0, 0.0, &Theme::default());
+        lay(&mut tree);
+        let partway = rows(&tree);
+        let b = &partway[0];
+        assert!(b.1 < 20.0 && b.2 < 1.0, "b goes under a, fading: {b:?}");
+        let c = &partway[2];
+        assert!(c.1 > 20.0 && c.1 < 40.0, "c comes up: {c:?}");
+        while tree.update(1.0 / 60.0, 0.0, &Theme::default()) {}
+        lay(&mut tree);
+        let done: Vec<(String, f32, f32, bool)> = rows(&tree);
+        assert_eq!(
+            done,
+            vec![
+                ("a".into(), 0.0, 1.0, true),
+                ("c".into(), 20.0, 1.0, true),
+                ("d".into(), 40.0, 1.0, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn new_rows_come_out_from_under_the_row_above() {
+        let mut tree = Tree::default();
+        tree.set(named(&["head", "next"]));
+        lay(&mut tree);
+        tree.set(named(&["head", "one", "two", "next"]));
+        lay(&mut tree);
+        // They start under the head, unseen, and next where it was.
+        let first: Vec<(String, f32, f32)> = rows(&tree).into_iter().map(|row| (row.0, row.1, row.2)).collect();
+        assert_eq!(
+            first,
+            vec![
+                ("head".into(), 0.0, 1.0),
+                ("one".into(), 0.0, 0.0),
+                ("two".into(), 0.0, 0.0),
+                ("next".into(), 20.0, 1.0),
+            ]
+        );
+        while tree.update(1.0 / 60.0, 0.0, &Theme::default()) {}
+        lay(&mut tree);
+        let done: Vec<(String, f32, f32)> = rows(&tree).into_iter().map(|row| (row.0, row.1, row.2)).collect();
+        assert_eq!(
+            done,
+            vec![
+                ("head".into(), 0.0, 1.0),
+                ("one".into(), 20.0, 1.0),
+                ("two".into(), 40.0, 1.0),
+                ("next".into(), 60.0, 1.0),
+            ]
+        );
     }
 
     #[test]
