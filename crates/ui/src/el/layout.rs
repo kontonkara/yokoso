@@ -99,10 +99,16 @@ fn place<M>(el: &El<M>, rect: Rect, measure: &mut impl Measure<M>, out: &mut Vec
         Kind::Card { gap, .. } => line(el, inner, *gap, Align::Stretch, false, measure, out),
         Kind::List(list) => {
             // Its children are the rows in view, from the first: each at its
-            // place down the whole list, less how far it is scrolled.
+            // place down the whole list, less how far it is scrolled; clear
+            // of the scrollbar's lane, where it has one.
+            let width = if list.bar {
+                (inner.w - super::BAR_LANE).max(0.0)
+            } else {
+                inner.w
+            };
             for (at, child) in el.children.iter().enumerate() {
                 let y = inner.y + (list.first + at) as f32 * list.row_height - list.scroll;
-                place(child, Rect::new(inner.x, y, inner.w, list.row_height), measure, out);
+                place(child, Rect::new(inner.x, y, width, list.row_height), measure, out);
             }
         }
         Kind::Stack | Kind::Tooltip { .. } => {

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use super::{Id, ROOT, State, Tree, mix};
 use crate::{
-    el::{El, Kind, ListEl, Size},
+    el::{BAR_LANE, El, Kind, ListEl, Size, thumb},
     geometry::Rect,
     input::{Keysym, Scroll, ScrollSource},
     motion::Part,
@@ -39,6 +39,7 @@ pub(super) fn expand<M>(el: &mut El<M>, id: Id, rects: &HashMap<Id, Rect>, state
         let last = (first + count).min(list.len);
         list.first = first;
         list.scroll = scroll;
+        list.bar = state.max_scroll > 0.0;
         let row = list.row.clone();
         el.children = (first..last)
             .map(|at| {
@@ -108,6 +109,58 @@ impl<M: Clone> Tree<M> {
             }
             at = self.nodes[at].parent?;
         }
+    }
+
+    /// A press on the list `id` at `x`, `y`: in its scrollbar's lane, the
+    /// thumb taken where it is pressed, or brought there by its middle. True
+    /// when it was in the lane.
+    pub(super) fn bar_press(&mut self, id: Id, x: f32, y: f32) -> bool {
+        let Some((list, rect)) = self.list(id) else {
+            return false;
+        };
+        if !list.bar || x < rect.right() - BAR_LANE {
+            return false;
+        }
+        let scroll = list.scroll;
+        let Some(state) = self.states.get_mut(&id) else {
+            return false;
+        };
+        let at = thumb(rect, scroll, state.max_scroll);
+        let on = y >= at.y && y < at.bottom();
+        state.grab = Some(if on { y - at.y } else { at.h / 2.0 });
+        self.bar_drag(id, y);
+        true
+    }
+
+    /// The pointer at `y` while the list `id`'s thumb is held: the list
+    /// scrolled for the thumb to be there. True when it is held.
+    pub(super) fn bar_drag(&mut self, id: Id, y: f32) -> bool {
+        let Some((list, rect)) = self.list(id) else {
+            return false;
+        };
+        let scroll = list.scroll;
+        let Some(state) = self.states.get_mut(&id) else {
+            return false;
+        };
+        let Some(grab) = state.grab else {
+            return false;
+        };
+        let max = state.max_scroll;
+        let room = rect.h - thumb(rect, scroll, max).h;
+        let to = if room > 0.0 {
+            ((y - grab - rect.y) / room).clamp(0.0, 1.0) * max
+        } else {
+            0.0
+        };
+        state.fling = 0.0;
+        state.flinging = false;
+        state.scroll.snap(to);
+        true
+    }
+
+    /// The list `id`'s thumb let go. True when it was held.
+    pub(super) fn bar_release(&mut self, id: Id) -> bool {
+        self.states.get_mut(&id).and_then(|state| state.grab.take()).is_some()
     }
 
     /// A click on the list `id` at `y`: the row there is chosen.
@@ -236,7 +289,7 @@ impl<M: Clone> Tree<M> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        el::{El, Size, tree::Tree},
+        el::{BAR_LANE, El, Size, tree::Tree},
         geometry::Rect,
         input::{Input, Key, KeyState, Keysym, Mods, Scroll, ScrollSource},
         theme::Theme,
@@ -344,6 +397,52 @@ mod tests {
             "the wheel lost under a new row"
         );
         assert_eq!(tree.state(list).unwrap().scroll.target, 120.0);
+    }
+
+    #[test]
+    fn the_scrollbar_has_a_lane_of_its_own_and_its_thumb_drags_the_list() {
+        let mut tree = Tree::default();
+        tree.set(El::column(
+            0.0,
+            vec![
+                El::list(100, 20.0, |at| {
+                    El::press(
+                        0.0,
+                        vec![El::text(format!("row {at}"), crate::el::Type::Body)],
+                        Some(Msg::Open(at)),
+                    )
+                })
+                .height(Size::Fixed(200.0)),
+            ],
+        ));
+        lay(&mut tree);
+        assert_eq!(tree.nodes()[2].rect.w, 300.0 - BAR_LANE, "the rows clear of the lane");
+        let list = tree.nodes()[1].id;
+        // The thumb, 24 high at the top, taken 10 down and moved to 98: half
+        // of the way it can go, half of the 1800 the list can scroll.
+        tree.input(&Input::PointerMove { x: 295.0, y: 10.0 });
+        tree.input(&Input::Press {
+            button: 0x110,
+            x: 295.0,
+            y: 10.0,
+        });
+        tree.input(&Input::PointerMove { x: 250.0, y: 98.0 });
+        assert_eq!(tree.state(list).unwrap().scroll.value, 900.0);
+        let done = tree.input(&Input::Release {
+            button: 0x110,
+            x: 250.0,
+            y: 98.0,
+        });
+        assert!(done.messages.is_empty(), "letting go is no click");
+        // A press low in the lane brings the thumb there: the end.
+        lay(&mut tree);
+        tree.input(&Input::PointerMove { x: 295.0, y: 195.0 });
+        tree.input(&Input::Press {
+            button: 0x110,
+            x: 295.0,
+            y: 195.0,
+        });
+        assert_eq!(tree.state(list).unwrap().scroll.value, 1800.0);
     }
 
     #[test]

@@ -628,11 +628,12 @@ fn paint_list<M>(
     // Its highlights and bar stay inside it, as its rows do.
     let outer = frame.clip_within(rect);
     let radius = theme.sizes.radius_inner * 2.0;
+    let lane = if list.bar { super::BAR_LANE } else { 0.0 };
     let row_rect = |row: usize| {
         Rect::new(
             rect.x,
             rect.y + row as f32 * list.row_height - list.scroll,
-            rect.w,
+            (rect.w - lane).max(0.0),
             list.row_height,
         )
     };
@@ -642,17 +643,16 @@ fn paint_list<M>(
     if let Some(row) = state.hover_row {
         frame.fill(row_rect(row), radius, colors.on_surface.alpha(state::HOVER));
     }
-    // A thin bar at the right, where there is more than fits.
-    if state.max_scroll > 0.0 {
-        let whole = state.max_scroll + rect.h;
-        let height = (rect.h * rect.h / whole).max(24.0);
-        let y = rect.y + (rect.h - height) * (list.scroll / state.max_scroll).clamp(0.0, 1.0);
-        let shown = 0.35 + 0.35 * state.hover.value;
-        frame.fill(
-            Rect::new(rect.right() - 6.0, y, 4.0, height),
-            2.0,
-            colors.on_surface_variant.alpha(shown),
-        );
+    // A thin bar in its lane at the right, where there is more than fits:
+    // plainer while the pointer is on the list, plainest held.
+    if list.bar {
+        let thumb = super::thumb(rect, list.scroll, state.max_scroll);
+        let shown = if state.grab.is_some() {
+            0.9
+        } else {
+            0.35 + 0.35 * state.hover.value
+        };
+        frame.fill(thumb, 2.0, colors.on_surface_variant.alpha(shown));
     }
     if let Some(paragraph) = paragraph {
         let x = rect.x + (rect.w - paragraph.width()) / 2.0;

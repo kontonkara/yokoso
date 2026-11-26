@@ -95,6 +95,8 @@ pub struct State {
     pub touched: f64,
     pub max_scroll: f32,
     pub hover_row: Option<usize>,
+    /// Where in its scrollbar's thumb the pointer holds it, while it drags it.
+    pub grab: Option<f32>,
     /// A field's: whether it is being edited, its cursor and selection, how
     /// far its text is scrolled, whether its caret shows, when it was last
     /// touched, its last click (when and where) and Caps Lock.
@@ -141,6 +143,7 @@ impl Default for State {
             touched: 0.0,
             max_scroll: 0.0,
             hover_row: None,
+            grab: None,
             editing: false,
             edit: super::edit::Edit::default(),
             scroll_x: 0.0,
@@ -630,6 +633,13 @@ impl<M: Clone> Tree<M> {
                         self.field_drag(id, *x);
                         redraw = true;
                     }
+                    // A list's thumb held: the list follows it.
+                    if let Some(id) = self.pressed
+                        && self.bar_drag(id, *y)
+                    {
+                        self.stale = true;
+                        redraw = true;
+                    }
                     let now = self.hit(*x, *y);
                     if let Some(id) = now {
                         redraw |= self.list_hover(id, Some(*y));
@@ -651,9 +661,7 @@ impl<M: Clone> Tree<M> {
                     self.rest_on(None);
                     redraw = true;
                 }
-                Input::Press {
-                    button: BTN_LEFT, x, ..
-                } => {
+                Input::Press { button: BTN_LEFT, x, y } => {
                     // A click focuses without a ring.
                     self.focus_visible = false;
                     self.move_focus(self.hovered);
@@ -666,6 +674,9 @@ impl<M: Clone> Tree<M> {
                         self.set_spring(Some(id), |s| s.press.to(1.0));
                         redraw = true;
                         messages.extend(self.slide_to(id, *x));
+                        if self.bar_press(id, *x, *y) {
+                            self.stale = true;
+                        }
                         if self.field(id).is_some() {
                             let shift = self.mods.shift;
                             self.field_press(id, *x, shift);
@@ -676,8 +687,10 @@ impl<M: Clone> Tree<M> {
                     if let Some(id) = self.pressed.take() {
                         self.set_spring(Some(id), |s| s.press.to(0.0));
                         redraw = true;
-                        // A click is a press and a release on the same element.
-                        if self.hit(*x, *y) == Some(id) {
+                        // A click is a press and a release on the same
+                        // element; a list's thumb let go is none.
+                        let dragged = self.bar_release(id);
+                        if !dragged && self.hit(*x, *y) == Some(id) {
                             let more = self.more_at(id, self.press_x);
                             messages.extend(self.activate(id, more));
                             messages.extend(self.list_click(id, *y));

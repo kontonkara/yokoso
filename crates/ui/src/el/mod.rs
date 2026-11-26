@@ -145,6 +145,18 @@ pub struct FieldEl<M> {
     pub on_submit: Option<M>,
 }
 
+/// A list's scrollbar lane, at its right while it has more than fits.
+pub const BAR_LANE: f32 = 12.0;
+
+/// The thumb of a scrollbar in the lane of a list in `rect`, scrolled
+/// `scroll` of `max`: as tall as the share in view, down as far as it is.
+pub fn thumb(rect: crate::geometry::Rect, scroll: f32, max: f32) -> crate::geometry::Rect {
+    let whole = max + rect.h;
+    let height = (rect.h * rect.h / whole.max(1.0)).clamp(24.0_f32.min(rect.h), rect.h);
+    let y = rect.y + (rect.h - height) * (scroll / max.max(1.0)).clamp(0.0, 1.0);
+    crate::geometry::Rect::new(rect.right() - BAR_LANE + 4.0, y, 4.0, height)
+}
+
 pub struct ListEl<M> {
     pub len: usize,
     pub row_height: f32,
@@ -158,9 +170,11 @@ pub struct ListEl<M> {
     /// What it says when it has no rows.
     pub empty: String,
     /// Set by the tree before layout: the first row among its children, and
-    /// how far it is scrolled, pixels.
+    /// how far it is scrolled, pixels, and whether it has more than fits:
+    /// a scrollbar then, in a lane of its own at the right.
     pub first: usize,
     pub scroll: f32,
+    pub bar: bool,
 }
 
 pub struct TileEl<M> {
@@ -513,6 +527,7 @@ impl<M> El<M> {
             empty: String::new(),
             first: 0,
             scroll: 0.0,
+            bar: false,
         }))
     }
 
