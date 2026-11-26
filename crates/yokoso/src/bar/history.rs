@@ -170,7 +170,11 @@ pub fn view(list: &[Notification], rows: &[Row], quiet: bool, theme: &Theme) -> 
             .collect();
         let faint = theme.colors.on_surface.alpha(0.6);
         let shown = rows.len().min(SHOWN) as f32 * ROW;
+        // Rows known by what they show: an app by its name, a notification
+        // by its id; so they glide, come in and fade as the history changes.
+        let keys: Vec<u64> = made.iter().map(RowView::key).collect();
         El::list(made.len(), ROW, move |n| made[n].el(Ink::Own(faint)))
+            .keyed(move |n| keys[n])
             .width(Size::Fill(1.0))
             .height(Size::Fixed(shown))
     };
@@ -202,6 +206,17 @@ enum RowView {
 }
 
 impl RowView {
+    /// What the row is known by in the list.
+    fn key(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        match self {
+            Self::App { app, .. } => ("app", app).hash(&mut hasher),
+            Self::Note { id, .. } => ("note", id).hash(&mut hasher),
+        }
+        hasher.finish()
+    }
+
     fn el(&self, faint: Ink) -> El<Msg> {
         let close = |message: Msg, key: String| {
             El::press(0.0, vec![El::icon("close").ink(faint)], Some(message))

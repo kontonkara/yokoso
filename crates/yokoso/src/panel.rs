@@ -34,6 +34,9 @@ pub struct Panel<M> {
     /// Where it grows from, and to.
     from: Rect,
     to: Rect,
+    /// Grown or shrunk to new content of the same kind: its content goes
+    /// with its shape's top left rather than waiting where it will be.
+    follow: bool,
     pub tree: Tree<M>,
 }
 
@@ -49,6 +52,7 @@ impl<M: Clone> Default for Panel<M> {
             content: Spring::new(0.0),
             from: Rect::default(),
             to: Rect::default(),
+            follow: false,
             tree: Tree::default(),
         }
     }
@@ -59,6 +63,7 @@ impl<M: Clone> Panel<M> {
     /// wherever it is now.
     pub fn toggle(&mut self, button: Rect, to: Rect) {
         self.open = !self.open;
+        self.follow = false;
         self.from = button;
         self.to = to;
         let from_rest = !self.shape.is_moving() && self.shape.value == 0.0;
@@ -95,6 +100,7 @@ impl<M: Clone> Panel<M> {
             self.toggle(button, to);
             return;
         }
+        self.follow = false;
         self.from = button;
         self.to = to;
         self.x.to(to.x);
@@ -103,6 +109,22 @@ impl<M: Clone> Panel<M> {
         self.h.to(to.h);
         self.tree = Tree::default();
         self.content.snap(0.0);
+    }
+
+    /// Open, it grows or shrinks to `to` on its spring, its content kept as
+    /// it is and carried with it: the same panel with more or less in it.
+    /// Closed, it opens from `button`.
+    pub fn resize(&mut self, button: Rect, to: Rect) {
+        if !self.open {
+            self.toggle(button, to);
+            return;
+        }
+        self.to = to;
+        self.x.to(to.x);
+        self.y.to(to.y);
+        self.w.to(to.w);
+        self.h.to(to.h);
+        self.follow = true;
     }
 
     /// How far the shape has grown, 0 at its button to 1 open.
@@ -151,9 +173,14 @@ impl<M: Clone> Panel<M> {
         self.shape.value > 0.0 || self.shape.is_moving()
     }
 
-    /// Where its content goes: where it will be when open.
+    /// Where its content goes: where it will be when open; or, grown to
+    /// new content, at its shape's top left as that moves.
     pub fn content_rect(&self) -> Rect {
-        self.to
+        if self.follow {
+            Rect::new(self.x.value, self.y.value, self.to.w, self.to.h)
+        } else {
+            self.to
+        }
     }
 
     /// Moves it `dt` seconds on. True while it moves.
@@ -187,7 +214,8 @@ impl<M: Clone> Panel<M> {
     }
 
     pub fn layout(&mut self, view: &View, text: &mut Text, theme: &Theme) {
-        self.tree.set_origin(self.to.x, self.to.y);
+        let at = self.content_rect();
+        self.tree.set_origin(at.x, at.y);
         let inside = View {
             width: self.to.w,
             height: self.to.h,

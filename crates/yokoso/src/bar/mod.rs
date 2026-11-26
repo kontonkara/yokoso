@@ -491,9 +491,13 @@ impl Bar {
             }
             Some(open) if open.output == output => {
                 // The same panel showing something else stays where it is;
-                // another one goes over to its own part.
+                // another one goes over to its own part. The history with
+                // more or fewer rows grows or shrinks to them, its rows
+                // kept, to glide and fade as they change.
                 if !open.shows.same(&shows) || !open.panel.open {
                     open.panel.retarget(button, to);
+                } else if matches!(shows, popup::Shows::History { .. }) {
+                    open.panel.resize(open.button, to);
                 } else {
                     open.panel.retarget(open.button, to);
                 }
