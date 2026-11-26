@@ -222,6 +222,8 @@ pub struct Tree<M> {
     /// Where its top left is laid out at: a panel's content sits where the
     /// panel will be.
     origin: (f32, f32),
+    /// Where the pointer is on it, if it is.
+    pointer: Option<(f32, f32)>,
 }
 
 impl<M> Default for Tree<M> {
@@ -248,6 +250,7 @@ impl<M> Default for Tree<M> {
             swallow_release: false,
             theme: Theme::default(),
             origin: (0.0, 0.0),
+            pointer: None,
         }
     }
 }
@@ -564,6 +567,19 @@ impl<M: Clone> Tree<M> {
         {
             self.focus = None;
         }
+        // Another element may be where the pointer rests now, as when a list
+        // scrolled under it: that one is hovered, and takes the wheel.
+        if let Some((x, y)) = self.pointer {
+            let now = self.hit(x, y);
+            if now != self.hovered {
+                self.set_spring(self.hovered, |s| s.hover.to(0.0));
+                if let Some(id) = now {
+                    self.list_hover(id, Some(y));
+                }
+                self.set_spring(now, |s| s.hover.to(1.0));
+                self.hovered = now;
+            }
+        }
     }
 
     /// The topmost element that takes the pointer at `x`, `y`.
@@ -586,6 +602,11 @@ impl<M: Clone> Tree<M> {
         let mut copy = None;
         let mut paste = false;
         let mut messages = Vec::new();
+        match input {
+            Input::PointerEnter { x, y } | Input::PointerMove { x, y } => self.pointer = Some((*x, *y)),
+            Input::PointerLeave => self.pointer = None,
+            _ => {}
+        }
         // An open menu takes all input; the release of the press that
         // closed one is swallowed.
         let theme = self.theme.clone();
@@ -689,13 +710,6 @@ impl<M: Clone> Tree<M> {
                 }
                 Input::Scroll(scroll) => {
                     if let Some(id) = self.hovered
-                        && self.list(id).is_some()
-                    {
-                        if self.list_scroll(id, scroll) {
-                            self.stale = true;
-                            redraw = true;
-                        }
-                    } else if let Some(id) = self.hovered
                         && let Some((slider, track)) = self.slider(id)
                     {
                         // Up and right is more. A wheel goes by steps, fingers by
@@ -711,6 +725,11 @@ impl<M: Clone> Tree<M> {
                         {
                             messages.push(change(value));
                         }
+                    } else if let Some(id) = self.list_under()
+                        && self.list_scroll(id, scroll)
+                    {
+                        self.stale = true;
+                        redraw = true;
                     }
                 }
                 Input::Paste(text) => {

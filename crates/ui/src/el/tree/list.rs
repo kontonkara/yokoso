@@ -97,6 +97,19 @@ impl<M: Clone> Tree<M> {
         changed
     }
 
+    /// The list the wheel scrolls: the one under the pointer, or the nearest
+    /// one the button or row under it is in.
+    pub(super) fn list_under(&self) -> Option<Id> {
+        let mut at = self.nodes.iter().position(|node| Some(node.id) == self.hovered)?;
+        loop {
+            let id = self.nodes[at].id;
+            if self.list(id).is_some() {
+                return Some(id);
+            }
+            at = self.nodes[at].parent?;
+        }
+    }
+
     /// A click on the list `id` at `y`: the row there is chosen.
     pub(super) fn list_click(&self, id: Id, y: f32) -> Option<M> {
         let (list, rect) = self.list(id)?;
@@ -291,6 +304,46 @@ mod tests {
         let list = tree.nodes()[1].id;
         assert_eq!(tree.state(list).unwrap().scroll.value, 120.0);
         assert_eq!(tree.nodes()[2].rect.y, 0.0, "row 6 at the top");
+    }
+
+    #[test]
+    fn the_wheel_on_a_button_in_a_row_scrolls_the_list() {
+        let mut tree = Tree::default();
+        tree.set(El::column(
+            0.0,
+            vec![
+                El::list(100, 20.0, |at| {
+                    El::press(
+                        0.0,
+                        vec![El::text(format!("row {at}"), crate::el::Type::Body)],
+                        Some(Msg::Open(at)),
+                    )
+                })
+                .height(Size::Fixed(200.0)),
+            ],
+        ));
+        lay(&mut tree);
+        tree.input(&Input::PointerMove { x: 10.0, y: 30.0 });
+        let wheel = Scroll {
+            steps_y: 1.0,
+            ..Default::default()
+        };
+        assert!(
+            tree.input(&Input::Scroll(wheel.clone())).redraw,
+            "the row's button keeps it"
+        );
+        let list = tree.nodes()[1].id;
+        assert_eq!(tree.state(list).unwrap().scroll.target, 60.0);
+        // The rows built anew for where it went, the pointer still: it goes on.
+        for _ in 0..240 {
+            tree.update(1.0 / 240.0, 0.0, &Theme::default());
+        }
+        lay(&mut tree);
+        assert!(
+            tree.input(&Input::Scroll(wheel)).redraw,
+            "the wheel lost under a new row"
+        );
+        assert_eq!(tree.state(list).unwrap().scroll.target, 120.0);
     }
 
     #[test]
