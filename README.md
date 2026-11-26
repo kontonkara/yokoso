@@ -70,7 +70,7 @@ on_click = []             # the middle button
 visible = 3               # toasts at once; more wait
 timeout = 5               # seconds; a low one, a critical one (0: until closed)
 timeout_low = 3
-timeout_critical = 0
+timeout_critical = 10
 over_fullscreen = true    # critical ones over full-screen windows
 history = 100
 quiet_from = ""           # "23:00": quiet from then
@@ -134,9 +134,10 @@ draws nothing.
 yokoso is the notification server (`org.freedesktop.Notifications`); with
 another one running, it waits and takes over once that one lets go. Toasts
 show at the top right of the screen in focus, below the bar: three at once,
-the rest waiting, their time still while the pointer is on them; a click is
-their default action, their buttons and a reply typed in them go to the
-app. Critical ones stay until closed and show over full-screen windows. The
+the rest waiting; while the pointer is on them, their time stands still and
+none comes in or moves from under it. A click is their default action,
+their buttons and a reply typed in them go to the app. Critical ones stay
+longer and show over full-screen windows. The
 history is kept for its owner alone in
 `$XDG_STATE_HOME/yokoso/notifications.json`, and so is quiet. Text comes as
 plain text: markup in it is taken out, and nothing in it is loaded.

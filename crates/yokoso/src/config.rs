@@ -409,7 +409,7 @@ impl Default for Notifications {
             visible: 3,
             timeout: 5.0,
             timeout_low: 3.0,
-            timeout_critical: 0.0,
+            timeout_critical: 10.0,
             over_fullscreen: true,
             history: 100,
             quiet_from: String::new(),
